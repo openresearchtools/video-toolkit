@@ -222,6 +222,17 @@ for required in [
     'CompositorNodeOutputFile',
 ]:
     assert required in sidecar_recipe_node_types, required
+from video_toolkit.addon import _tool_has_compositor_stack
+from video_toolkit.catalog import all_tools
+expected_recipe_ids = [tool.id for tool in all_tools() if _tool_has_compositor_stack(tool)]
+bpy.ops.video_toolkit.create_all_tool_compositor_nodes()
+assert scene.video_toolkit_last_compositor_nodes.startswith('all tool compositor recipes:')
+assert f'{{len(expected_recipe_ids)}} tools' in scene.video_toolkit_last_compositor_nodes
+created_recipe_ids = scene.get('video_toolkit_last_compositor_recipe_ids', '').split(',')
+assert created_recipe_ids == expected_recipe_ids
+assert 'live_pro_color_stack' in created_recipe_ids
+assert 'native_white_balance_editor' in created_recipe_ids
+assert 'native_mask_slot' not in created_recipe_ids
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',

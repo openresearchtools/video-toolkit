@@ -963,6 +963,45 @@ class VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes(Operator):
         return bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id=tool.id)
 
 
+class VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes(Operator):
+    bl_idname = "video_toolkit.create_all_tool_compositor_nodes"
+    bl_label = "Create All Tool Compositor Nodes"
+    bl_description = "Create Blender compositor node graphs for every compositor-compatible catalog color tool"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            tools = tuple(tool for tool in all_tools() if _tool_has_compositor_stack(tool))
+            if not tools:
+                raise RuntimeError("No compositor-compatible Blender color tools are available")
+            created = []
+            tool_ids = []
+            for tool in tools:
+                stack = _tool_compositor_stack(tool)
+                nodes = _create_tool_compositor_color_stack(scene, strip, tool, stack)
+                created.extend(nodes)
+                tool_ids.append(tool.id)
+            scene.video_toolkit_last_compositor_nodes = (
+                f"all tool compositor recipes: {len(tools)} tools, {len(created)} nodes"
+            )
+            scene["video_toolkit_last_compositor_recipe_ids"] = ",".join(tool_ids)
+            self.report({"INFO"}, f"Created {len(created)} Blender compositor node(s) for {len(tools)} catalog recipes")
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_apply_color_management_preset(Operator):
     bl_idname = "video_toolkit.apply_color_management_preset"
     bl_label = "Apply Blender Color Management Preset"
@@ -1064,6 +1103,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         layout.menu("VIDEO_TOOLKIT_MT_native_blender_primitives", icon="NODETREE")
         layout.menu("VIDEO_TOOLKIT_MT_blender_vse_modifiers", icon="SEQ_STRIP_DUPLICATE")
         layout.menu("VIDEO_TOOLKIT_MT_compositor_recipes", icon="NODETREE")
+        layout.operator(VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes.bl_idname, text="Create All Color Recipe Nodes", icon="NODETREE")
         op = layout.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Create Color Node Stack", icon="NODETREE")
         op.stack_type = "COLOR"
         op = layout.operator(
@@ -1415,6 +1455,11 @@ def _draw_sidecar_browser(layout, scene, strip) -> None:
     row = quick.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Deflicker", icon="IPO_EASE_IN_OUT")
     row.menu("VIDEO_TOOLKIT_MT_compositor_recipes", text="Recipe Nodes", icon="NODETREE")
+    quick.operator(
+        VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes.bl_idname,
+        text="All Recipe Nodes",
+        icon="NODETREE",
+    )
 
     if scene.video_toolkit_last_analysis:
         layout.label(text=scene.video_toolkit_last_analysis, icon="INFO")
@@ -1545,6 +1590,7 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
     op.stack_type = "RESTORATION"
     box.menu("VIDEO_TOOLKIT_MT_compositor_recipes", text="Color Recipe Nodes", icon="NODETREE")
+    box.operator(VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes.bl_idname, text="All Color Recipe Nodes", icon="NODETREE")
     op = box.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Native Node Library", icon="NODETREE")
     op.stack_type = "NODE_LIBRARY"
     if scene.video_toolkit_last_compositor_nodes:
@@ -2979,6 +3025,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_create_compositor_nodes,
     VIDEO_TOOLKIT_OT_create_tool_compositor_nodes,
     VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes,
+    VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes,
     VIDEO_TOOLKIT_OT_apply_color_management_preset,
     VIDEO_TOOLKIT_OT_apply_sampled_color_management,
     VIDEO_TOOLKIT_OT_open_output_folder,

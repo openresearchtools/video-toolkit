@@ -544,6 +544,20 @@ tool_recipe_filter_ids = [
 ]
 assert set(tool_recipe_filter_ids) == {{'live_pro_color_stack'}}, tool_recipe_filter_ids
 
+from video_toolkit.addon import _tool_has_compositor_stack
+from video_toolkit.catalog import all_tools
+expected_all_recipe_ids = [tool.id for tool in all_tools() if _tool_has_compositor_stack(tool)]
+result = bpy.ops.video_toolkit.create_all_tool_compositor_nodes()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('all tool compositor recipes:')
+assert f'{{len(expected_all_recipe_ids)}} tools' in scene.video_toolkit_last_compositor_nodes
+all_recipe_summary = scene.video_toolkit_last_compositor_nodes
+all_recipe_ids = scene.get('video_toolkit_last_compositor_recipe_ids', '').split(',')
+assert all_recipe_ids == expected_all_recipe_ids, (len(all_recipe_ids), len(expected_all_recipe_ids))
+assert 'live_pro_color_stack' in all_recipe_ids
+assert 'native_white_balance_editor' in all_recipe_ids
+assert 'native_mask_slot' not in all_recipe_ids
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR_MANAGEMENT')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('sampled color management')
@@ -882,6 +896,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'tool_recipe_summary': tool_recipe_summary,
     'tool_recipe_node_types': tool_recipe_node_types,
     'tool_recipe_filter_ids': tool_recipe_filter_ids,
+    'all_recipe_summary': all_recipe_summary,
+    'all_recipe_ids': all_recipe_ids,
+    'all_recipe_count': len(all_recipe_ids),
     'sampled_cm_compositor_summary': sampled_cm_compositor_summary,
     'sampled_cm_compositor_node_types': sampled_cm_compositor_node_types,
     'sampled_cm_compositor_exposure': sampled_cm_exposure_socket.default_value,
