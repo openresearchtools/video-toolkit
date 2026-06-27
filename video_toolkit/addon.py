@@ -47,6 +47,7 @@ APPLY_TARGET_ITEMS = (
 COMPOSITOR_STACK_ITEMS = (
     ("COLOR", "Color Node Stack", "Build a Blender compositor color node graph from the active movie strip"),
     ("SAMPLED_COLOR", "Sampled Color Node Stack", "Sample real frames and build a Blender compositor color graph from the measured footage"),
+    ("IDENTITY_COLOR", "Palette Identity Node Stack", "Identify dominant colors and build a Blender compositor palette-aware graph"),
     ("MATCHED_COLOR", "Matched Color Node Stack", "Match the active movie strip to a selected reference strip with Blender compositor nodes"),
     ("TRANSLATED_COLOR", "Translated Color Node Stack", "Translate the FFmpeg-style color chain into a Blender compositor graph"),
     ("RESTORATION", "Restoration Node Stack", "Build a Blender compositor restoration node graph from the active movie strip"),
@@ -640,6 +641,12 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
                 created = _create_sampled_compositor_color_stack(context.scene, strip, profile)
                 label = "sampled color"
                 summary = f"{profile.summary}; {_compositor_node_summary(created)}"
+            elif self.stack_type == "IDENTITY_COLOR":
+                stats = sample_video_color(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
+                stack = build_color_identity_stack(stats)
+                created = _create_identity_compositor_color_stack(context.scene, strip, stack)
+                label = "palette identity"
+                summary = f"palette compositor {summarize_stats(stats)}; {_compositor_node_summary(created)}"
             elif self.stack_type == "MATCHED_COLOR":
                 reference = _reference_movie_strip(context, strip)
                 if reference is None:
@@ -791,6 +798,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
             icon="NODETREE",
         )
         op.stack_type = "SAMPLED_COLOR"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Palette Identity Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "IDENTITY_COLOR"
         op = layout.operator(
             VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
             text="Create Matched Color Node Stack",
@@ -1014,8 +1027,11 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Sampled", icon="EYEDROPPER")
     op.stack_type = "SAMPLED_COLOR"
     row = box.row(align=True)
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Identity", icon="COLOR")
+    op.stack_type = "IDENTITY_COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Matched", icon="EYEDROPPER")
     op.stack_type = "MATCHED_COLOR"
+    row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Translated", icon="MODIFIER")
     op.stack_type = "TRANSLATED_COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
@@ -1605,6 +1621,10 @@ def _create_sampled_compositor_color_stack(scene, strip, profile):
 
 def _create_translated_compositor_color_stack(scene, strip, translation):
     return _create_compositor_nodes_from_blender_stack(scene, strip, translation.stack, "Translated")
+
+
+def _create_identity_compositor_color_stack(scene, strip, stack):
+    return _create_compositor_nodes_from_blender_stack(scene, strip, stack, "Palette Identity")
 
 
 def _create_matched_compositor_color_stack(scene, strip, stack, reference_name: str):

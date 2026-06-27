@@ -313,6 +313,23 @@ exposure_socket = next(socket for socket in sampled_exposure.inputs if socket.na
 assert abs(exposure_socket.default_value) > 0.001
 sampled_curves = next(node for node in tree.nodes if node.name == 'VTK Sampled RGB Curves')
 assert len(sampled_curves.mapping.curves[0].points) >= 5
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='IDENTITY_COLOR')
+assert scene.video_toolkit_last_compositor_nodes.startswith('palette compositor')
+assert 'palette #' in scene.video_toolkit_last_compositor_nodes
+identity_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Palette Identity ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in identity_node_types, required
+identity_curve = next(node for node in tree.nodes if node.name == 'VTK Palette Identity Curves')
+assert len(identity_curve.mapping.curves[0].points) >= 5
 for candidate in scene.sequence_editor.strips_all:
     candidate.select = False
 strip.select = True

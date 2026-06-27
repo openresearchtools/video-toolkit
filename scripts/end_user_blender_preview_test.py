@@ -489,6 +489,30 @@ assert abs(sampled_exposure_socket.default_value) > 0.001
 sampled_curve_node = next(node for node in tree.nodes if node.name == 'VTK Sampled RGB Curves')
 assert len(sampled_curve_node.mapping.curves[0].points) >= 5
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='IDENTITY_COLOR')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('palette compositor')
+assert 'palette #' in scene.video_toolkit_last_compositor_nodes
+identity_compositor_summary = scene.video_toolkit_last_compositor_nodes
+identity_compositor_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Palette Identity ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in identity_compositor_node_types, required
+identity_curve_node = next(node for node in tree.nodes if node.name == 'VTK Palette Identity Curves')
+assert len(identity_curve_node.mapping.curves[0].points) >= 5
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='MATCHED_COLOR')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('matched compositor to')
@@ -646,6 +670,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_compositor_summary': sampled_compositor_summary,
     'sampled_compositor_node_types': sampled_compositor_node_types,
     'sampled_compositor_exposure': sampled_exposure_socket.default_value,
+    'identity_compositor_summary': identity_compositor_summary,
+    'identity_compositor_node_types': identity_compositor_node_types,
     'matched_compositor_summary': matched_compositor_summary,
     'matched_compositor_node_types': matched_compositor_node_types,
     'translated_compositor_summary': translated_compositor_summary,
