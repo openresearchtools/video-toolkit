@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""Exercise the add-on like an end user inside Blender on a real MP4.
+
+The test opens real footage in the Video Sequencer, selects the movie strip,
+invokes the same Blender operators the UI buttons call, edits live Blender
+modifier values, renders before/after preview frames, and fails if the rendered
+preview pixels do not change.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+import urllib.request
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+BLENDER = Path(os.environ.get("BLENDER", ROOT / ".local" / "blender" / "blender"))
+DEFAULT_VIDEO = ROOT / "tests" / "fixtures" / "real_user_video.mp4"
+DEFAULT_OUTPUT = ROOT / "tests" / "output" / "end_user_preview"
+SAMPLE_URLS = (
+    "https://filesamples.com/samples/video/mp4/sample_640x360.mp4",
+    "https://samplelib.com/lib/preview/mp4/sample-5s.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4",
+)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--video", type=Path, default=Path(os.environ.get("VIDEO_TOOLKIT_REAL_VIDEO", DEFAULT_VIDEO)))
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
+    args = parser.parse_args(argv)
+
+    if not BLENDER.exists():
+        raise SystemExit(f"Blender not found: {BLENDER}. Run scripts/download_blender.py first.")
+    if not shutil.which("ffprobe"):
+        raise SystemExit("ffprobe is required for the end-user preview test")
+
+    video = _ensure_real_video(args.video)
+    _probe(video)
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    script = _blender_script(video, output_dir)
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as handle:
+        handle.write(script)
+        script_path = Path(handle.name)
+    try:
+        subprocess.run(
+            [str(BLENDER), "--background", "--factory-startup", "--python", str(script_path)],
+            cwd=ROOT,
+            check=True,
+        )
+    finally:
+        script_path.unlink(missing_ok=True)
+    print(output_dir / "report.json")
+    return 0
+
+
+def _ensure_real_video(path: Path) -> Path:
+    path = path.expanduser().resolve()
+    if path.exists() and path.stat().st_size > 0:
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    last_error: Exception | None = None
+    for url in SAMPLE_URLS:
+        try:
+            print(f"Downloading real MP4 sample: {url}")
+            with urllib.request.urlopen(url, timeout=45) as response, path.open("wb") as handle:
+                shutil.copyfileobj(response, handle)
+            if path.stat().st_size > 0:
+                return path
+        except Exception as exc:  # pragma: no cover - network fallback path
+            last_error = exc
+            path.unlink(missing_ok=True)
+    raise SystemExit(f"Could not download a real MP4 sample: {last_error}")
+
+
+def _probe(path: Path) -> None:
+    subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,codec_name",
+            "-of",
+            "default=nw=1",
+            str(path),
+        ],
+        check=True,
+    )
+
+
+def _blender_script(video: Path, output_dir: Path) -> str:
+    before = output_dir / "before_live_edit.png"
+    after = output_dir / "after_live_edit.png"
+    blend = output_dir / "end_user_preview.blend"
+    report = output_dir / "report.json"
+    return f"""
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, {str(ROOT)!r})
+import bpy
+import video_toolkit
+
+video_toolkit.register()
+scene = bpy.context.scene
+scene.sequence_editor_create()
+editor = scene.sequence_editor
+strip = editor.strips.new_movie(
+    name='END USER SELECTED REAL VIDEO',
+    filepath={str(video)!r},
+    channel=1,
+    frame_start=1,
+)
+for candidate in editor.strips_all:
+    candidate.select = False
+strip.select = True
+editor.active_strip = strip
+
+scene.frame_current = min(strip.frame_final_start + 24, strip.frame_final_end - 1)
+scene.frame_start = strip.frame_final_start
+scene.frame_end = strip.frame_final_end
+scene.render.use_sequencer = True
+scene.render.resolution_x = 320
+scene.render.resolution_y = 180
+scene.render.resolution_percentage = 100
+scene.render.image_settings.file_format = 'PNG'
+
+def render_preview(path):
+    scene.render.filepath = str(path)
+    bpy.ops.render.render(write_still=True)
+    image = bpy.data.images.load(str(path), check_existing=False)
+    pixels = list(image.pixels)
+    channels = len(pixels) // 4
+    stats = {{
+        'r': sum(pixels[0::4]) / channels,
+        'g': sum(pixels[1::4]) / channels,
+        'b': sum(pixels[2::4]) / channels,
+        'luma': sum(0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2] for i in range(0, len(pixels), 4)) / channels,
+        'pixels': channels,
+    }}
+    bpy.data.images.remove(image)
+    return stats
+
+before_stats = render_preview({str(before)!r})
+
+result = bpy.ops.video_toolkit.apply_filter(filter_id='auto_enhance')
+assert result == {{'FINISHED'}}, result
+assert editor.active_strip == strip
+assert strip.select
+
+edited = []
+for modifier in strip.modifiers:
+    if modifier.name.startswith('VTK Auto Enhance') and modifier.type == 'BRIGHT_CONTRAST':
+        modifier.bright = 0.08
+        modifier.contrast = 18.0
+        edited.append(modifier.name)
+    elif modifier.name.startswith('VTK Auto Enhance') and modifier.type == 'COLOR_BALANCE':
+        modifier.color_balance.gamma = (1.14, 1.10, 1.06)
+        modifier.color_balance.gain = (1.10, 1.08, 1.04)
+        modifier.color_multiply = 1.06
+        edited.append(modifier.name)
+assert edited, 'No live modifiers were edited'
+
+after_stats = render_preview({str(after)!r})
+diff = abs(after_stats['r'] - before_stats['r']) + abs(after_stats['g'] - before_stats['g']) + abs(after_stats['b'] - before_stats['b'])
+assert diff > 0.015, f'Live edit did not visibly change preview pixels: {{diff}}'
+
+result = bpy.ops.video_toolkit.apply_filter(filter_id='native_all_color_tools')
+assert result == {{'FINISHED'}}, result
+types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK ')]
+for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'TONEMAP', 'WHITE_BALANCE', 'CURVES', 'HUE_CORRECT', 'MASK']:
+    assert required in types, required
+
+bpy.ops.wm.save_as_mainfile(filepath={str(blend)!r})
+Path({str(report)!r}).write_text(json.dumps({{
+    'video': {str(video)!r},
+    'selected_strip': strip.name,
+    'before_png': {str(before)!r},
+    'after_png': {str(after)!r},
+    'before': before_stats,
+    'after': after_stats,
+    'rgb_abs_diff': diff,
+    'edited_modifiers': edited,
+    'native_modifier_types': types,
+    'blend': {str(blend)!r},
+}}, indent=2), encoding='utf-8')
+video_toolkit.unregister()
+"""
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

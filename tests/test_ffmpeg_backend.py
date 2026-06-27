@@ -61,7 +61,7 @@ def test_probe_video_reads_real_mp4(tmp_path):
 def test_build_ffmpeg_command_uses_selected_filter(tmp_path):
     source = tmp_path / "source.mp4"
     output = tmp_path / "output.mp4"
-    tool = get_tool("auto_enhance")
+    tool = get_tool("deflicker_normalize")
     command = build_ffmpeg_command(source, output, tool, crf=23, preset="veryfast")
     assert "-vf" in command
     assert tool.ffmpeg_filter in command
@@ -76,7 +76,7 @@ def test_build_vidstab_detect_command_points_to_transform_file(tmp_path):
 
 @pytest.mark.parametrize(
     "tool_id",
-    ["auto_enhance", "deflicker_normalize", "denoise_light", "deinterlace", "quick_deshake"],
+    ["deflicker_normalize", "denoise_light", "deinterlace", "quick_deshake"],
 )
 def test_process_fast_filters_on_real_mp4(tmp_path, tool_id):
     source = _make_real_mp4(tmp_path / f"{tool_id}_source.mp4", duration=0.75)

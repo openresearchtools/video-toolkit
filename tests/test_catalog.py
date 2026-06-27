@@ -13,7 +13,9 @@ def test_tool_ids_are_unique():
 
 
 def test_expected_blender_vse_modifiers_are_covered():
-    modifiers = {tool.blender_modifier for tool in blender_modifier_tools()}
+    modifiers = set()
+    for tool in blender_modifier_tools():
+        modifiers.update(tool.blender_modifiers)
     assert modifiers == {
         "BRIGHT_CONTRAST",
         "COLOR_BALANCE",
@@ -42,12 +44,38 @@ def test_professional_restoration_tools_are_present():
 
 def test_categories_keep_ui_order():
     assert categories() == (
-        "Enhance",
-        "Color & Tone",
+        "Live Blender Color",
+        "Native Blender Primitives",
         "Restoration",
         "Resolution & Motion",
-        "Blender VSE Modifiers",
+        "Live Blender Modifiers",
     )
+
+
+def test_color_enhance_tools_are_blender_native_live_stacks():
+    for tool_id in (
+        "auto_enhance",
+        "neutral_grade",
+        "punchy_color",
+        "soft_contrast",
+        "exposure_lift",
+        "gamma_brighten",
+        "gamma_deepen",
+        "warm_balance",
+        "cool_balance",
+    ):
+        tool = get_tool(tool_id)
+        assert tool.is_blender_modifier
+        assert tool.blender_modifiers
+        assert not tool.ffmpeg_filter
+
+
+def test_every_native_blender_color_primitive_is_exposed():
+    stack = get_tool("native_all_color_tools").blender_modifiers
+    assert stack.count("BRIGHT_CONTRAST") == 1
+    assert stack.count("COLOR_BALANCE") == 2
+    assert stack.count("TONEMAP") == 2
+    assert {"WHITE_BALANCE", "CURVES", "HUE_CORRECT", "MASK"}.issubset(set(stack))
 
 
 def test_ffmpeg_tools_have_filters_or_stabilization():
@@ -62,4 +90,3 @@ def test_get_tool_rejects_unknown_id():
         assert "missing" in str(exc)
     else:
         raise AssertionError("unknown tool id should raise KeyError")
-

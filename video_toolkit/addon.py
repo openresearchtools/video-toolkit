@@ -7,6 +7,12 @@ import bpy
 from bpy.types import Menu, Operator, Panel
 
 from .catalog import categories, enum_items, get_tool, all_tools
+from .color_analysis import (
+    build_auto_balance_stack,
+    build_color_match_stack,
+    sample_video_color,
+    summarize_stats,
+)
 from .ffmpeg_backend import FFmpegError, process_video
 
 
@@ -41,8 +47,8 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
             tool = get_tool(self.filter_id)
             strip = context.scene.sequence_editor.active_strip
             if tool.is_blender_modifier:
-                modifier = _add_blender_modifier(strip, tool)
-                self.report({"INFO"}, f"Added {modifier.name} to {strip.name}")
+                modifiers = _add_blender_tool(strip, tool)
+                self.report({"INFO"}, f"Added {len(modifiers)} live Blender modifier(s) to {strip.name}")
                 return {"FINISHED"}
             output_path = _render_ffmpeg_tool(context, strip, tool)
             self.report({"INFO"}, f"Rendered {tool.label}: {output_path}")
@@ -51,6 +57,83 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
             traceback.print_exc()
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
+
+
+class VIDEO_TOOLKIT_OT_analyze_color(Operator):
+    bl_idname = "video_toolkit.analyze_color"
+    bl_label = "Analyze Color"
+    bl_description = "Sample real video frames and create live Blender color modifiers"
+    bl_options = {"REGISTER", "UNDO"}
+
+    mode: bpy.props.EnumProperty(
+        name="Mode",
+        items=(
+            ("AUTO", "Auto Balance", "Balance the active strip against a neutral Rec.709-style target"),
+            ("MATCH", "Match Selected", "Match the active movie strip to another selected movie strip"),
+        ),
+        default="AUTO",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            active = scene.sequence_editor.active_strip
+            active_path = _movie_path(active)
+            target_stats = sample_video_color(active_path, max_samples=scene.video_toolkit_analysis_samples)
+            if self.mode == "MATCH":
+                reference = _reference_movie_strip(context, active)
+                if reference is None:
+                    raise RuntimeError("Select a reference movie strip as well as the active target strip")
+                reference_stats = sample_video_color(
+                    _movie_path(reference),
+                    max_samples=scene.video_toolkit_analysis_samples,
+                )
+                stack = build_color_match_stack(target_stats, reference_stats)
+                label = f"Frame Match to {reference.name}"
+                summary = f"{summarize_stats(target_stats)} -> {summarize_stats(reference_stats)}"
+            else:
+                stack = build_auto_balance_stack(target_stats)
+                label = "Frame Auto Balance"
+                summary = summarize_stats(target_stats)
+            modifiers = _add_blender_stack(active, stack, label)
+            scene.video_toolkit_last_analysis = summary
+            self.report({"INFO"}, f"Added {len(modifiers)} live modifiers from {summary}")
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
+class VIDEO_TOOLKIT_OT_clear_live_modifiers(Operator):
+    bl_idname = "video_toolkit.clear_live_modifiers"
+    bl_label = "Clear Video Toolkit Modifiers"
+    bl_description = "Remove live modifiers added by Video Toolkit from the active strip"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        strip = context.scene.sequence_editor.active_strip
+        removed = 0
+        for modifier in reversed(list(strip.modifiers)):
+            if modifier.name.startswith("VTK "):
+                strip.modifiers.remove(modifier)
+                removed += 1
+        self.report({"INFO"}, f"Removed {removed} Video Toolkit modifier(s)")
+        return {"FINISHED"}
 
 
 class VIDEO_TOOLKIT_OT_open_output_folder(Operator):
@@ -72,33 +155,38 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
     def draw(self, context):
         layout = self.layout
         layout.label(text="Video Filters", icon="SEQ_SEQUENCER")
-        _draw_operator(layout, "auto_enhance", icon="COLOR")
+        op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Live Auto Balance", icon="COLOR")
+        op.mode = "AUTO"
+        op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Match Selected", icon="EYEDROPPER")
+        op.mode = "MATCH"
+        _draw_operator(layout, "live_pro_color_stack", icon="MODIFIER")
+        layout.separator()
+        layout.menu("VIDEO_TOOLKIT_MT_live_blender_color", icon="COLOR")
+        layout.menu("VIDEO_TOOLKIT_MT_native_blender_primitives", icon="NODETREE")
+        layout.menu("VIDEO_TOOLKIT_MT_blender_vse_modifiers", icon="SEQ_STRIP_DUPLICATE")
+        layout.separator()
         _draw_operator(layout, "deflicker_normalize", icon="LIGHT")
         _draw_operator(layout, "stabilize", icon="TRACKING")
         layout.separator()
-        layout.menu("VIDEO_TOOLKIT_MT_enhance", icon="COLOR")
-        layout.menu("VIDEO_TOOLKIT_MT_color_tone", icon="SHADING_TEXTURE")
         layout.menu("VIDEO_TOOLKIT_MT_restoration", icon="MODIFIER")
         layout.menu("VIDEO_TOOLKIT_MT_resolution_motion", icon="RENDER_ANIMATION")
-        layout.menu("VIDEO_TOOLKIT_MT_blender_vse_modifiers", icon="SEQ_STRIP_DUPLICATE")
-        layout.separator()
         layout.operator(VIDEO_TOOLKIT_OT_open_output_folder.bl_idname, icon="FILE_FOLDER")
 
 
-class VIDEO_TOOLKIT_MT_enhance(Menu):
-    bl_idname = "VIDEO_TOOLKIT_MT_enhance"
-    bl_label = "Enhance"
+class VIDEO_TOOLKIT_MT_live_blender_color(Menu):
+    bl_idname = "VIDEO_TOOLKIT_MT_live_blender_color"
+    bl_label = "Live Blender Color"
 
     def draw(self, _context):
-        _draw_category(self.layout, "Enhance")
+        _draw_category(self.layout, "Live Blender Color")
 
 
-class VIDEO_TOOLKIT_MT_color_tone(Menu):
-    bl_idname = "VIDEO_TOOLKIT_MT_color_tone"
-    bl_label = "Color & Tone"
+class VIDEO_TOOLKIT_MT_native_blender_primitives(Menu):
+    bl_idname = "VIDEO_TOOLKIT_MT_native_blender_primitives"
+    bl_label = "Native Blender Primitives"
 
     def draw(self, _context):
-        _draw_category(self.layout, "Color & Tone")
+        _draw_category(self.layout, "Native Blender Primitives")
 
 
 class VIDEO_TOOLKIT_MT_restoration(Menu):
@@ -119,10 +207,10 @@ class VIDEO_TOOLKIT_MT_resolution_motion(Menu):
 
 class VIDEO_TOOLKIT_MT_blender_vse_modifiers(Menu):
     bl_idname = "VIDEO_TOOLKIT_MT_blender_vse_modifiers"
-    bl_label = "Blender VSE Modifiers"
+    bl_label = "Live Blender Modifiers"
 
     def draw(self, _context):
-        _draw_category(self.layout, "Blender VSE Modifiers")
+        _draw_category(self.layout, "Live Blender Modifiers")
 
 
 class VIDEO_TOOLKIT_PT_video_filters(Panel):
@@ -137,29 +225,17 @@ class VIDEO_TOOLKIT_PT_video_filters(Panel):
         scene = context.scene
         strip = scene.sequence_editor.active_strip if scene.sequence_editor else None
 
-        row = layout.row(align=True)
-        row.prop(scene, "video_toolkit_output_dir", text="")
-        row.operator(VIDEO_TOOLKIT_OT_open_output_folder.bl_idname, text="", icon="FILE_FOLDER")
-
-        settings = layout.box()
-        row = settings.row(align=True)
-        row.prop(scene, "video_toolkit_crf")
-        row.prop(scene, "video_toolkit_preset", text="")
-        settings.prop(scene, "video_toolkit_keep_audio")
-        settings.prop(scene, "video_toolkit_add_strip")
-
         if not strip:
             layout.label(text="Select a strip to enable one-click filters.", icon="INFO")
             return
 
         layout.label(text=f"Active: {strip.name}", icon="SEQ_STRIP_META")
-        for category in categories():
-            box = layout.box()
-            box.label(text=category)
-            col = box.column(align=True)
-            for tool in all_tools():
-                if tool.category == category:
-                    _draw_operator(col, tool.id)
+        _draw_live_analysis(layout, scene, strip, context)
+        _draw_scene_color_management(layout, scene)
+        _draw_live_color_tools(layout)
+        _draw_strip_editing_tools(layout, strip)
+        _draw_live_modifier_editor(layout, strip)
+        _draw_render_tools(layout, scene)
 
 
 def _draw_category(layout, category: str) -> None:
@@ -178,13 +254,186 @@ def _draw_header_menu(self, _context) -> None:
     self.layout.menu(VIDEO_TOOLKIT_MT_tools.bl_idname, text="Tools", icon="TOOL_SETTINGS")
 
 
-def _add_blender_modifier(strip, tool):
+def _draw_live_analysis(layout, scene, strip, context) -> None:
+    box = layout.box()
+    box.label(text="Frame Analysis / Live Match", icon="EYEDROPPER")
+    row = box.row(align=True)
+    op = row.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Auto Balance", icon="COLOR")
+    op.mode = "AUTO"
+    op = row.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Match", icon="EYEDROPPER")
+    op.mode = "MATCH"
+    box.prop(scene, "video_toolkit_analysis_samples")
+    if scene.video_toolkit_last_analysis:
+        box.label(text=scene.video_toolkit_last_analysis, icon="INFO")
+
+
+def _draw_scene_color_management(layout, scene) -> None:
+    box = layout.box()
+    box.label(text="Blender Color Management", icon="WORLD")
+    if hasattr(scene, "sequencer_colorspace_settings"):
+        box.prop(scene.sequencer_colorspace_settings, "name", text="Input")
+    view = scene.view_settings
+    for prop in ("view_transform", "look", "exposure", "gamma"):
+        if hasattr(view, prop):
+            box.prop(view, prop)
+    if hasattr(view, "use_white_balance"):
+        box.prop(view, "use_white_balance")
+        if view.use_white_balance:
+            row = box.row(align=True)
+            row.prop(view, "white_balance_temperature", text="Temp")
+            row.prop(view, "white_balance_tint", text="Tint")
+
+
+def _draw_live_color_tools(layout) -> None:
+    box = layout.box()
+    box.label(text="Live Blender Color Tools", icon="COLOR")
+    for category in ("Live Blender Color", "Native Blender Primitives", "Live Blender Modifiers"):
+        section = box.box()
+        section.label(text=category)
+        grid = section.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=False, align=True)
+        for tool in all_tools():
+            if tool.category == category:
+                _draw_operator(grid, tool.id)
+
+
+def _draw_strip_editing_tools(layout, strip) -> None:
+    box = layout.box()
+    box.label(text="Live Strip Edit", icon="SEQ_STRIP_META")
+    row = box.row(align=True)
+    if hasattr(strip, "blend_type"):
+        row.prop(strip, "blend_type", text="")
+    if hasattr(strip, "blend_alpha"):
+        row.prop(strip, "blend_alpha", text="Opacity")
+    row = box.row(align=True)
+    for prop in ("mute", "lock", "use_flip_x", "use_flip_y"):
+        if hasattr(strip, prop):
+            row.prop(strip, prop, text=prop.replace("use_", "").replace("_", " ").title())
+    if hasattr(strip, "transform"):
+        transform = strip.transform
+        box.label(text="Transform")
+        row = box.row(align=True)
+        row.prop(transform, "offset_x", text="X")
+        row.prop(transform, "offset_y", text="Y")
+        row = box.row(align=True)
+        row.prop(transform, "scale_x", text="Scale X")
+        row.prop(transform, "scale_y", text="Scale Y")
+        box.prop(transform, "rotation")
+        if hasattr(transform, "filter"):
+            box.prop(transform, "filter")
+    if hasattr(strip, "crop"):
+        crop = strip.crop
+        box.label(text="Crop")
+        row = box.row(align=True)
+        row.prop(crop, "min_x", text="Left")
+        row.prop(crop, "max_x", text="Right")
+        row = box.row(align=True)
+        row.prop(crop, "min_y", text="Bottom")
+        row.prop(crop, "max_y", text="Top")
+
+
+def _draw_live_modifier_editor(layout, strip) -> None:
+    box = layout.box()
+    header = box.row(align=True)
+    header.label(text="Live Modifier Stack", icon="MODIFIER")
+    header.operator(VIDEO_TOOLKIT_OT_clear_live_modifiers.bl_idname, text="", icon="TRASH")
+    if not hasattr(strip, "modifiers") or len(strip.modifiers) == 0:
+        box.label(text="Add a live color tool above to create editable controls.", icon="INFO")
+        return
+    for modifier in strip.modifiers:
+        mod_box = box.box()
+        row = mod_box.row(align=True)
+        row.prop(modifier, "show_expanded", text="", emboss=False)
+        row.prop(modifier, "name", text="")
+        row.prop(modifier, "mute", text="", icon="HIDE_ON" if modifier.mute else "HIDE_OFF")
+        if not modifier.show_expanded:
+            continue
+        _draw_modifier_controls(mod_box, modifier)
+
+
+def _draw_modifier_controls(layout, modifier) -> None:
+    if modifier.type == "BRIGHT_CONTRAST":
+        row = layout.row(align=True)
+        row.prop(modifier, "bright")
+        row.prop(modifier, "contrast")
+    elif modifier.type == "COLOR_BALANCE":
+        cb = modifier.color_balance
+        layout.prop(cb, "correction_method")
+        if cb.correction_method == "OFFSET_POWER_SLOPE":
+            for prop in ("offset", "power", "slope"):
+                layout.prop(cb, prop)
+        else:
+            for prop in ("lift", "gamma", "gain"):
+                layout.prop(cb, prop)
+        layout.prop(modifier, "color_multiply")
+    elif modifier.type == "TONEMAP":
+        layout.prop(modifier, "tonemap_type")
+        for prop in ("key", "offset", "gamma", "intensity", "contrast", "adaptation", "correction"):
+            if hasattr(modifier, prop):
+                layout.prop(modifier, prop)
+    elif modifier.type == "WHITE_BALANCE":
+        layout.prop(modifier, "white_value")
+    elif modifier.type in {"CURVES", "HUE_CORRECT"}:
+        try:
+            layout.template_curve_mapping(modifier, "curve_mapping")
+        except Exception:
+            layout.label(text="Open Blender's modifier panel for curve editing.", icon="INFO")
+    elif modifier.type == "MASK":
+        for prop in ("input_mask_type", "input_mask_strip", "input_mask_id", "mask_time"):
+            if hasattr(modifier, prop):
+                layout.prop(modifier, prop)
+    else:
+        for prop in ("enable", "show_preview", "input_mask_type"):
+            if hasattr(modifier, prop):
+                layout.prop(modifier, prop)
+
+
+def _draw_render_tools(layout, scene) -> None:
+    box = layout.box()
+    box.label(text="Rendered Restoration / FFmpeg", icon="RENDER_ANIMATION")
+    for category in ("Restoration", "Resolution & Motion"):
+        section = box.box()
+        section.label(text=category)
+        grid = section.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=False, align=True)
+        for tool in all_tools():
+            if tool.category == category:
+                _draw_operator(grid, tool.id)
+    settings = box.box()
+    settings.label(text="Render Settings")
+    row = settings.row(align=True)
+    row.prop(scene, "video_toolkit_output_dir", text="")
+    row.operator(VIDEO_TOOLKIT_OT_open_output_folder.bl_idname, text="", icon="FILE_FOLDER")
+    row = settings.row(align=True)
+    row.prop(scene, "video_toolkit_crf")
+    row.prop(scene, "video_toolkit_preset", text="")
+    settings.prop(scene, "video_toolkit_keep_audio")
+    settings.prop(scene, "video_toolkit_add_strip")
+
+
+def _add_blender_tool(strip, tool):
+    if tool.blender_stack:
+        return _add_blender_stack(strip, tool.blender_stack, tool.label)
+    return [_add_blender_modifier(strip, tool.blender_modifier, tool.blender_settings, tool.label)]
+
+
+def _add_blender_stack(strip, stack, label: str):
+    modifiers = []
+    for modifier_type, settings in stack:
+        modifiers.append(_add_blender_modifier(strip, modifier_type, settings, label))
+    return modifiers
+
+
+def _add_blender_modifier(strip, modifier_type, settings, label):
     if not hasattr(strip, "modifiers"):
         raise RuntimeError(f"{strip.name} does not support VSE modifiers")
-    modifier = strip.modifiers.new(name=tool.label, type=tool.blender_modifier)
-    for path, value in tool.blender_settings.items():
+    modifier = strip.modifiers.new(name=f"VTK {label} - {_modifier_label(modifier_type)}", type=modifier_type)
+    modifier.show_expanded = True
+    for path, value in settings.items():
         _set_nested_attr(modifier, path, value)
     return modifier
+
+
+def _modifier_label(modifier_type: str) -> str:
+    return modifier_type.replace("_", " ").title()
 
 
 def _set_nested_attr(target, dotted_path: str, value) -> None:
@@ -225,6 +474,34 @@ def _render_ffmpeg_tool(context, strip, tool) -> Path:
     if scene.video_toolkit_add_strip:
         _add_rendered_strip(scene, strip, output_path, tool.label)
     return output_path
+
+
+def _movie_path(strip) -> Path:
+    if strip.type != "MOVIE":
+        raise RuntimeError("Color analysis requires a movie strip")
+    path = Path(bpy.path.abspath(strip.filepath))
+    if not path.exists():
+        raise RuntimeError(f"Source movie does not exist: {path}")
+    return path
+
+
+def _reference_movie_strip(context, active):
+    selected = _selected_movie_strips(context)
+    for strip in selected:
+        if strip != active:
+            return strip
+    return None
+
+
+def _selected_movie_strips(context) -> list:
+    selected = []
+    for strip in getattr(context, "selected_sequences", []) or []:
+        if strip.type == "MOVIE":
+            selected.append(strip)
+    if selected:
+        return selected
+    editor = context.scene.sequence_editor
+    return [strip for strip in editor.strips_all if strip.type == "MOVIE" and getattr(strip, "select", False)]
 
 
 def _output_dir(scene) -> Path:
@@ -272,9 +549,11 @@ def _overlaps(strip, start: int, end: int) -> bool:
 
 CLASSES = (
     VIDEO_TOOLKIT_OT_apply_filter,
+    VIDEO_TOOLKIT_OT_analyze_color,
+    VIDEO_TOOLKIT_OT_clear_live_modifiers,
     VIDEO_TOOLKIT_OT_open_output_folder,
-    VIDEO_TOOLKIT_MT_enhance,
-    VIDEO_TOOLKIT_MT_color_tone,
+    VIDEO_TOOLKIT_MT_live_blender_color,
+    VIDEO_TOOLKIT_MT_native_blender_primitives,
     VIDEO_TOOLKIT_MT_restoration,
     VIDEO_TOOLKIT_MT_resolution_motion,
     VIDEO_TOOLKIT_MT_blender_vse_modifiers,
@@ -319,6 +598,17 @@ def register() -> None:
         subtype="FILE_PATH",
         default="",
     )
+    bpy.types.Scene.video_toolkit_analysis_samples = bpy.props.IntProperty(
+        name="Frames",
+        description="Maximum number of frames sampled for live color analysis",
+        min=1,
+        max=5000,
+        default=240,
+    )
+    bpy.types.Scene.video_toolkit_last_analysis = bpy.props.StringProperty(
+        name="Last Analysis",
+        default="",
+    )
     bpy.types.SEQUENCER_MT_editor_menus.append(_draw_header_menu)
 
 
@@ -334,6 +624,8 @@ def unregister() -> None:
         "video_toolkit_keep_audio",
         "video_toolkit_add_strip",
         "video_toolkit_last_output",
+        "video_toolkit_analysis_samples",
+        "video_toolkit_last_analysis",
     ):
         if hasattr(bpy.types.Scene, attr):
             delattr(bpy.types.Scene, attr)

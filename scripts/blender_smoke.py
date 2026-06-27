@@ -74,6 +74,7 @@ scene.sequence_editor_create()
 scene.video_toolkit_output_dir = {str((ROOT / 'tests' / 'output'))!r}
 scene.video_toolkit_crf = 28
 scene.video_toolkit_preset = 'veryfast'
+scene.video_toolkit_analysis_samples = 12
 strip = scene.sequence_editor.strips.new_movie(
     name='smoke',
     filepath={str(fixture)!r},
@@ -81,7 +82,20 @@ strip = scene.sequence_editor.strips.new_movie(
     frame_start=1,
 )
 scene.sequence_editor.active_strip = strip
+bpy.ops.video_toolkit.analyze_color(mode='AUTO')
+assert len(strip.modifiers) >= 5
 for filter_id in (
+    'live_pro_color_stack',
+    'auto_enhance',
+    'neutral_grade',
+    'punchy_color',
+    'soft_contrast',
+    'exposure_lift',
+    'gamma_brighten',
+    'gamma_deepen',
+    'warm_balance',
+    'cool_balance',
+    'native_all_color_tools',
     'vse_bright_contrast',
     'vse_color_balance',
     'vse_curves',
@@ -91,8 +105,8 @@ for filter_id in (
     'vse_white_balance',
 ):
     bpy.ops.video_toolkit.apply_filter(filter_id=filter_id)
-assert len(strip.modifiers) == 7
-bpy.ops.video_toolkit.apply_filter(filter_id='auto_enhance')
+assert len(strip.modifiers) >= 45
+bpy.ops.video_toolkit.apply_filter(filter_id='deflicker_normalize')
 assert scene.video_toolkit_last_output
 assert os.path.exists(scene.video_toolkit_last_output)
 video_toolkit.unregister()
