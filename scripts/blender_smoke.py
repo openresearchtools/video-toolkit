@@ -132,6 +132,11 @@ assert scene.video_toolkit_last_sampled_levels_gamma.startswith('sampled levels/
 levels_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Sampled Levels Gamma')]
 assert levels_types == ['CURVES', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'TONEMAP', 'HUE_CORRECT'], levels_types
 assert any(m.name.startswith('VTK Sampled Levels Gamma') for m in second_strip.modifiers)
+bpy.ops.video_toolkit.apply_sampled_hue_chroma()
+assert scene.video_toolkit_last_sampled_hue_chroma.startswith('sampled hue/chroma')
+hue_chroma_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Sampled Hue Chroma')]
+assert hue_chroma_types == ['HUE_CORRECT', 'COLOR_BALANCE', 'CURVES'], hue_chroma_types
+assert any(m.name.startswith('VTK Sampled Hue Chroma') for m in second_strip.modifiers)
 scene.video_toolkit_apply_target = 'ACTIVE'
 bpy.ops.video_toolkit.normalize_lighting()
 normalizer = next(m for m in strip.modifiers if m.name.startswith('VTK Live Flicker Normalizer'))

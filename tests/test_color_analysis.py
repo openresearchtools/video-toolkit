@@ -11,6 +11,7 @@ from video_toolkit.color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_sampled_hue_chroma_stack,
     build_sampled_levels_gamma_stack,
     build_sampled_white_balance_stack,
     build_color_timeline_match_keyframes,
@@ -171,6 +172,36 @@ def test_sampled_levels_gamma_stack_normalizes_luma_percentiles():
     color_balance = stack[1][1]
     assert color_balance["color_balance.gamma"][0] > 1.0
     assert stack[2][1]["contrast"] > 0.0
+
+
+def test_sampled_hue_chroma_stack_builds_hue_zone_curves():
+    stats = ColorStats(
+        samples=12,
+        mean_r=170.0,
+        mean_g=72.0,
+        mean_b=54.0,
+        mean_luma=95.0,
+        luma_std=38.0,
+        luma_p05=30.0,
+        luma_p95=190.0,
+        dominant_rgb=((210.0, 44.0, 38.0), (40.0, 90.0, 215.0), (224.0, 180.0, 52.0)),
+        warm_ratio=0.46,
+        cool_ratio=0.16,
+        skin_ratio=0.12,
+        mean_saturation=0.58,
+        mean_chroma=116.0,
+    )
+    stack = build_sampled_hue_chroma_stack(stats)
+    assert [modifier_type for modifier_type, _settings in stack] == [
+        "HUE_CORRECT",
+        "COLOR_BALANCE",
+        "CURVES",
+    ]
+    hue_points = stack[0][1]["__curve_points__"]
+    assert set(hue_points) == {0, 1, 2}
+    assert hue_points[1][0][1] < 0.5
+    color_balance = stack[1][1]
+    assert color_balance["color_balance.gamma"][2] > color_balance["color_balance.gamma"][0]
 
 
 def test_color_diagnosis_reports_palette_and_suggested_tools(tmp_path):

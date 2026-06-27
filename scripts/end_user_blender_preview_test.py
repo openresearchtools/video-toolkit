@@ -136,6 +136,7 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     diagnostic_grade = output_dir / "after_diagnostic_grade.png"
     sampled_white_balance = output_dir / "after_sampled_white_balance.png"
     sampled_levels_gamma = output_dir / "after_sampled_levels_gamma.png"
+    sampled_hue_chroma = output_dir / "after_sampled_hue_chroma.png"
     blend = output_dir / "end_user_preview.blend"
     report = output_dir / "report.json"
     return f"""
@@ -327,6 +328,21 @@ sampled_levels_gamma_diff = (
 )
 assert sampled_levels_gamma_diff > 0.001, f'Sampled levels/gamma did not visibly change preview pixels: {{sampled_levels_gamma_diff}}'
 
+result = bpy.ops.video_toolkit.apply_sampled_hue_chroma()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_sampled_hue_chroma.startswith('sampled hue/chroma')
+sampled_hue_chroma_types = [
+    modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Sampled Hue Chroma')
+]
+assert sampled_hue_chroma_types == ['HUE_CORRECT', 'COLOR_BALANCE', 'CURVES'], sampled_hue_chroma_types
+sampled_hue_chroma_stats = render_preview({str(sampled_hue_chroma)!r})
+sampled_hue_chroma_diff = (
+    abs(sampled_hue_chroma_stats['r'] - sampled_levels_gamma_stats['r'])
+    + abs(sampled_hue_chroma_stats['g'] - sampled_levels_gamma_stats['g'])
+    + abs(sampled_hue_chroma_stats['b'] - sampled_levels_gamma_stats['b'])
+)
+assert sampled_hue_chroma_diff > 0.001, f'Sampled hue/chroma did not visibly change preview pixels: {{sampled_hue_chroma_diff}}'
+
 result = bpy.ops.video_toolkit.normalize_lighting()
 assert result == {{'FINISHED'}}, result
 normalizer = next(modifier for modifier in strip.modifiers if modifier.name.startswith('VTK Live Flicker Normalizer'))
@@ -443,6 +459,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'diagnostic_grade_png': {str(diagnostic_grade)!r},
     'sampled_white_balance_png': {str(sampled_white_balance)!r},
     'sampled_levels_gamma_png': {str(sampled_levels_gamma)!r},
+    'sampled_hue_chroma_png': {str(sampled_hue_chroma)!r},
     'before': before_stats,
     'after': after_stats,
     'translated': translated_stats,
@@ -450,12 +467,14 @@ Path({str(report)!r}).write_text(json.dumps({{
     'diagnostic_grade': diagnostic_grade_stats,
     'sampled_white_balance': sampled_white_balance_stats,
     'sampled_levels_gamma': sampled_levels_gamma_stats,
+    'sampled_hue_chroma': sampled_hue_chroma_stats,
     'rgb_abs_diff': diff,
     'translated_rgb_abs_diff': translated_diff,
     'color_management_rgb_abs_diff': color_management_diff,
     'diagnostic_grade_rgb_abs_diff': diagnostic_grade_diff,
     'sampled_white_balance_rgb_abs_diff': sampled_white_balance_diff,
     'sampled_levels_gamma_rgb_abs_diff': sampled_levels_gamma_diff,
+    'sampled_hue_chroma_rgb_abs_diff': sampled_hue_chroma_diff,
     'edited_modifiers': edited,
     'native_modifier_types': types,
     'translated_chain_summary': scene.video_toolkit_last_translation,
@@ -472,6 +491,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_white_balance_modifier_types': sampled_white_balance_types,
     'sampled_levels_gamma_summary': scene.video_toolkit_last_sampled_levels_gamma,
     'sampled_levels_gamma_modifier_types': sampled_levels_gamma_types,
+    'sampled_hue_chroma_summary': scene.video_toolkit_last_sampled_hue_chroma,
+    'sampled_hue_chroma_modifier_types': sampled_hue_chroma_types,
     'primary_correction_modifier_types': primary_correction_types,
     'normalizer_keyframes': normalizer_keyframes,
     'timeline_match_reference': {str(reference_video)!r},

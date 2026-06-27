@@ -514,6 +514,47 @@ def build_sampled_levels_gamma_stack(stats: ColorStats) -> tuple[tuple[str, dict
     )
 
 
+def build_sampled_hue_chroma_stack(stats: ColorStats) -> tuple[tuple[str, dict[str, object]], ...]:
+    """Build live hue-zone and chroma balancing from sampled color identity."""
+
+    warm_cool_delta = _clamp(stats.warm_ratio - stats.cool_ratio, -0.55, 0.55)
+    red_balance = _clamp(1.0 - warm_cool_delta * 0.07, 0.90, 1.10)
+    blue_balance = _clamp(1.0 + warm_cool_delta * 0.08, 0.90, 1.12)
+    green_balance = _clamp(1.0 - abs(warm_cool_delta) * 0.02, 0.96, 1.04)
+    color_multiply = _clamp(1.0 + (0.32 - stats.mean_saturation) * 0.18, 0.90, 1.12)
+    curve_delta = _clamp((0.34 - stats.mean_saturation) * 0.08, -0.04, 0.05)
+    return (
+        ("HUE_CORRECT", {"__curve_points__": _sampled_hue_chroma_curve_points(stats)}),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.lift": (1.0, 1.0, 1.0),
+                "color_balance.gamma": (red_balance, green_balance, blue_balance),
+                "color_balance.gain": (
+                    _clamp((red_balance + 1.0) * 0.5, 0.94, 1.06),
+                    1.0,
+                    _clamp((blue_balance + 1.0) * 0.5, 0.94, 1.07),
+                ),
+                "color_multiply": color_multiply,
+            },
+        ),
+        (
+            "CURVES",
+            {
+                "__curve_points__": {
+                    0: [
+                        (0.0, 0.0),
+                        (0.25, _clamp(0.25 + curve_delta, 0.18, 0.34)),
+                        (0.75, _clamp(0.75 - curve_delta * 0.5, 0.66, 0.84)),
+                        (1.0, 1.0),
+                    ]
+                }
+            },
+        ),
+    )
+
+
 def build_color_match_stack(
     target: ColorStats,
     reference: ColorStats,
@@ -782,6 +823,78 @@ def _sampled_levels_curve_points(
         (white_in, white_out),
         (1.0, 1.0),
     ]
+
+
+def _sampled_hue_chroma_curve_points(stats: ColorStats) -> dict[int, list[tuple[float, float]]]:
+    anchors = (
+        (0.0, "reds"),
+        (1.0 / 6.0, "yellows"),
+        (2.0 / 6.0, "greens"),
+        (3.0 / 6.0, "cyans"),
+        (4.0 / 6.0, "blues"),
+        (5.0 / 6.0, "magentas"),
+        (1.0, "reds"),
+    )
+    presence = _dominant_hue_presence(stats.dominant_rgb)
+    warm_delta = _clamp(stats.warm_ratio - stats.cool_ratio, -0.55, 0.55)
+    base_saturation = _clamp(0.5 + (0.34 - stats.mean_saturation) * 0.34, 0.34, 0.66)
+    if stats.mean_chroma < 28.0:
+        base_saturation = _clamp(base_saturation + 0.04, 0.34, 0.68)
+    elif stats.mean_chroma > 92.0:
+        base_saturation = _clamp(base_saturation - 0.04, 0.32, 0.66)
+    hue_points: list[tuple[float, float]] = []
+    saturation_points: list[tuple[float, float]] = []
+    value_points: list[tuple[float, float]] = []
+    for x_value, zone in anchors:
+        zone_presence = presence.get(zone, 0.0)
+        saturation_value = base_saturation - _clamp(zone_presence * 0.12, 0.0, 0.10)
+        value_value = _clamp(0.5 + (0.30 - zone_presence) * 0.035, 0.44, 0.56)
+        hue_value = 0.5
+        if zone in {"reds", "yellows"}:
+            saturation_value -= max(warm_delta, 0.0) * 0.06
+            value_value -= max(warm_delta, 0.0) * 0.025
+        elif zone in {"cyans", "blues"}:
+            saturation_value += max(warm_delta, 0.0) * 0.035
+            saturation_value -= max(-warm_delta, 0.0) * 0.06
+            value_value -= max(-warm_delta, 0.0) * 0.025
+        if zone in {"reds", "yellows"} and stats.skin_ratio > 0.08:
+            saturation_value = _clamp((saturation_value + 0.52) * 0.5, 0.44, 0.57)
+            value_value = _clamp((value_value + 0.51) * 0.5, 0.47, 0.55)
+        hue_points.append((x_value, hue_value))
+        saturation_points.append((x_value, _clamp(saturation_value, 0.28, 0.72)))
+        value_points.append((x_value, _clamp(value_value, 0.42, 0.58)))
+    return {0: hue_points, 1: saturation_points, 2: value_points}
+
+
+def _dominant_hue_presence(swatches: tuple[tuple[float, float, float], ...]) -> dict[str, float]:
+    zones = {"reds": 0.0, "yellows": 0.0, "greens": 0.0, "cyans": 0.0, "blues": 0.0, "magentas": 0.0}
+    if not swatches:
+        return zones
+    total_weight = 0.0
+    for index, rgb in enumerate(swatches[:5]):
+        r, g, b = (_clamp(channel, 0.0, 255.0) / 255.0 for channel in rgb)
+        hue, saturation, value = rgb_to_hsv(r, g, b)
+        weight = max(saturation, 0.02) * max(value, 0.02) / (index + 1)
+        zones[_hue_zone_name(hue * 360.0)] += weight
+        total_weight += weight
+    if total_weight <= 1e-6:
+        return zones
+    return {zone: value / total_weight for zone, value in zones.items()}
+
+
+def _hue_zone_name(hue_degrees: float) -> str:
+    hue = hue_degrees % 360.0
+    if hue < 30.0 or hue >= 330.0:
+        return "reds"
+    if hue < 90.0:
+        return "yellows"
+    if hue < 150.0:
+        return "greens"
+    if hue < 210.0:
+        return "cyans"
+    if hue < 270.0:
+        return "blues"
+    return "magentas"
 
 
 def _pixel_zone_average(pixels: list[tuple[int, int, int, float]]) -> tuple[tuple[float, float, float], float]:
