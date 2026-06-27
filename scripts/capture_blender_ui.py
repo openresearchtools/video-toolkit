@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Capture proof screenshots of the Blender Video Toolkit UI."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import bpy
+
+
+ROOT = Path(__file__).resolve().parents[1]
+OUTPUT = ROOT / "tests" / "output" / "blender_ui"
+VIDEO = ROOT / "tests" / "fixtures" / "real_user_video.mp4"
+
+
+def main() -> None:
+    sys.path.insert(0, str(ROOT))
+    import video_toolkit
+
+    video_toolkit.register()
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    _ensure_selected_movie_strip()
+    area, region, space = _sequencer_area()
+    with bpy.context.temp_override(area=area, region=region, space_data=space):
+        bpy.ops.wm.call_panel(name="VIDEO_TOOLKIT_PT_video_filters", keep_open=True)
+    bpy.app.timers.register(_screenshot_and_quit, first_interval=0.5)
+
+
+def _ensure_selected_movie_strip() -> None:
+    scene = bpy.context.scene
+    if scene.sequence_editor is None:
+        scene.sequence_editor_create()
+    editor = scene.sequence_editor
+    strip = editor.active_strip
+    if strip is None or strip.type != "MOVIE":
+        strip = editor.strips.new_movie(
+            name="SELECTED VIDEO - OPEN RESEARCH TOOLKIT TEST",
+            filepath=str(VIDEO),
+            channel=1,
+            frame_start=1,
+        )
+    for candidate in editor.strips_all:
+        candidate.select = False
+    strip.select = True
+    editor.active_strip = strip
+    scene.frame_start = int(strip.frame_final_start)
+    scene.frame_end = int(strip.frame_final_end)
+    scene.video_toolkit_analysis_samples = 24
+    scene.video_toolkit_apply_target = "ACTIVE"
+    scene.video_toolkit_ffmpeg_chain = "eq=contrast=1.08:saturation=1.05:gamma=1.02,colorbalance=rs=0.05:bh=-0.04"
+
+
+def _sequencer_area():
+    screen = bpy.context.window.screen
+    area = max(screen.areas, key=lambda item: item.width * item.height)
+    area.type = "SEQUENCE_EDITOR"
+    space = area.spaces.active
+    if hasattr(space, "view_type"):
+        space.view_type = "SEQUENCER_PREVIEW"
+    if hasattr(space, "show_region_ui"):
+        space.show_region_ui = True
+    region = next(region for region in area.regions if region.type == "WINDOW")
+    return area, region, space
+
+
+def _screenshot_and_quit():
+    bpy.ops.screen.screenshot(filepath=str(OUTPUT / "video_filters_panel_open.png"))
+    bpy.ops.wm.quit_blender()
+    return None
+
+
+main()

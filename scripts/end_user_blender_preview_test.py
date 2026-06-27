@@ -131,6 +131,7 @@ def _make_reference_video(source: Path, output: Path) -> Path:
 def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str:
     before = output_dir / "before_live_edit.png"
     after = output_dir / "after_live_edit.png"
+    translated = output_dir / "after_native_color_chain.png"
     blend = output_dir / "end_user_preview.blend"
     report = output_dir / "report.json"
     return f"""
@@ -212,6 +213,25 @@ assert result == {{'FINISHED'}}, result
 types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK ')]
 for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'TONEMAP', 'WHITE_BALANCE', 'CURVES', 'HUE_CORRECT', 'MASK']:
     assert required in types, required
+
+scene.video_toolkit_ffmpeg_chain = (
+    'eq=contrast=1.12:saturation=1.08:gamma=1.02,'
+    'colorbalance=rs=0.05:bm=0.03:bh=-0.04:pl=1,'
+    'colortemperature=temperature=5600:mix=0.55'
+)
+result = bpy.ops.video_toolkit.translate_ffmpeg_chain()
+assert result == {{'FINISHED'}}, result
+assert 'translated eq, colorbalance, colortemperature' in scene.video_toolkit_last_translation
+translated_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Translated Color Chain')]
+for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'HUE_CORRECT', 'TONEMAP', 'WHITE_BALANCE']:
+    assert required in translated_types, required
+translated_stats = render_preview({str(translated)!r})
+translated_diff = (
+    abs(translated_stats['r'] - before_stats['r'])
+    + abs(translated_stats['g'] - before_stats['g'])
+    + abs(translated_stats['b'] - before_stats['b'])
+)
+assert translated_diff > 0.015, f'Translated live color chain did not visibly change preview pixels: {{translated_diff}}'
 
 result = bpy.ops.video_toolkit.analyze_color(mode='PALETTE')
 assert result == {{'FINISHED'}}, result
@@ -305,11 +325,16 @@ Path({str(report)!r}).write_text(json.dumps({{
     'selected_strip': strip.name,
     'before_png': {str(before)!r},
     'after_png': {str(after)!r},
+    'translated_png': {str(translated)!r},
     'before': before_stats,
     'after': after_stats,
+    'translated': translated_stats,
     'rgb_abs_diff': diff,
+    'translated_rgb_abs_diff': translated_diff,
     'edited_modifiers': edited,
     'native_modifier_types': types,
+    'translated_chain_summary': scene.video_toolkit_last_translation,
+    'translated_modifier_types': translated_types,
     'palette_modifier_types': palette_types,
     'palette_summary': palette_summary,
     'normalizer_keyframes': normalizer_keyframes,

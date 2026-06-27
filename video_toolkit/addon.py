@@ -20,6 +20,7 @@ from .color_analysis import (
     summarize_stats,
 )
 from .ffmpeg_backend import FFmpegError, process_video
+from .ffmpeg_native import translate_filter_chain
 
 
 PRESET_ITEMS = (
@@ -305,6 +306,55 @@ class VIDEO_TOOLKIT_OT_match_color_timeline(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_translate_ffmpeg_chain(Operator):
+    bl_idname = "video_toolkit.translate_ffmpeg_chain"
+    bl_label = "Translate Color Chain to Live Blender Stack"
+    bl_description = "Convert supported FFmpeg-style color filters into editable live Blender VSE modifiers"
+    bl_options = {"REGISTER", "UNDO"}
+
+    chain: bpy.props.StringProperty(
+        name="Color Chain",
+        description="FFmpeg-style color filter chain to translate into native Blender VSE modifiers",
+        default="",
+    )
+    target: bpy.props.EnumProperty(
+        name="Target",
+        items=(("SCENE", "Panel Target", "Use the panel target setting"),) + APPLY_TARGET_ITEMS,
+        default="SCENE",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            chain = (self.chain or scene.video_toolkit_ffmpeg_chain).strip()
+            if not chain:
+                raise RuntimeError("Enter an FFmpeg-style color chain before translating")
+            translation = translate_filter_chain(chain)
+            if not translation.stack:
+                unsupported = ", ".join(translation.unsupported_filters) or "none"
+                raise RuntimeError(f"No native Blender live color stack could be built. Unsupported: {unsupported}")
+            modifiers, targets = _add_blender_stack_for_target(
+                context,
+                translation.stack,
+                "Translated Color Chain",
+                self.target,
+            )
+            scene.video_toolkit_last_translation = _translation_summary(translation, len(modifiers), len(targets))
+            self.report({"INFO"}, scene.video_toolkit_last_translation)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_clear_live_modifiers(Operator):
     bl_idname = "video_toolkit.clear_live_modifiers"
     bl_label = "Clear Video Toolkit Modifiers"
@@ -390,6 +440,11 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         layout.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Analyze: Normalize Flicker", icon="IPO_EASE_IN_OUT")
         layout.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Analyze: Match Lighting Timeline", icon="GRAPH")
         layout.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Analyze: Match Color Timeline", icon="COLOR")
+        layout.operator(
+            VIDEO_TOOLKIT_OT_translate_ffmpeg_chain.bl_idname,
+            text="Translate Color Chain to Live Stack",
+            icon="MODIFIER",
+        )
         _draw_operator(layout, "live_pro_color_stack", icon="MODIFIER")
         layout.separator()
         layout.menu("VIDEO_TOOLKIT_MT_live_blender_color", icon="COLOR")
@@ -556,6 +611,16 @@ def _draw_live_color_tools(layout, scene) -> None:
     box = layout.box()
     box.label(text="Live Blender Color Tools", icon="COLOR")
     box.prop(scene, "video_toolkit_apply_target", text="Target")
+    translation = box.box()
+    translation.label(text="Native Color Chain Translation", icon="MODIFIER")
+    translation.prop(scene, "video_toolkit_ffmpeg_chain", text="")
+    translation.operator(
+        VIDEO_TOOLKIT_OT_translate_ffmpeg_chain.bl_idname,
+        text="Translate to Live Stack",
+        icon="COLOR",
+    )
+    if scene.video_toolkit_last_translation:
+        translation.label(text=scene.video_toolkit_last_translation, icon="INFO")
     for category in ("Live Blender Color", "Native Blender Primitives", "Live Blender Modifiers"):
         section = box.box()
         section.label(text=category)
@@ -684,11 +749,36 @@ def _add_blender_tool(strip, tool):
     return [_add_blender_modifier(strip, tool.blender_modifier, tool.blender_settings, tool.label)]
 
 
+def _add_blender_stack_for_target(context, stack, label: str, target: str = "SCENE"):
+    strip = context.scene.sequence_editor.active_strip
+    if target == "SCENE":
+        target = context.scene.video_toolkit_apply_target
+    if target == "ADJUSTMENT":
+        adjustment = _create_adjustment_strip(context, label)
+        return _add_blender_stack(adjustment, stack, label), [adjustment]
+    if target == "SELECTED":
+        strips = _selected_modifier_strips(context) or [strip]
+        modifiers = []
+        for selected_strip in strips:
+            modifiers.extend(_add_blender_stack(selected_strip, stack, label))
+        return modifiers, strips
+    return _add_blender_stack(strip, stack, label), [strip]
+
+
 def _add_blender_stack(strip, stack, label: str):
     modifiers = []
     for modifier_type, settings in stack:
         modifiers.append(_add_blender_modifier(strip, modifier_type, settings, label))
     return modifiers
+
+
+def _translation_summary(translation, modifier_count: int, target_count: int) -> str:
+    supported = ", ".join(translation.supported_filters) or "none"
+    unsupported = ", ".join(translation.unsupported_filters)
+    summary = f"translated {supported} into {modifier_count} live modifier(s) on {target_count} target(s)"
+    if unsupported:
+        summary += f"; rendered-only/not native: {unsupported}"
+    return summary
 
 
 def _add_blender_modifier(strip, modifier_type, settings, label):
@@ -1172,6 +1262,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_normalize_lighting,
     VIDEO_TOOLKIT_OT_match_lighting_timeline,
     VIDEO_TOOLKIT_OT_match_color_timeline,
+    VIDEO_TOOLKIT_OT_translate_ffmpeg_chain,
     VIDEO_TOOLKIT_OT_clear_live_modifiers,
     VIDEO_TOOLKIT_OT_create_compositor_nodes,
     VIDEO_TOOLKIT_OT_open_output_folder,
@@ -1238,6 +1329,15 @@ def register() -> None:
         items=APPLY_TARGET_ITEMS,
         default="ACTIVE",
     )
+    bpy.types.Scene.video_toolkit_ffmpeg_chain = bpy.props.StringProperty(
+        name="FFmpeg Color Chain",
+        description="Supported FFmpeg-style color filters are converted into native live Blender VSE modifiers",
+        default="eq=contrast=1.08:saturation=1.05:gamma=1.02",
+    )
+    bpy.types.Scene.video_toolkit_last_translation = bpy.props.StringProperty(
+        name="Last Color Translation",
+        default="",
+    )
     bpy.types.Scene.video_toolkit_flicker_smoothing = bpy.props.IntProperty(
         name="Flicker Smoothing",
         description="Odd-sized sample window used by the live lighting normalizer",
@@ -1302,6 +1402,8 @@ def unregister() -> None:
         "video_toolkit_analysis_samples",
         "video_toolkit_last_analysis",
         "video_toolkit_apply_target",
+        "video_toolkit_ffmpeg_chain",
+        "video_toolkit_last_translation",
         "video_toolkit_flicker_smoothing",
         "video_toolkit_flicker_strength",
         "video_toolkit_match_smoothing",

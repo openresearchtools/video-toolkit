@@ -38,6 +38,18 @@ In Blender:
 3. Enable **Open Research Video Toolkit**.
 4. Open the Video Sequencer and use **Tools > Video Filters** or the sidebar **Video Filters** panel.
 
+The tools operate on the active Video Sequencer strip. Add or open a movie in the
+Video Sequencer, click the strip so it is selected, then use either:
+
+- The Sequencer header **Tools > Video Filters** menu.
+- The Sequencer sidebar opened with **N**, tab **Video Filters**.
+
+Live Blender color tools update the selected strip immediately in the Sequencer
+preview. The **Native Color Chain Translation** field accepts supported
+FFmpeg-style color chains such as `eq`, `colorbalance`, `colorlevels`, `curves`,
+`vibrance`, `exposure`, `colortemperature`, `limiter`, and `tonemap`, then adds
+editable native Blender VSE modifiers instead of rendering a new file.
+
 ## CLI Usage
 
 The same processing catalog is available without Blender:
@@ -64,7 +76,7 @@ FFmpeg must be installed and visible on `PATH`.
 - Blender compositor nodes: active-strip Movie Clip source, Color Space, Exposure, Brightness/Contrast, Color Balance, Color Correction, RGB Curves, Hue/Saturation/Value, Hue Correct, Tone Map, channel split/combine, Levels, Viewer, and Output File.
 - Native restoration nodes: Stabilize, Movie Distortion, Denoise, Despeckle, Bilateral Blur, Anti-Aliasing, plus broader coverage for Blender matte, transform, alpha, and utility compositor nodes where they are applicable to video finishing.
 - Blender-native color recipes: auto enhance, neutral grade, punchy color, soft contrast, exposure lift, gamma up/down, warm/cool balance.
-- FFmpeg-to-Blender translation: supported FFmpeg color intent (`eq`, `hue`, `huesaturation`, `colorchannelmixer`, `curves`, `colorlevels`, `colorbalance`, `vibrance`, `exposure`, `colortemperature`, `limiter`, `tonemap`) is converted into native live Blender VSE modifier stacks; non-native temporal filters stay in rendered restoration.
+- FFmpeg-to-Blender translation: supported FFmpeg color intent (`eq`, `hue`, `huesaturation`, `colorchannelmixer`, `curves`, `colorlevels`, `colorbalance`, `vibrance`, `exposure`, `colortemperature`, `limiter`, `tonemap`) is converted into native live Blender VSE modifier stacks from the **Native Color Chain Translation** control; non-native temporal filters stay in rendered restoration.
 - Restoration: deflicker, lighting normalizer, denoise, sharpen restoration, deinterlace, quick deshake, two-pass vidstab stabilization.
 - Motion and output: 2x Lanczos upscale, 1080p normalize scale, 60 fps interpolation, temporal smoothing.
 
@@ -72,6 +84,8 @@ Generated videos are written to `video_toolkit_outputs/` by default and are igno
 
 ## End-User Verification
 
-`scripts/end_user_blender_preview_test.py` opens a real MP4 in Blender's Video Sequencer, selects the movie strip, applies live Blender color tools through the same operators the UI buttons use, edits the resulting live modifier properties, renders before/after Sequencer preview frames to PNG, and fails if the pixels do not change. It also creates Blender-native compositor color and restoration node graphs from that selected strip and verifies the nodes are linked.
+`scripts/end_user_blender_preview_test.py` opens a real MP4 in Blender's Video Sequencer, selects the movie strip, applies live Blender color tools through the same operators the UI buttons use, translates an FFmpeg-style color chain into native Blender modifiers, edits the resulting live modifier properties, renders before/after Sequencer preview frames to PNG, and fails if the pixels do not change. It also creates Blender-native compositor color and restoration node graphs from that selected strip and verifies the nodes are linked.
 
 `scripts/blender_native_coverage.py` audits the installed Blender build directly. It verifies every VSE color modifier used by the add-on and every tracked Blender compositor video node can be created in Blender 5.2.
+
+`scripts/capture_blender_ui.py` opens Blender's Sequencer with a selected movie strip and captures the **Video Filters** panel to `tests/output/blender_ui/video_filters_panel_open.png`.

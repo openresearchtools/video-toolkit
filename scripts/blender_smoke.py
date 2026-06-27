@@ -126,6 +126,15 @@ color_gamma_path = color_timeline_match.color_balance.path_from_id('gamma')
 color_gain_path = color_timeline_match.color_balance.path_from_id('gain')
 assert action_keyframe_count(scene.animation_data.action, color_gamma_path) >= 6
 assert action_keyframe_count(scene.animation_data.action, color_gain_path) >= 6
+scene.video_toolkit_ffmpeg_chain = (
+    'colorlevels=rimin=0.02:rimax=0.98,'
+    'vibrance=intensity=0.4,'
+    'exposure=exposure=0.25:black=0.02'
+)
+bpy.ops.video_toolkit.translate_ffmpeg_chain()
+assert 'translated colorlevels, vibrance, exposure' in scene.video_toolkit_last_translation
+translated_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Chain')]
+assert {{'CURVES', 'HUE_CORRECT', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'TONEMAP'}}.issubset(set(translated_types))
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',
