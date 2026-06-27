@@ -69,13 +69,21 @@ def _setup_scene() -> None:
     scene.video_toolkit_analysis_samples = 24
     scene.video_toolkit_apply_target = "ACTIVE"
     scene.video_toolkit_sidecar_section = "ENHANCE"
-    scene.video_toolkit_ffmpeg_chain = "eq=contrast=1.08:saturation=1.05:gamma=1.02,colorbalance=rs=0.05:bh=-0.04"
+    scene.video_toolkit_ffmpeg_chain = (
+        "colorspace=iall=bt709:all=bt709:irange=tv:range=pc,"
+        "normalize=smoothing=24:independence=0.7:strength=0.55,"
+        "eq=contrast=1.08:saturation=1.05:gamma=1.02,"
+        "colorbalance=rs=0.05:bh=-0.04,"
+        "colorcorrect=rl=0.04:bl=-0.02:saturation=1.04,"
+        "histeq=strength=0.20:intensity=0.18"
+    )
     try:
         bpy.ops.video_toolkit.color_diagnostics()
         bpy.ops.video_toolkit.recommend_catalog_recipes()
         bpy.ops.video_toolkit.apply_recommended_recipe_mix()
         bpy.ops.video_toolkit.create_recommended_recipe_mix_nodes()
         bpy.ops.video_toolkit.apply_professional_color_workflow()
+        bpy.ops.video_toolkit.apply_translated_color_workflow()
         bpy.ops.video_toolkit.apply_diagnostic_grade()
         bpy.ops.video_toolkit.apply_sampled_white_balance()
         bpy.ops.video_toolkit.apply_sampled_levels_gamma()
@@ -103,6 +111,8 @@ def _open_sequencer() -> None:
         space.view_type = "SEQUENCER_PREVIEW"
     if hasattr(space, "show_region_ui"):
         space.show_region_ui = True
+    area, region, space = _maximize_sequencer_area(area, region, space)
+    _activate_video_effects_sidebar(area)
     _frame_selected_strip(area, region, space)
 
 
@@ -113,6 +123,26 @@ def _sequencer_area():
     space = area.spaces.active
     region = next(region for region in area.regions if region.type == "WINDOW")
     return area, region, space
+
+
+def _maximize_sequencer_area(area, region, space):
+    with bpy.context.temp_override(area=area, region=region, space_data=space):
+        try:
+            bpy.ops.screen.screen_full_area(use_hide_panels=False)
+        except Exception:
+            pass
+    return _sequencer_area()
+
+
+def _activate_video_effects_sidebar(area) -> None:
+    for region in area.regions:
+        if region.type == "UI" and hasattr(region, "active_panel_category"):
+            try:
+                region.active_panel_category = "Video Effects"
+                region.tag_refresh_ui()
+            except AttributeError:
+                pass
+            break
 
 
 def _frame_selected_strip(area, region, space) -> None:

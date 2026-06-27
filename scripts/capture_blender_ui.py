@@ -23,6 +23,8 @@ def main() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     _ensure_selected_movie_strip()
     area, region, space = _sequencer_area()
+    area, region, space = _maximize_sequencer_area(area, region, space)
+    _activate_video_effects_sidebar(area)
     with bpy.context.temp_override(area=area, region=region, space_data=space):
         _frame_selected_strip()
     bpy.app.timers.register(_screenshot_and_quit, first_interval=1.5)
@@ -72,6 +74,26 @@ def _sequencer_area():
         space.show_region_ui = True
     region = next(region for region in area.regions if region.type == "WINDOW")
     return area, region, space
+
+
+def _maximize_sequencer_area(area, region, space):
+    with bpy.context.temp_override(area=area, region=region, space_data=space):
+        try:
+            bpy.ops.screen.screen_full_area(use_hide_panels=False)
+        except Exception:
+            pass
+    return _sequencer_area()
+
+
+def _activate_video_effects_sidebar(area) -> None:
+    for region in area.regions:
+        if region.type == "UI" and hasattr(region, "active_panel_category"):
+            try:
+                region.active_panel_category = "Video Effects"
+                region.tag_refresh_ui()
+            except AttributeError:
+                pass
+            break
 
 
 def _frame_selected_strip() -> None:

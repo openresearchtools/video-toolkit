@@ -272,6 +272,31 @@ assert 'color management:' in scene.video_toolkit_last_translation
 assert scene.sequencer_colorspace_settings.name in {'sRGB', 'Gamma 2.2 Encoded Rec.709', 'Gamma 2.4 Encoded Rec.709', 'Rec.1886', 'Linear Rec.709'}
 translated_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Chain')]
 assert {{'CURVES', 'HUE_CORRECT', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'TONEMAP', 'WHITE_BALANCE'}}.issubset(set(translated_types))
+result = bpy.ops.video_toolkit.apply_translated_color_workflow()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_translated_workflow.startswith('translated color workflow')
+assert 'colorspace, normalize, colorlevels, colorcorrect' in scene.video_toolkit_last_translated_workflow
+assert scene.get('video_toolkit_last_translated_workflow_node_count', 0) >= 10
+translated_workflow_types = [
+    node.bl_idname
+    for node in (scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree).nodes
+    if node.name.startswith('VTK Translated Color Workflow ')
+]
+workflow_modifier_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Workflow')]
+assert {{'CURVES', 'HUE_CORRECT', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'TONEMAP', 'WHITE_BALANCE'}}.issubset(set(workflow_modifier_types))
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in translated_workflow_types, required
 scene.video_toolkit_ffmpeg_chain = 'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=full,setrange=limited'
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert 'translated setparams, setrange into 0 live modifier(s)' in scene.video_toolkit_last_translation

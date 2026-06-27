@@ -132,6 +132,7 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     before = output_dir / "before_live_edit.png"
     after = output_dir / "after_live_edit.png"
     translated = output_dir / "after_native_color_chain.png"
+    translated_workflow = output_dir / "after_ffmpeg_color_workflow.png"
     color_managed = output_dir / "after_color_management_preset.png"
     sampled_color_management = output_dir / "after_sampled_color_management.png"
     recommended_recipe_mix = output_dir / "after_recommended_recipe_mix.png"
@@ -263,6 +264,48 @@ translated_diff = (
     + abs(translated_stats['b'] - before_stats['b'])
 )
 assert translated_diff > 0.015, f'Translated live color chain did not visibly change preview pixels: {{translated_diff}}'
+result = bpy.ops.video_toolkit.apply_translated_color_workflow()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_translated_workflow.startswith('translated color workflow')
+translated_workflow_summary = scene.video_toolkit_last_translated_workflow
+translated_workflow_supported = scene.get('video_toolkit_last_translated_workflow_supported_filters', '').split(',')
+translated_workflow_node_count = scene.get('video_toolkit_last_translated_workflow_node_count', 0)
+assert translated_workflow_node_count >= 10
+assert 'colorspace' in translated_workflow_supported
+assert 'histeq' in translated_workflow_supported
+translated_workflow_modifier_types = [
+    modifier.type
+    for modifier in strip.modifiers
+    if modifier.name.startswith('VTK Translated Color Workflow')
+]
+for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'HUE_CORRECT', 'TONEMAP', 'WHITE_BALANCE']:
+    assert required in translated_workflow_modifier_types, required
+translated_workflow_tree = scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree
+translated_workflow_node_types = [
+    node.bl_idname
+    for node in translated_workflow_tree.nodes
+    if node.name.startswith('VTK Translated Color Workflow ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in translated_workflow_node_types, required
+translated_workflow_stats = render_preview({str(translated_workflow)!r})
+translated_workflow_diff = (
+    abs(translated_workflow_stats['r'] - translated_stats['r'])
+    + abs(translated_workflow_stats['g'] - translated_stats['g'])
+    + abs(translated_workflow_stats['b'] - translated_stats['b'])
+)
+assert translated_workflow_diff > 0.001, f'FFmpeg color workflow did not visibly change preview pixels: {{translated_workflow_diff}}'
 
 result = bpy.ops.video_toolkit.apply_color_management_preset(preset_id='VIEW_CURVE_CONTRAST')
 assert result == {{'FINISHED'}}, result
@@ -969,6 +1012,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_pro_grade': sampled_pro_grade_stats,
     'rgb_abs_diff': diff,
     'translated_rgb_abs_diff': translated_diff,
+    'translated_workflow_rgb_abs_diff': translated_workflow_diff,
     'color_management_rgb_abs_diff': color_management_diff,
     'sampled_color_management_rgb_abs_diff': sampled_color_management_diff,
     'recommended_recipe_mix_rgb_abs_diff': recommended_recipe_mix_diff,
@@ -981,6 +1025,11 @@ Path({str(report)!r}).write_text(json.dumps({{
     'native_modifier_types': types,
     'translated_chain_summary': scene.video_toolkit_last_translation,
     'translated_modifier_types': translated_types,
+    'translated_workflow_summary': translated_workflow_summary,
+    'translated_workflow_supported_filters': translated_workflow_supported,
+    'translated_workflow_node_count': translated_workflow_node_count,
+    'translated_workflow_modifier_types': translated_workflow_modifier_types,
+    'translated_workflow_node_types': translated_workflow_node_types,
     'color_management_summary': color_management_summary,
     'sampled_color_management_summary': sampled_color_management_summary,
     'palette_modifier_types': palette_types,

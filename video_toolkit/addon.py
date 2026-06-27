@@ -844,6 +844,95 @@ class VIDEO_TOOLKIT_OT_translate_ffmpeg_chain(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_apply_translated_color_workflow(Operator):
+    bl_idname = "video_toolkit.apply_translated_color_workflow"
+    bl_label = "Apply FFmpeg Color Workflow"
+    bl_description = "Translate an FFmpeg-style color chain into Blender live modifiers, Color Management, and compositor nodes"
+    bl_options = {"REGISTER", "UNDO"}
+
+    chain: bpy.props.StringProperty(
+        name="Color Chain",
+        description="FFmpeg-style color filter chain to translate into native Blender tools",
+        default="",
+    )
+    target: bpy.props.EnumProperty(
+        name="Target",
+        items=(("SCENE", "Panel Target", "Use the panel target setting"),) + APPLY_TARGET_ITEMS,
+        default="SCENE",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            chain = (self.chain or scene.video_toolkit_ffmpeg_chain).strip()
+            if not chain:
+                raise RuntimeError("Enter an FFmpeg-style color chain before running the workflow")
+            translation = translate_filter_chain(chain)
+            if not translation.stack and not translation.color_management:
+                unsupported = ", ".join(translation.unsupported_filters) or "none"
+                raise RuntimeError(f"No native Blender color workflow could be built. Unsupported: {unsupported}")
+
+            modifiers, targets, nodes = [], [], []
+            if translation.stack:
+                modifiers, targets = _add_blender_stack_for_target(
+                    context,
+                    translation.stack,
+                    "Translated Color Workflow",
+                    self.target,
+                )
+                nodes = _create_translated_compositor_color_stack(
+                    scene,
+                    strip,
+                    translation,
+                    label_prefix="Translated Color Workflow",
+                )
+            color_management = _apply_translation_color_management(context, translation)
+            for node in nodes:
+                node["video_toolkit_ffmpeg_supported_filters"] = ",".join(translation.supported_filters)
+                node["video_toolkit_ffmpeg_unsupported_filters"] = ",".join(translation.unsupported_filters)
+                node["video_toolkit_ffmpeg_chain"] = chain
+                node["video_toolkit_source_strip"] = strip.name
+
+            scene.video_toolkit_last_translation = _translation_summary(
+                translation,
+                len(modifiers),
+                len(targets),
+                color_management,
+            )
+            scene.video_toolkit_last_compositor_nodes = _translated_compositor_summary(
+                translation,
+                len(nodes),
+                color_management,
+            )
+            supported = ", ".join(translation.supported_filters) or "none"
+            unsupported = ", ".join(translation.unsupported_filters)
+            scene.video_toolkit_last_translated_workflow = (
+                f"translated color workflow {len(translation.supported_filters)} filter(s), "
+                f"{len(modifiers)} modifier(s), {len(nodes)} node(s): {supported}"
+            )
+            if color_management:
+                scene.video_toolkit_last_translated_workflow += f"; color management {', '.join(color_management)}"
+            if unsupported:
+                scene.video_toolkit_last_translated_workflow += f"; rendered-only/not native {unsupported}"
+            scene["video_toolkit_last_translated_workflow_supported_filters"] = ",".join(translation.supported_filters)
+            scene["video_toolkit_last_translated_workflow_unsupported_filters"] = ",".join(translation.unsupported_filters)
+            scene["video_toolkit_last_translated_workflow_node_count"] = len(nodes)
+            self.report({"INFO"}, scene.video_toolkit_last_translated_workflow)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_clear_live_modifiers(Operator):
     bl_idname = "video_toolkit.clear_live_modifiers"
     bl_label = "Clear Video Toolkit Modifiers"
@@ -1821,6 +1910,11 @@ def _draw_one_click_video_effects(layout, scene, strip) -> None:
         text="Pro Color Workflow",
         icon="COLOR",
     )
+    controls.operator(
+        VIDEO_TOOLKIT_OT_apply_translated_color_workflow.bl_idname,
+        text="FFmpeg Color Workflow",
+        icon="MODIFIER",
+    )
     row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Pro Grade", icon="MODIFIER")
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname, text="Color Mgmt", icon="WORLD")
@@ -1860,6 +1954,8 @@ def _draw_one_click_video_effects(layout, scene, strip) -> None:
 def _draw_sidecar_status(layout, scene) -> None:
     if scene.video_toolkit_last_professional_workflow:
         layout.label(text=scene.video_toolkit_last_professional_workflow, icon="COLOR")
+    if scene.video_toolkit_last_translated_workflow:
+        layout.label(text=scene.video_toolkit_last_translated_workflow, icon="MODIFIER")
     if scene.video_toolkit_last_analysis:
         layout.label(text=scene.video_toolkit_last_analysis, icon="INFO")
     if scene.video_toolkit_last_compositor_nodes:
@@ -2031,8 +2127,15 @@ def _draw_live_color_tools(layout, scene) -> None:
         text="Translate to Live Stack",
         icon="COLOR",
     )
+    translation.operator(
+        VIDEO_TOOLKIT_OT_apply_translated_color_workflow.bl_idname,
+        text="Apply FFmpeg Color Workflow",
+        icon="NODETREE",
+    )
     if scene.video_toolkit_last_translation:
         translation.label(text=scene.video_toolkit_last_translation, icon="INFO")
+    if scene.video_toolkit_last_translated_workflow:
+        translation.label(text=scene.video_toolkit_last_translated_workflow, icon="NODETREE")
     for category in ("Live Blender Color", "Native Blender Primitives", "Live Blender Modifiers"):
         section = box.box()
         section.label(text=category)
@@ -2772,8 +2875,8 @@ def _create_sampled_compositor_color_stack(scene, strip, profile):
     return [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap, separate, combine, levels, viewer, output]
 
 
-def _create_translated_compositor_color_stack(scene, strip, translation):
-    return _create_compositor_nodes_from_blender_stack(scene, strip, translation.stack, "Translated")
+def _create_translated_compositor_color_stack(scene, strip, translation, label_prefix: str = "Translated"):
+    return _create_compositor_nodes_from_blender_stack(scene, strip, translation.stack, label_prefix)
 
 
 def _create_identity_compositor_color_stack(scene, strip, stack):
@@ -3794,6 +3897,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_match_lighting_timeline,
     VIDEO_TOOLKIT_OT_match_color_timeline,
     VIDEO_TOOLKIT_OT_translate_ffmpeg_chain,
+    VIDEO_TOOLKIT_OT_apply_translated_color_workflow,
     VIDEO_TOOLKIT_OT_clear_live_modifiers,
     VIDEO_TOOLKIT_OT_create_compositor_nodes,
     VIDEO_TOOLKIT_OT_create_tool_compositor_nodes,
@@ -3952,6 +4056,10 @@ def register() -> None:
         name="Last Color Translation",
         default="",
     )
+    bpy.types.Scene.video_toolkit_last_translated_workflow = bpy.props.StringProperty(
+        name="Last Translated Color Workflow",
+        default="",
+    )
     bpy.types.Scene.video_toolkit_last_color_management = bpy.props.StringProperty(
         name="Last Color Management Preset",
         default="",
@@ -4041,6 +4149,7 @@ def unregister() -> None:
         "video_toolkit_apply_target",
         "video_toolkit_ffmpeg_chain",
         "video_toolkit_last_translation",
+        "video_toolkit_last_translated_workflow",
         "video_toolkit_last_color_management",
         "video_toolkit_flicker_smoothing",
         "video_toolkit_flicker_strength",
