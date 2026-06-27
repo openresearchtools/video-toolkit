@@ -135,6 +135,7 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     color_managed = output_dir / "after_color_management_preset.png"
     sampled_color_management = output_dir / "after_sampled_color_management.png"
     recommended_recipe_mix = output_dir / "after_recommended_recipe_mix.png"
+    professional_workflow = output_dir / "after_professional_color_workflow.png"
     diagnostic_grade = output_dir / "after_diagnostic_grade.png"
     sampled_white_balance = output_dir / "after_sampled_white_balance.png"
     sampled_levels_gamma = output_dir / "after_sampled_levels_gamma.png"
@@ -355,6 +356,49 @@ recommended_recipe_mix_diff = (
     + abs(recommended_recipe_mix_stats['b'] - sampled_color_management_stats['b'])
 )
 assert recommended_recipe_mix_diff > 0.001, f'Recommended recipe mix did not visibly change preview pixels: {{recommended_recipe_mix_diff}}'
+result = bpy.ops.video_toolkit.apply_professional_color_workflow()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_professional_workflow.startswith('professional color workflow')
+professional_workflow_summary = scene.video_toolkit_last_professional_workflow
+professional_workflow_recipe_ids = scene.get('video_toolkit_last_professional_workflow_recipe_ids', '').split(',')
+assert professional_workflow_recipe_ids == recipe_mix_ids
+professional_workflow_node_count = scene.get('video_toolkit_last_professional_workflow_node_count', 0)
+assert professional_workflow_node_count >= 20
+professional_workflow_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Professional Color Workflow ')
+]
+professional_color_management_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Professional Color Management ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in professional_workflow_node_types, required
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeExposure',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeConvertToDisplay',
+    'CompositorNodeOutputFile',
+]:
+    assert required in professional_color_management_node_types, required
+professional_workflow_stats = render_preview({str(professional_workflow)!r})
+professional_workflow_diff = (
+    abs(professional_workflow_stats['r'] - recommended_recipe_mix_stats['r'])
+    + abs(professional_workflow_stats['g'] - recommended_recipe_mix_stats['g'])
+    + abs(professional_workflow_stats['b'] - recommended_recipe_mix_stats['b'])
+)
+assert professional_workflow_diff > 0.001, f'Professional workflow did not visibly change preview pixels: {{professional_workflow_diff}}'
 result = bpy.ops.video_toolkit.apply_diagnostic_grade()
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_diagnostic_grade.startswith('diagnostic grade')
@@ -953,6 +997,11 @@ Path({str(report)!r}).write_text(json.dumps({{
     'recommended_recipe_mix_node_summary': recommended_recipe_mix_node_summary,
     'recommended_recipe_mix_node_ids': recipe_mix_node_ids,
     'recommended_recipe_mix_node_types': recommended_recipe_mix_node_types,
+    'professional_workflow_summary': professional_workflow_summary,
+    'professional_workflow_recipe_ids': professional_workflow_recipe_ids,
+    'professional_workflow_node_count': professional_workflow_node_count,
+    'professional_workflow_node_types': professional_workflow_node_types,
+    'professional_color_management_node_types': professional_color_management_node_types,
     'diagnostic_grade_summary': scene.video_toolkit_last_diagnostic_grade,
     'diagnostic_grade_modifier_types': diagnostic_grade_types,
     'sampled_white_balance_summary': scene.video_toolkit_last_sampled_white_balance,

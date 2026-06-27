@@ -1186,6 +1186,92 @@ class VIDEO_TOOLKIT_OT_create_recommended_recipe_mix_nodes(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_apply_professional_color_workflow(Operator):
+    bl_idname = "video_toolkit.apply_professional_color_workflow"
+    bl_label = "Apply Pro Color Workflow"
+    bl_description = "Sample frames once, then apply Blender Color Management, ranked live grade, reports, and compositor graphs"
+    bl_options = {"REGISTER", "UNDO"}
+
+    target: bpy.props.EnumProperty(
+        name="Target",
+        items=(("SCENE", "Panel Target", "Use the panel target setting"),) + APPLY_TARGET_ITEMS,
+        default="SCENE",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            stats = sample_video_color(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            diagnosis = diagnose_color(stats)
+            recommendations = _rank_catalog_recipes(stats, diagnosis)
+            if not recommendations:
+                raise RuntimeError("No Blender-native color recipes were available for workflow")
+
+            diagnostics_text = _write_diagnostics_text(strip, diagnosis.report)
+            recommendations_text = _write_recipe_recommendation_text(strip, stats, diagnosis, recommendations)
+            color_profile = build_sampled_color_management(stats)
+            color_management_summary = _apply_sampled_color_management_profile(scene, color_profile)
+            count = max(1, min(scene.video_toolkit_recommendation_mix_count, len(recommendations)))
+            stack, labels, recipe_ids = _recommended_recipe_mix_stack(recommendations, count)
+            if not stack:
+                raise RuntimeError("Recommended recipes did not contain any live Blender modifiers")
+
+            modifiers, targets = _add_blender_stack_for_target(context, stack, "Professional Color Workflow", self.target)
+            recipe_nodes = _create_compositor_nodes_from_blender_stack(scene, strip, stack, "Professional Color Workflow")
+            color_nodes = _create_sampled_color_management_compositor_stack(
+                scene,
+                strip,
+                color_profile,
+                label_prefix="Professional Color Management",
+            )
+
+            for node in recipe_nodes + color_nodes:
+                node["video_toolkit_professional_workflow_recipe_ids"] = ",".join(recipe_ids)
+                node["video_toolkit_professional_workflow_recipe_labels"] = ", ".join(labels)
+                node["video_toolkit_source_strip"] = strip.name
+
+            scene.video_toolkit_last_diagnostics = diagnosis.summary
+            scene.video_toolkit_last_diagnostics_text = diagnostics_text.name
+            scene.video_toolkit_last_recipe_recommendations = recommendations_text.name
+            scene.video_toolkit_last_sampled_color_management = color_management_summary
+            scene.video_toolkit_last_color_management = color_management_summary
+            scene.video_toolkit_last_recommended_recipe_mix = (
+                f"professional workflow live mix {len(modifiers)} modifier(s) on {len(targets)} target(s): "
+                f"{', '.join(labels)}"
+            )
+            scene.video_toolkit_last_compositor_nodes = (
+                f"professional workflow nodes {len(recipe_nodes) + len(color_nodes)} node(s): "
+                f"{len(recipe_nodes)} recipe, {len(color_nodes)} color management"
+            )
+            scene.video_toolkit_last_professional_workflow = (
+                f"professional color workflow {stats.samples} frames, {len(modifiers)} modifier(s), "
+                f"{len(recipe_nodes) + len(color_nodes)} node(s): {', '.join(labels)}"
+            )
+            scene["video_toolkit_last_recommended_recipe_ids"] = ",".join(
+                tool.id for _score, tool, _reasons in recommendations[:12]
+            )
+            scene["video_toolkit_last_recommended_recipe_mix_ids"] = ",".join(recipe_ids)
+            scene["video_toolkit_last_professional_workflow_recipe_ids"] = ",".join(recipe_ids)
+            scene["video_toolkit_last_professional_workflow_node_count"] = len(recipe_nodes) + len(color_nodes)
+            top_tool = recommendations[0][1]
+            scene.video_toolkit_sidecar_group = _enum_key(top_tool.category)
+            scene.video_toolkit_sidecar_tool = top_tool.id
+            self.report({"INFO"}, scene.video_toolkit_last_professional_workflow)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_write_catalog_coverage_report(Operator):
     bl_idname = "video_toolkit.write_catalog_coverage_report"
     bl_label = "Write Catalog Coverage Report"
@@ -1730,6 +1816,11 @@ def _draw_one_click_video_effects(layout, scene, strip) -> None:
     quick.label(text="One-Click Video Effects", icon="COLOR")
     controls = quick.column(align=True)
     controls.enabled = strip is not None
+    controls.operator(
+        VIDEO_TOOLKIT_OT_apply_professional_color_workflow.bl_idname,
+        text="Pro Color Workflow",
+        icon="COLOR",
+    )
     row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Pro Grade", icon="MODIFIER")
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname, text="Color Mgmt", icon="WORLD")
@@ -1767,6 +1858,8 @@ def _draw_one_click_video_effects(layout, scene, strip) -> None:
 
 
 def _draw_sidecar_status(layout, scene) -> None:
+    if scene.video_toolkit_last_professional_workflow:
+        layout.label(text=scene.video_toolkit_last_professional_workflow, icon="COLOR")
     if scene.video_toolkit_last_analysis:
         layout.label(text=scene.video_toolkit_last_analysis, icon="INFO")
     if scene.video_toolkit_last_compositor_nodes:
@@ -1800,6 +1893,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     box.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Lighting Timeline", icon="GRAPH")
     box.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color Timeline", icon="COLOR")
     box.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Color Diagnostics Report", icon="TEXT")
+    box.operator(VIDEO_TOOLKIT_OT_apply_professional_color_workflow.bl_idname, text="Apply Pro Color Workflow", icon="COLOR")
     box.operator(VIDEO_TOOLKIT_OT_recommend_catalog_recipes.bl_idname, text="Recommend Catalog Recipes", icon="SORT_ASC")
     box.operator(VIDEO_TOOLKIT_OT_apply_recommended_recipe_mix.bl_idname, text="Apply Recommended Recipe Mix", icon="MODIFIER")
     box.operator(VIDEO_TOOLKIT_OT_create_recommended_recipe_mix_nodes.bl_idname, text="Recommended Recipe Mix Nodes", icon="NODETREE")
@@ -2566,40 +2660,41 @@ def _create_native_color_room_compositor_stack(scene, strip):
     ]
 
 
-def _create_sampled_color_management_compositor_stack(scene, strip, profile):
+def _create_sampled_color_management_compositor_stack(scene, strip, profile, label_prefix: str = "Sampled Color Management"):
     tree = _ensure_compositor_tree(scene)
     origin = _next_node_origin(tree)
-    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", "VTK Sampled Color Management Movie Clip", 0, origin=origin)
+    label = f"VTK {label_prefix}"
+    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", f"{label} Movie Clip", 0, origin=origin)
     _assign_movie_clip(movie, _movie_path(strip))
-    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", "VTK Sampled Color Management Color Space", 1, origin=origin)
-    exposure = _new_compositor_node(tree, "CompositorNodeExposure", "VTK Sampled Color Management Exposure", 2, origin=origin)
+    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", f"{label} Color Space", 1, origin=origin)
+    exposure = _new_compositor_node(tree, "CompositorNodeExposure", f"{label} Exposure", 2, origin=origin)
     _set_input_default(exposure, "Exposure", profile.exposure)
-    balance = _new_compositor_node(tree, "CompositorNodeColorBalance", "VTK Sampled Color Management White Balance", 3, origin=origin)
+    balance = _new_compositor_node(tree, "CompositorNodeColorBalance", f"{label} White Balance", 3, origin=origin)
     white_balance = _sampled_color_management_white_balance(profile)
     _set_input_default_candidates(balance, ("Fac", "Factor"), 1.0)
     _set_input_default_candidates(balance, ("Type",), "LIFT_GAMMA_GAIN")
     _set_input_default_candidates(balance, ("Color Gamma", "Gamma"), white_balance)
     _set_input_default_candidates(balance, ("Color Gain", "Gain"), white_balance)
-    correction = _new_compositor_node(tree, "CompositorNodeColorCorrection", "VTK Sampled Color Management View Gamma", 4, origin=origin)
+    correction = _new_compositor_node(tree, "CompositorNodeColorCorrection", f"{label} View Gamma", 4, origin=origin)
     _set_input_default_candidates(correction, ("Gamma", "Master Gamma"), profile.gamma)
     _set_input_default_candidates(correction, ("Gain", "Master Gain"), _clamp_node_value(1.0 + profile.exposure * 0.18, 0.88, 1.12))
     _set_input_default_candidates(correction, ("Saturation", "Master Saturation"), 1.0)
-    curves = _new_compositor_node(tree, "CompositorNodeCurveRGB", "VTK Sampled Color Management View Curves", 5, origin=origin)
+    curves = _new_compositor_node(tree, "CompositorNodeCurveRGB", f"{label} View Curves", 5, origin=origin)
     _apply_curve_points(curves.mapping, {0: profile.curve_points})
-    hue_sat = _new_compositor_node(tree, "CompositorNodeHueSat", "VTK Sampled Color Management Review HSV", 6, origin=origin)
+    hue_sat = _new_compositor_node(tree, "CompositorNodeHueSat", f"{label} Review HSV", 6, origin=origin)
     _set_input_default(hue_sat, "Saturation", 1.0)
     _set_input_default(hue_sat, "Value", _clamp_node_value(profile.gamma, 0.88, 1.16))
-    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Sampled Color Management View Transform", 7, origin=origin)
+    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", f"{label} View Transform", 7, origin=origin)
     _set_input_default(tonemap, "Type", "RD_PHOTORECEPTOR")
     _set_input_default(tonemap, "Intensity", _clamp_node_value(max(-profile.exposure, 0.0) * 0.35, 0.0, 0.18))
     _set_input_default(tonemap, "Contrast", 0.06 if profile.look_candidates and "High" in profile.look_candidates[0] else 0.03)
     _set_input_default(tonemap, "Gamma", profile.gamma)
-    display = _new_compositor_node(tree, "CompositorNodeConvertToDisplay", "VTK Sampled Color Management Display Convert", 8, origin=origin)
-    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Sampled Color Management Levels", 9, y_offset=160, origin=origin)
-    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Sampled Color Management Viewer", 10, origin=origin)
+    display = _new_compositor_node(tree, "CompositorNodeConvertToDisplay", f"{label} Display Convert", 8, origin=origin)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", f"{label} Levels", 9, y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", f"{label} Viewer", 10, origin=origin)
     output = _new_output_file_node(tree, scene, 10, y_offset=-160, origin=origin)
-    output.name = "VTK Sampled Color Management Output File"
-    output.label = "VTK Sampled Color Management Output File"
+    output.name = f"{label} Output File"
+    output.label = f"{label} Output File"
 
     final_socket = _link_compositor_chain(
         tree,
@@ -3705,6 +3800,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes,
     VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes,
     VIDEO_TOOLKIT_OT_create_recommended_recipe_mix_nodes,
+    VIDEO_TOOLKIT_OT_apply_professional_color_workflow,
     VIDEO_TOOLKIT_OT_write_catalog_coverage_report,
     VIDEO_TOOLKIT_OT_apply_color_management_preset,
     VIDEO_TOOLKIT_OT_apply_sampled_color_management,
@@ -3837,6 +3933,10 @@ def register() -> None:
         name="Last Sampled Color Management",
         default="",
     )
+    bpy.types.Scene.video_toolkit_last_professional_workflow = bpy.props.StringProperty(
+        name="Last Professional Color Workflow",
+        default="",
+    )
     bpy.types.Scene.video_toolkit_apply_target = bpy.props.EnumProperty(
         name="Target",
         description="Where live Blender color tools are applied",
@@ -3937,6 +4037,7 @@ def unregister() -> None:
         "video_toolkit_last_sampled_hue_chroma",
         "video_toolkit_last_sampled_pro_grade",
         "video_toolkit_last_sampled_color_management",
+        "video_toolkit_last_professional_workflow",
         "video_toolkit_apply_target",
         "video_toolkit_ffmpeg_chain",
         "video_toolkit_last_translation",

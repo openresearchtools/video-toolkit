@@ -165,6 +165,40 @@ for required in [
 ]:
     assert required in recipe_mix_node_types, required
 assert any(required in recipe_mix_node_types for required in ('CompositorNodeColorBalance', 'CompositorNodeCurveRGB', 'CompositorNodeHueCorrect'))
+bpy.ops.video_toolkit.apply_professional_color_workflow()
+assert scene.video_toolkit_last_professional_workflow.startswith('professional color workflow')
+assert scene.video_toolkit_last_sampled_color_management.startswith('sampled color management')
+workflow_recipe_ids = scene.get('video_toolkit_last_professional_workflow_recipe_ids', '').split(',')
+assert workflow_recipe_ids == recipe_mix_ids
+assert scene.get('video_toolkit_last_professional_workflow_node_count', 0) >= 20
+workflow_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Professional Color Workflow ')
+]
+workflow_cm_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Professional Color Management ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in workflow_types, required
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeExposure',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeConvertToDisplay',
+    'CompositorNodeOutputFile',
+]:
+    assert required in workflow_cm_types, required
 scene.video_toolkit_apply_target = 'SELECTED'
 bpy.ops.video_toolkit.apply_diagnostic_grade()
 assert scene.video_toolkit_last_diagnostic_grade.startswith('diagnostic grade')
