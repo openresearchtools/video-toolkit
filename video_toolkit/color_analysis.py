@@ -18,6 +18,21 @@ class LumaSample:
 
 
 @dataclass(frozen=True)
+class ColorTimelineSample:
+    sample_index: int
+    rgb: tuple[float, float, float]
+    luma: float
+    saturation: float
+
+
+@dataclass(frozen=True)
+class ColorBalanceKeyframe:
+    sample_index: int
+    gamma: tuple[float, float, float]
+    gain: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
 class ColorStats:
     samples: int
     mean_r: float
@@ -222,6 +237,71 @@ def sample_video_luma_timeline(
     return tuple(samples)
 
 
+def sample_video_color_timeline(
+    input_path: str | Path,
+    *,
+    max_samples: int = 240,
+    sample_grid: int = 12,
+) -> tuple[ColorTimelineSample, ...]:
+    """Sample per-frame RGB/luma through time for live color timeline matching."""
+
+    path = Path(input_path)
+    info = probe_video(path)
+    duration = info.duration or 1.0
+    max_samples = max(2, int(max_samples))
+    sample_grid = max(1, int(sample_grid))
+    fps = min(max_samples / max(duration, 0.001), info.frame_rate or 60.0)
+    ffmpeg = require_executable("ffmpeg")
+    command = [
+        ffmpeg,
+        "-hide_banner",
+        "-v",
+        "error",
+        "-i",
+        str(path),
+        "-an",
+        "-vf",
+        f"fps={fps:.6f},scale={sample_grid}:{sample_grid}:flags=area,format=rgb24",
+        "-frames:v",
+        str(max_samples),
+        "-f",
+        "rawvideo",
+        "pipe:1",
+    ]
+    result = subprocess.run(command, check=False, capture_output=True)
+    if result.returncode != 0:
+        message = result.stderr.decode("utf-8", "replace").strip()
+        raise FFmpegError(message or "ffmpeg color timeline sampling failed")
+    frame_size = sample_grid * sample_grid * 3
+    usable = len(result.stdout) - (len(result.stdout) % frame_size)
+    if usable <= 0:
+        raise FFmpegError(f"No sample frames decoded from {path}")
+    samples: list[ColorTimelineSample] = []
+    for sample_index, frame_start in enumerate(range(0, usable, frame_size)):
+        frame = result.stdout[frame_start : frame_start + frame_size]
+        pixel_count = max(len(frame) // 3, 1)
+        red = green = blue = 0.0
+        saturation_total = 0.0
+        for offset in range(0, len(frame), 3):
+            r = frame[offset]
+            g = frame[offset + 1]
+            b = frame[offset + 2]
+            red += r
+            green += g
+            blue += b
+            saturation_total += rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)[1]
+        rgb = (red / pixel_count, green / pixel_count, blue / pixel_count)
+        samples.append(
+            ColorTimelineSample(
+                sample_index=sample_index,
+                rgb=rgb,
+                luma=0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2],
+                saturation=saturation_total / pixel_count,
+            )
+        )
+    return tuple(samples)
+
+
 def build_lighting_normalization_keyframes(
     samples: tuple[LumaSample, ...],
     *,
@@ -249,6 +329,41 @@ def build_lighting_normalization_keyframes(
         correction = _clamp((target_luma - sample.luma) / 255.0 * strength, -max_bright, max_bright)
         keyframes.append((sample.sample_index, correction))
     return tuple(_reduce_keyframes(keyframes))
+
+
+def build_color_timeline_match_keyframes(
+    target_samples: tuple[ColorTimelineSample, ...],
+    reference_samples: tuple[ColorTimelineSample, ...],
+    *,
+    smoothing: int = 5,
+    strength: float = 0.75,
+    max_delta: float = 0.24,
+) -> tuple[ColorBalanceKeyframe, ...]:
+    """Build Color Balance keyframes that match RGB timeline shape to a reference."""
+
+    if not target_samples or not reference_samples:
+        return ()
+    smoothing = max(1, int(smoothing))
+    if smoothing % 2 == 0:
+        smoothing += 1
+    strength = _clamp(float(strength), 0.0, 1.5)
+    max_delta = abs(float(max_delta))
+    target_channels = _smooth_rgb_timeline(target_samples, smoothing)
+    reference_channels = _smooth_rgb_timeline(reference_samples, smoothing)
+    reference_channels = tuple(_resample_values(list(channel), len(target_samples)) for channel in reference_channels)
+    keyframes: list[ColorBalanceKeyframe] = []
+    for index, sample in enumerate(target_samples):
+        raw_ratios = []
+        for channel_index in range(3):
+            target_value = max(target_channels[channel_index][index], 1.0)
+            reference_value = max(reference_channels[channel_index][index], 1.0)
+            ratio = 1.0 + ((_safe_ratio(reference_value, target_value) ** 0.45) - 1.0) * strength
+            raw_ratios.append(ratio)
+        average = sum(raw_ratios) / 3.0
+        gamma = tuple(_clamp(value / average, 1.0 - max_delta, 1.0 + max_delta) for value in raw_ratios)
+        gain = tuple(_clamp(1.0 + (value - 1.0) * 0.60, 1.0 - max_delta * 0.75, 1.0 + max_delta * 0.75) for value in gamma)
+        keyframes.append(ColorBalanceKeyframe(sample.sample_index, gamma, gain))
+    return tuple(_reduce_color_keyframes(keyframes))
 
 
 def build_lighting_match_keyframes(
@@ -461,6 +576,14 @@ def _moving_average(values: list[float], window: int) -> list[float]:
     return result
 
 
+def _smooth_rgb_timeline(samples: tuple[ColorTimelineSample, ...], smoothing: int) -> tuple[list[float], list[float], list[float]]:
+    return (
+        _moving_average([sample.rgb[0] for sample in samples], smoothing),
+        _moving_average([sample.rgb[1] for sample in samples], smoothing),
+        _moving_average([sample.rgb[2] for sample in samples], smoothing),
+    )
+
+
 def _resample_values(values: list[float], output_count: int) -> list[float]:
     if output_count <= 0:
         return []
@@ -495,6 +618,24 @@ def _reduce_keyframes(keyframes: list[tuple[int, float]]) -> list[tuple[int, flo
         slope_a = current[1] - previous[1]
         slope_b = following[1] - current[1]
         if abs(current[1]) < 0.001 and abs(slope_a) < 0.001 and abs(slope_b) < 0.001:
+            continue
+        reduced.append(current)
+    reduced.append(keyframes[-1])
+    return reduced
+
+
+def _reduce_color_keyframes(keyframes: list[ColorBalanceKeyframe]) -> list[ColorBalanceKeyframe]:
+    if len(keyframes) <= 2:
+        return keyframes
+    reduced = [keyframes[0]]
+    for previous, current, following in zip(keyframes, keyframes[1:], keyframes[2:]):
+        previous_values = previous.gamma + previous.gain
+        current_values = current.gamma + current.gain
+        following_values = following.gamma + following.gain
+        flat = all(abs(value - 1.0) < 0.001 for value in current_values)
+        slope_in = max(abs(current_value - previous_value) for current_value, previous_value in zip(current_values, previous_values))
+        slope_out = max(abs(following_value - current_value) for following_value, current_value in zip(following_values, current_values))
+        if flat and slope_in < 0.001 and slope_out < 0.001:
             continue
         reduced.append(current)
     reduced.append(keyframes[-1])

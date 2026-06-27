@@ -120,6 +120,12 @@ bpy.ops.video_toolkit.match_lighting_timeline()
 timeline_match = next(m for m in strip.modifiers if m.name.startswith('VTK Live Timeline Match'))
 timeline_match_path = timeline_match.path_from_id('bright')
 assert action_keyframe_count(scene.animation_data.action, timeline_match_path) >= 2
+bpy.ops.video_toolkit.match_color_timeline()
+color_timeline_match = next(m for m in strip.modifiers if m.name.startswith('VTK Live Color Timeline Match'))
+color_gamma_path = color_timeline_match.color_balance.path_from_id('gamma')
+color_gain_path = color_timeline_match.color_balance.path_from_id('gain')
+assert action_keyframe_count(scene.animation_data.action, color_gamma_path) >= 6
+assert action_keyframe_count(scene.animation_data.action, color_gain_path) >= 6
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',

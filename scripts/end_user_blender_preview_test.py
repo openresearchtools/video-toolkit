@@ -110,7 +110,7 @@ def _make_reference_video(source: Path, output: Path) -> Path:
             str(source),
             "-an",
             "-vf",
-            "eq=brightness=0.10:contrast=1.05:saturation=1.02",
+            "colorchannelmixer=rr=1.08:gg=1.00:bb=0.90,eq=brightness=0.10:contrast=1.05:saturation=1.02",
             "-c:v",
             "libx264",
             "-pix_fmt",
@@ -254,6 +254,14 @@ timeline_match = next(modifier for modifier in strip.modifiers if modifier.name.
 timeline_match_keyframes = action_keyframe_count(scene.animation_data.action, timeline_match.path_from_id('bright'))
 assert timeline_match_keyframes >= 2, timeline_match_keyframes
 
+result = bpy.ops.video_toolkit.match_color_timeline()
+assert result == {{'FINISHED'}}, result
+color_timeline_match = next(modifier for modifier in strip.modifiers if modifier.name.startswith('VTK Live Color Timeline Match'))
+color_timeline_gamma_keyframes = action_keyframe_count(scene.animation_data.action, color_timeline_match.color_balance.path_from_id('gamma'))
+color_timeline_gain_keyframes = action_keyframe_count(scene.animation_data.action, color_timeline_match.color_balance.path_from_id('gain'))
+assert color_timeline_gamma_keyframes >= 6, color_timeline_gamma_keyframes
+assert color_timeline_gain_keyframes >= 6, color_timeline_gain_keyframes
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='COLOR')
 assert result == {{'FINISHED'}}, result
 if hasattr(scene, 'compositing_node_group'):
@@ -307,6 +315,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'normalizer_keyframes': normalizer_keyframes,
     'timeline_match_reference': {str(reference_video)!r},
     'timeline_match_keyframes': timeline_match_keyframes,
+    'color_timeline_gamma_keyframes': color_timeline_gamma_keyframes,
+    'color_timeline_gain_keyframes': color_timeline_gain_keyframes,
     'compositor_color_node_types': color_node_types,
     'compositor_all_node_types': all_node_types,
     'compositor_links': len(tree.links),

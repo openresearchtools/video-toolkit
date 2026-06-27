@@ -11,8 +11,10 @@ from .color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_color_timeline_match_keyframes,
     build_lighting_match_keyframes,
     build_lighting_normalization_keyframes,
+    sample_video_color_timeline,
     sample_video_luma_timeline,
     sample_video_color,
     summarize_stats,
@@ -249,6 +251,60 @@ class VIDEO_TOOLKIT_OT_match_lighting_timeline(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_match_color_timeline(Operator):
+    bl_idname = "video_toolkit.match_color_timeline"
+    bl_label = "Match Color Timeline"
+    bl_description = "Match active strip RGB color over time to another selected movie strip with live Blender Color Balance keyframes"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            active = scene.sequence_editor.active_strip
+            reference = _reference_movie_strip(context, active)
+            if reference is None:
+                raise RuntimeError("Select a reference movie strip as well as the active target strip")
+            target_samples = sample_video_color_timeline(_movie_path(active), max_samples=scene.video_toolkit_analysis_samples)
+            reference_samples = sample_video_color_timeline(_movie_path(reference), max_samples=scene.video_toolkit_analysis_samples)
+            keyframes = build_color_timeline_match_keyframes(
+                target_samples,
+                reference_samples,
+                smoothing=scene.video_toolkit_color_match_smoothing,
+                strength=scene.video_toolkit_color_match_strength,
+            )
+            if not keyframes:
+                raise RuntimeError("No color samples were available for timeline matching")
+            modifier = _add_blender_modifier(
+                active,
+                "COLOR_BALANCE",
+                {
+                    "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                    "color_balance.gamma": keyframes[0].gamma,
+                    "color_balance.gain": keyframes[0].gain,
+                },
+                f"Live Color Timeline Match to {reference.name}",
+            )
+            gamma_count = _insert_color_balance_keyframes(active, modifier, keyframes, "gamma")
+            gain_count = _insert_color_balance_keyframes(active, modifier, keyframes, "gain")
+            scene.video_toolkit_last_analysis = (
+                f"color timeline match keyframes gamma {gamma_count}, gain {gain_count}, "
+                f"target RGB {_timeline_rgb_summary(target_samples)}, reference {_timeline_rgb_summary(reference_samples)}"
+            )
+            self.report({"INFO"}, f"Added live color timeline match with {gamma_count} gamma keyframes")
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_clear_live_modifiers(Operator):
     bl_idname = "video_toolkit.clear_live_modifiers"
     bl_label = "Clear Video Toolkit Modifiers"
@@ -333,6 +389,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         op.mode = "PALETTE"
         layout.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Analyze: Normalize Flicker", icon="IPO_EASE_IN_OUT")
         layout.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Analyze: Match Lighting Timeline", icon="GRAPH")
+        layout.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Analyze: Match Color Timeline", icon="COLOR")
         _draw_operator(layout, "live_pro_color_stack", icon="MODIFIER")
         layout.separator()
         layout.menu("VIDEO_TOOLKIT_MT_live_blender_color", icon="COLOR")
@@ -449,6 +506,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     op.mode = "PALETTE"
     box.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Normalize Lighting Flicker", icon="IPO_EASE_IN_OUT")
     box.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Lighting Timeline", icon="GRAPH")
+    box.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color Timeline", icon="COLOR")
     box.prop(scene, "video_toolkit_analysis_samples")
     row = box.row(align=True)
     row.prop(scene, "video_toolkit_flicker_smoothing", text="Smooth")
@@ -456,6 +514,9 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     row = box.row(align=True)
     row.prop(scene, "video_toolkit_match_smoothing", text="Match Smooth")
     row.prop(scene, "video_toolkit_match_strength", text="Match Strength")
+    row = box.row(align=True)
+    row.prop(scene, "video_toolkit_color_match_smoothing", text="Color Smooth")
+    row.prop(scene, "video_toolkit_color_match_strength", text="Color Strength")
     if scene.video_toolkit_last_analysis:
         box.label(text=scene.video_toolkit_last_analysis, icon="INFO")
 
@@ -659,6 +720,37 @@ def _insert_modifier_keyframes(strip, modifier, keyframes, property_name: str) -
         inserted += 1
     _set_keyframes_linear(modifier)
     return inserted
+
+
+def _insert_color_balance_keyframes(strip, modifier, keyframes, property_name: str) -> int:
+    color_balance = modifier.color_balance
+    if not hasattr(color_balance, property_name):
+        raise RuntimeError(f"{modifier.name} does not expose color_balance.{property_name}")
+    start = int(getattr(strip, "frame_final_start", getattr(strip, "frame_start", 1)))
+    end = int(getattr(strip, "frame_final_end", start + getattr(strip, "frame_final_duration", 1))) - 1
+    duration = max(1, end - start)
+    max_index = max((keyframe.sample_index for keyframe in keyframes), default=1)
+    inserted = 0
+    seen_frames: set[int] = set()
+    for keyframe in keyframes:
+        frame = start + round((keyframe.sample_index / max(max_index, 1)) * duration)
+        if frame in seen_frames:
+            continue
+        seen_frames.add(frame)
+        setattr(color_balance, property_name, getattr(keyframe, property_name))
+        color_balance.keyframe_insert(data_path=property_name, frame=frame)
+        inserted += 1
+    _set_keyframes_linear(color_balance)
+    return inserted
+
+
+def _timeline_rgb_summary(samples) -> str:
+    if not samples:
+        return "no samples"
+    red = sum(sample.rgb[0] for sample in samples) / len(samples)
+    green = sum(sample.rgb[1] for sample in samples) / len(samples)
+    blue = sum(sample.rgb[2] for sample in samples) / len(samples)
+    return f"{red:.1f}/{green:.1f}/{blue:.1f}"
 
 
 def _set_keyframes_linear(target) -> None:
@@ -1079,6 +1171,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_normalize_lighting,
     VIDEO_TOOLKIT_OT_match_lighting_timeline,
+    VIDEO_TOOLKIT_OT_match_color_timeline,
     VIDEO_TOOLKIT_OT_clear_live_modifiers,
     VIDEO_TOOLKIT_OT_create_compositor_nodes,
     VIDEO_TOOLKIT_OT_open_output_folder,
@@ -1173,6 +1266,20 @@ def register() -> None:
         max=1.5,
         default=0.85,
     )
+    bpy.types.Scene.video_toolkit_color_match_smoothing = bpy.props.IntProperty(
+        name="Color Timeline Smoothing",
+        description="Odd-sized sample window used when matching active RGB timeline to a reference strip",
+        min=1,
+        max=99,
+        default=5,
+    )
+    bpy.types.Scene.video_toolkit_color_match_strength = bpy.props.FloatProperty(
+        name="Color Timeline Strength",
+        description="How strongly keyframed Blender Color Balance follows the selected reference strip",
+        min=0.0,
+        max=1.5,
+        default=0.75,
+    )
     bpy.types.Scene.video_toolkit_last_compositor_nodes = bpy.props.StringProperty(
         name="Last Compositor Nodes",
         default="",
@@ -1199,6 +1306,8 @@ def unregister() -> None:
         "video_toolkit_flicker_strength",
         "video_toolkit_match_smoothing",
         "video_toolkit_match_strength",
+        "video_toolkit_color_match_smoothing",
+        "video_toolkit_color_match_strength",
         "video_toolkit_last_compositor_nodes",
     ):
         if hasattr(bpy.types.Scene, attr):

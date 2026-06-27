@@ -6,11 +6,14 @@ import pytest
 
 from video_toolkit.color_analysis import (
     LumaSample,
+    ColorTimelineSample,
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_color_timeline_match_keyframes,
     build_lighting_match_keyframes,
     build_lighting_normalization_keyframes,
+    sample_video_color_timeline,
     sample_video_luma_timeline,
     sample_video_color,
 )
@@ -62,6 +65,14 @@ def test_sample_video_luma_timeline_reads_real_frames(tmp_path):
     assert len(timeline) > 0
     assert timeline[0].sample_index == 0
     assert all(sample.luma > 0 for sample in timeline)
+
+
+def test_sample_video_color_timeline_reads_real_frame_rgb(tmp_path):
+    red = _make_color_clip(tmp_path / "red_color_timeline.mp4", "red")
+    timeline = sample_video_color_timeline(red, max_samples=6, sample_grid=8)
+    assert len(timeline) > 0
+    assert timeline[0].rgb[0] > timeline[0].rgb[1]
+    assert timeline[0].rgb[0] > timeline[0].rgb[2]
 
 
 def test_auto_balance_builds_live_blender_stack(tmp_path):
@@ -133,3 +144,18 @@ def test_lighting_match_keyframes_follow_reference_luma():
     assert len(keyframes) == 4
     assert all(value > 0.0 for _index, value in keyframes)
     assert keyframes[0][1] > keyframes[-1][1]
+
+
+def test_color_timeline_match_keyframes_follow_reference_rgb():
+    target = (
+        ColorTimelineSample(0, (180.0, 70.0, 60.0), 95.0, 0.5),
+        ColorTimelineSample(1, (170.0, 75.0, 65.0), 96.0, 0.5),
+    )
+    reference = (
+        ColorTimelineSample(0, (70.0, 80.0, 190.0), 92.0, 0.5),
+        ColorTimelineSample(1, (75.0, 85.0, 185.0), 94.0, 0.5),
+    )
+    keyframes = build_color_timeline_match_keyframes(target, reference, smoothing=1, strength=1.0)
+    assert len(keyframes) == 2
+    assert keyframes[0].gamma[2] > keyframes[0].gamma[0]
+    assert keyframes[0].gain[2] > keyframes[0].gain[0]
