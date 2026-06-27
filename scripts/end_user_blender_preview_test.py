@@ -460,6 +460,39 @@ for required in [
     assert required in color_node_types, required
 assert len(tree.links) >= 12, f'Expected linked compositor color graph, got {{len(tree.links)}} links'
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='NATIVE_COLOR_ROOM')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('native color room graph')
+native_room_summary = scene.video_toolkit_last_compositor_nodes
+native_room_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Native Color Room ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeExposure',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeColorCorrection',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueSat',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeConvertToDisplay',
+    'CompositorNodeSeparateColor',
+    'CompositorNodeCombineColor',
+    'CompositorNodeRGBToBW',
+    'CompositorNodeNormalize',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in native_room_node_types, required
+native_room_links = len([link for link in tree.links if link.from_node.name.startswith('VTK Native Color Room ')])
+assert native_room_links >= 16, native_room_links
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('sampled compositor grade')
@@ -759,6 +792,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'color_timeline_gamma_keyframes': color_timeline_gamma_keyframes,
     'color_timeline_gain_keyframes': color_timeline_gain_keyframes,
     'compositor_color_node_types': color_node_types,
+    'native_room_summary': native_room_summary,
+    'native_room_node_types': native_room_node_types,
+    'native_room_links': native_room_links,
     'sampled_compositor_summary': sampled_compositor_summary,
     'sampled_compositor_node_types': sampled_compositor_node_types,
     'sampled_compositor_exposure': sampled_exposure_socket.default_value,

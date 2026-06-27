@@ -46,6 +46,7 @@ APPLY_TARGET_ITEMS = (
 
 COMPOSITOR_STACK_ITEMS = (
     ("COLOR", "Color Node Stack", "Build a Blender compositor color node graph from the active movie strip"),
+    ("NATIVE_COLOR_ROOM", "Native Color Room Node Stack", "Build a connected graph of Blender's native compositor color controls"),
     ("SAMPLED_COLOR", "Sampled Color Node Stack", "Sample real frames and build a Blender compositor color graph from the measured footage"),
     ("IDENTITY_COLOR", "Palette Identity Node Stack", "Identify dominant colors and build a Blender compositor palette-aware graph"),
     ("MATCHED_COLOR", "Matched Color Node Stack", "Match the active movie strip to a selected reference strip with Blender compositor nodes"),
@@ -638,6 +639,10 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
             elif self.stack_type == "RESTORATION":
                 created = _create_compositor_restoration_stack(context.scene, strip)
                 label = "restoration"
+            elif self.stack_type == "NATIVE_COLOR_ROOM":
+                created = _create_native_color_room_compositor_stack(context.scene, strip)
+                label = "native color room"
+                summary = f"native color room graph; {_compositor_node_summary(created)}"
             elif self.stack_type == "SAMPLED_COLOR":
                 stats = sample_video_color(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
                 profile = build_sampled_compositor_grade(stats)
@@ -860,6 +865,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         layout.menu("VIDEO_TOOLKIT_MT_blender_vse_modifiers", icon="SEQ_STRIP_DUPLICATE")
         op = layout.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Create Color Node Stack", icon="NODETREE")
         op.stack_type = "COLOR"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Native Color Room Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "NATIVE_COLOR_ROOM"
         op = layout.operator(
             VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
             text="Create Sampled Color Node Stack",
@@ -1110,9 +1121,11 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Color Stack", icon="COLOR")
     op.stack_type = "COLOR"
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Color Room", icon="NODETREE")
+    op.stack_type = "NATIVE_COLOR_ROOM"
+    row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Sampled", icon="EYEDROPPER")
     op.stack_type = "SAMPLED_COLOR"
-    row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Identity", icon="COLOR")
     op.stack_type = "IDENTITY_COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Matched", icon="EYEDROPPER")
@@ -1691,6 +1704,90 @@ def _create_compositor_color_stack(scene, strip):
     _link_socket(tree, combined_socket, _image_input(viewer))
     _link_socket(tree, combined_socket, _first_socket(output.inputs))
     return [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap, separate, combine, levels, viewer, output]
+
+
+def _create_native_color_room_compositor_stack(scene, strip):
+    tree = _ensure_compositor_tree(scene)
+    origin = _next_node_origin(tree)
+    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", "VTK Native Color Room Movie Clip", 0, origin=origin)
+    _assign_movie_clip(movie, _movie_path(strip))
+    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", "VTK Native Color Room Color Space", 1, origin=origin)
+    exposure = _new_compositor_node(tree, "CompositorNodeExposure", "VTK Native Color Room Exposure", 2, origin=origin)
+    _set_input_default(exposure, "Exposure", 0.0)
+    bright = _new_compositor_node(tree, "CompositorNodeBrightContrast", "VTK Native Color Room Brightness Contrast", 3, origin=origin)
+    _set_input_default_candidates(bright, ("Brightness", "Bright"), 0.0)
+    _set_input_default(bright, "Contrast", 0.0)
+    balance = _new_compositor_node(tree, "CompositorNodeColorBalance", "VTK Native Color Room Lift Gamma Gain", 4, origin=origin)
+    _set_input_default_candidates(balance, ("Fac", "Factor"), 1.0)
+    _set_input_default_candidates(balance, ("Type",), "LIFT_GAMMA_GAIN")
+    _set_input_default_candidates(balance, ("Color Lift", "Lift"), (1.0, 1.0, 1.0, 1.0))
+    _set_input_default_candidates(balance, ("Color Gamma", "Gamma"), (1.0, 1.0, 1.0, 1.0))
+    _set_input_default_candidates(balance, ("Color Gain", "Gain"), (1.0, 1.0, 1.0, 1.0))
+    correction = _new_compositor_node(tree, "CompositorNodeColorCorrection", "VTK Native Color Room Zone Correction", 5, origin=origin)
+    _set_input_default_candidates(correction, ("Saturation", "Master Saturation"), 1.0)
+    _set_input_default_candidates(correction, ("Contrast", "Master Contrast"), 1.0)
+    _set_input_default_candidates(correction, ("Gamma", "Master Gamma"), 1.0)
+    _set_input_default_candidates(correction, ("Gain", "Master Gain"), 1.0)
+    _set_input_default_candidates(correction, ("Midtones Start",), 0.20)
+    _set_input_default_candidates(correction, ("Midtones End",), 0.80)
+    curves = _new_compositor_node(tree, "CompositorNodeCurveRGB", "VTK Native Color Room RGB Curves", 6, origin=origin)
+    _apply_curve_points(curves.mapping, {0: ((0.0, 0.0), (0.25, 0.25), (0.50, 0.50), (0.75, 0.75), (1.0, 1.0))})
+    hue_sat = _new_compositor_node(tree, "CompositorNodeHueSat", "VTK Native Color Room Hue Saturation Value", 7, origin=origin)
+    _set_input_default(hue_sat, "Hue", 0.5)
+    _set_input_default(hue_sat, "Saturation", 1.0)
+    _set_input_default(hue_sat, "Value", 1.0)
+    _set_input_default_candidates(hue_sat, ("Factor", "Fac"), 1.0)
+    hue_correct = _new_compositor_node(tree, "CompositorNodeHueCorrect", "VTK Native Color Room Hue Correct", 8, origin=origin)
+    _apply_hue_correct(hue_correct.mapping, {"saturation": 0.50, "value": 0.50})
+    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Native Color Room Tone Map", 9, origin=origin)
+    _set_input_default(tonemap, "Type", "RD_PHOTORECEPTOR")
+    _set_input_default(tonemap, "Intensity", 0.0)
+    _set_input_default(tonemap, "Contrast", 0.0)
+    _set_input_default(tonemap, "Gamma", 1.0)
+    display = _new_compositor_node(tree, "CompositorNodeConvertToDisplay", "VTK Native Color Room Display Convert", 10, origin=origin)
+    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", "VTK Native Color Room Separate Color", 11, y_offset=-120, origin=origin)
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", "VTK Native Color Room Combine Color", 12, y_offset=-120, origin=origin)
+    luma = _new_compositor_node(tree, "CompositorNodeRGBToBW", "VTK Native Color Room Luma Monitor", 11, y_offset=-360, origin=origin)
+    normalize = _new_compositor_node(tree, "CompositorNodeNormalize", "VTK Native Color Room Normalize Monitor", 12, y_offset=-360, origin=origin)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Native Color Room Levels", 13, y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Native Color Room Viewer", 14, origin=origin)
+    output = _new_output_file_node(tree, scene, 14, y_offset=-160, origin=origin)
+    output.name = "VTK Native Color Room Output File"
+    output.label = "VTK Native Color Room Output File"
+
+    final_socket = _link_compositor_chain(
+        tree,
+        [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap, display],
+    )
+    _link_socket(tree, final_socket, _image_input(separate))
+    for socket_name in ("Red", "Green", "Blue", "Alpha"):
+        _link_socket(tree, _socket_by_name(separate.outputs, socket_name), _socket_by_name(combine.inputs, socket_name))
+    combined_socket = _image_output(combine)
+    _link_socket(tree, combined_socket, _image_input(luma))
+    _link_socket(tree, _first_socket(luma.outputs), _first_socket(normalize.inputs))
+    _link_socket(tree, combined_socket, _image_input(levels))
+    _link_socket(tree, combined_socket, _image_input(viewer))
+    _link_socket(tree, combined_socket, _first_socket(output.inputs))
+    return [
+        movie,
+        convert,
+        exposure,
+        bright,
+        balance,
+        correction,
+        curves,
+        hue_sat,
+        hue_correct,
+        tonemap,
+        display,
+        separate,
+        combine,
+        luma,
+        normalize,
+        levels,
+        viewer,
+        output,
+    ]
 
 
 def _create_sampled_compositor_color_stack(scene, strip, profile):

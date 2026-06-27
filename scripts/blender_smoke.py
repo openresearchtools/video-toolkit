@@ -294,6 +294,31 @@ assert 'CompositorNodeMovieClip' in node_types
 assert 'CompositorNodeColorCorrection' in node_types
 assert 'CompositorNodeTonemap' in node_types
 assert len(tree.links) >= 12
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='NATIVE_COLOR_ROOM')
+assert scene.video_toolkit_last_compositor_nodes.startswith('native color room graph')
+native_room_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Native Color Room ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeExposure',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeColorCorrection',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueSat',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeConvertToDisplay',
+    'CompositorNodeSeparateColor',
+    'CompositorNodeCombineColor',
+    'CompositorNodeRGBToBW',
+    'CompositorNodeNormalize',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in native_room_node_types, required
+assert len([link for link in tree.links if link.from_node.name.startswith('VTK Native Color Room ')]) >= 16
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR')
 assert scene.video_toolkit_last_compositor_nodes.startswith('sampled compositor grade')
 sampled_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Sampled ')]
