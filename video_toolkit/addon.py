@@ -49,6 +49,7 @@ COMPOSITOR_STACK_ITEMS = (
     ("SAMPLED_COLOR", "Sampled Color Node Stack", "Sample real frames and build a Blender compositor color graph from the measured footage"),
     ("IDENTITY_COLOR", "Palette Identity Node Stack", "Identify dominant colors and build a Blender compositor palette-aware graph"),
     ("MATCHED_COLOR", "Matched Color Node Stack", "Match the active movie strip to a selected reference strip with Blender compositor nodes"),
+    ("COLOR_TIMELINE_MATCH", "Color Timeline Match Node Stack", "Sample active/reference RGB over time and animate Blender compositor color balance"),
     ("TRANSLATED_COLOR", "Translated Color Node Stack", "Translate the FFmpeg-style color chain into a Blender compositor graph"),
     ("LIGHTING_NORMALIZE", "Lighting Normalize Node Stack", "Sample luma over time and animate Blender compositor brightness correction"),
     ("RESTORATION", "Restoration Node Stack", "Build a Blender compositor restoration node graph from the active movie strip"),
@@ -665,6 +666,40 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
                     f"{summarize_stats(target_stats)} -> {summarize_stats(reference_stats)}; "
                     f"{_compositor_node_summary(created)}"
                 )
+            elif self.stack_type == "COLOR_TIMELINE_MATCH":
+                reference = _reference_movie_strip(context, strip)
+                if reference is None:
+                    raise RuntimeError("Select a reference movie strip as well as the active target strip")
+                target_samples = sample_video_color_timeline(
+                    _movie_path(strip),
+                    max_samples=context.scene.video_toolkit_analysis_samples,
+                )
+                reference_samples = sample_video_color_timeline(
+                    _movie_path(reference),
+                    max_samples=context.scene.video_toolkit_analysis_samples,
+                )
+                keyframes = build_color_timeline_match_keyframes(
+                    target_samples,
+                    reference_samples,
+                    smoothing=context.scene.video_toolkit_color_match_smoothing,
+                    strength=context.scene.video_toolkit_color_match_strength,
+                )
+                if not keyframes:
+                    raise RuntimeError("No color samples were available for compositor timeline matching")
+                created, gamma_count, gain_count = _create_color_timeline_match_compositor_stack(
+                    context.scene,
+                    strip,
+                    keyframes,
+                    reference.name,
+                )
+                label = "color timeline match"
+                summary = (
+                    f"compositor color timeline match to {reference.name}, "
+                    f"gamma {gamma_count} keyframes, gain {gain_count} keyframes, "
+                    f"target RGB {_timeline_rgb_summary(target_samples)}, "
+                    f"reference {_timeline_rgb_summary(reference_samples)}; "
+                    f"{_compositor_node_summary(created)}"
+                )
             elif self.stack_type == "TRANSLATED_COLOR":
                 chain = context.scene.video_toolkit_ffmpeg_chain.strip()
                 if not chain:
@@ -827,6 +862,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
             icon="NODETREE",
         )
         op.stack_type = "MATCHED_COLOR"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Timeline Color Match Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "COLOR_TIMELINE_MATCH"
         op = layout.operator(
             VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
             text="Create Translated Color Node Stack",
@@ -1055,14 +1096,16 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Matched", icon="EYEDROPPER")
     op.stack_type = "MATCHED_COLOR"
     row = box.row(align=True)
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Timeline", icon="GRAPH")
+    op.stack_type = "COLOR_TIMELINE_MATCH"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Translated", icon="MODIFIER")
     op.stack_type = "TRANSLATED_COLOR"
+    row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Normalize", icon="IPO_EASE_IN_OUT")
     op.stack_type = "LIGHTING_NORMALIZE"
-    row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
     op.stack_type = "RESTORATION"
-    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Node Library", icon="NODETREE")
+    op = box.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Native Node Library", icon="NODETREE")
     op.stack_type = "NODE_LIBRARY"
     if scene.video_toolkit_last_compositor_nodes:
         box.label(text=scene.video_toolkit_last_compositor_nodes, icon="INFO")
@@ -1500,6 +1543,26 @@ def _insert_node_socket_keyframes(strip, socket, keyframes) -> int:
     return inserted
 
 
+def _insert_color_node_socket_keyframes(strip, socket, keyframes, property_name: str) -> int:
+    start = int(getattr(strip, "frame_final_start", getattr(strip, "frame_start", 1)))
+    end = int(getattr(strip, "frame_final_end", start + getattr(strip, "frame_final_duration", 1))) - 1
+    duration = max(1, end - start)
+    max_index = max((keyframe.sample_index for keyframe in keyframes), default=1)
+    inserted = 0
+    seen_frames: set[int] = set()
+    for keyframe in keyframes:
+        frame = start + round((keyframe.sample_index / max(max_index, 1)) * duration)
+        if frame in seen_frames:
+            continue
+        seen_frames.add(frame)
+        if not _try_set_socket_default(socket, _rgba(getattr(keyframe, property_name))):
+            raise RuntimeError(f"Blender compositor socket does not accept {property_name} color keyframes")
+        socket.keyframe_insert(data_path="default_value", frame=frame)
+        inserted += 1
+    _set_keyframes_linear(socket)
+    return inserted
+
+
 def _timeline_rgb_summary(samples) -> str:
     if not samples:
         return "no samples"
@@ -1674,6 +1737,47 @@ def _create_identity_compositor_color_stack(scene, strip, stack):
 
 def _create_matched_compositor_color_stack(scene, strip, stack, reference_name: str):
     return _create_compositor_nodes_from_blender_stack(scene, strip, stack, f"Matched to {reference_name}")
+
+
+def _create_color_timeline_match_compositor_stack(scene, strip, keyframes, reference_name: str):
+    tree = _ensure_compositor_tree(scene)
+    origin = _next_node_origin(tree)
+    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", "VTK Color Timeline Match Movie Clip", 0, origin=origin)
+    _assign_movie_clip(movie, _movie_path(strip))
+    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", "VTK Color Timeline Match Color Space", 1, origin=origin)
+    balance = _new_compositor_node(tree, "CompositorNodeColorBalance", "VTK Color Timeline Match Balance", 2, origin=origin)
+    _set_input_default_candidates(balance, ("Fac", "Factor"), 1.0)
+    _set_input_default_candidates(balance, ("Type",), "LIFT_GAMMA_GAIN")
+    gamma_socket = _color_input_socket(balance, ("Color Gamma", "Gamma"), _rgba(keyframes[0].gamma))
+    gain_socket = _color_input_socket(balance, ("Color Gain", "Gain"), _rgba(keyframes[0].gain))
+    if gamma_socket is None or gain_socket is None:
+        raise RuntimeError("Blender compositor Color Balance node does not expose color Gamma/Gain sockets")
+    gamma_count = _insert_color_node_socket_keyframes(strip, gamma_socket, keyframes, "gamma")
+    gain_count = _insert_color_node_socket_keyframes(strip, gain_socket, keyframes, "gain")
+    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Color Timeline Match Tone Map", 3, origin=origin)
+    _set_input_default(tonemap, "Type", "RD_PHOTORECEPTOR")
+    _set_input_default(tonemap, "Intensity", 0.03)
+    _set_input_default(tonemap, "Contrast", 0.03)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Color Timeline Match Levels", 4, y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Color Timeline Match Viewer", 5, origin=origin)
+    output = _new_output_file_node(tree, scene, 5, y_offset=-160, origin=origin)
+    output.name = "VTK Color Timeline Match Output File"
+    output.label = "VTK Color Timeline Match Output File"
+
+    matched_socket = _link_compositor_chain(tree, [movie, convert, balance, tonemap])
+    _link_socket(tree, matched_socket, _image_input(levels))
+    leveled_socket = _image_output(levels)
+    _link_socket(tree, leveled_socket, _image_input(viewer))
+    _link_socket(tree, leveled_socket, _first_socket(output.inputs))
+    balance["video_toolkit_reference"] = reference_name
+    balance["video_toolkit_gamma_keyframes"] = gamma_count
+    balance["video_toolkit_gain_keyframes"] = gain_count
+    balance["video_toolkit_gamma_socket_path"] = gamma_socket.path_from_id("default_value")
+    balance["video_toolkit_gain_socket_path"] = gain_socket.path_from_id("default_value")
+    created = [movie, convert, balance, tonemap, levels, viewer, output]
+    for node in created:
+        node["video_toolkit_color_timeline_keyframes"] = min(gamma_count, gain_count)
+    return created, gamma_count, gain_count
 
 
 def _create_lighting_normalizer_compositor_stack(scene, strip, keyframes):
@@ -1969,6 +2073,16 @@ def _image_output(node):
 def _socket_by_name(sockets, name: str):
     for socket in sockets:
         if socket.name == name or getattr(socket, "identifier", "") == name:
+            return socket
+    return None
+
+
+def _color_input_socket(node, socket_names, value):
+    names = set(socket_names)
+    for socket in node.inputs:
+        if socket.name not in names and getattr(socket, "identifier", "") not in names:
+            continue
+        if _try_set_socket_default(socket, value):
             return socket
     return None
 

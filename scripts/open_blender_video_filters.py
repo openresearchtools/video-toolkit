@@ -81,6 +81,7 @@ def _setup_scene() -> None:
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="SAMPLED_COLOR")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="IDENTITY_COLOR")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="MATCHED_COLOR")
+        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="COLOR_TIMELINE_MATCH")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="TRANSLATED_COLOR")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="LIGHTING_NORMALIZE")
     except Exception:

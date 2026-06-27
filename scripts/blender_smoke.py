@@ -353,6 +353,22 @@ for candidate in scene.sequence_editor.strips_all:
 strip.select = True
 second_strip.select = True
 scene.sequence_editor.active_strip = strip
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='COLOR_TIMELINE_MATCH')
+assert scene.video_toolkit_last_compositor_nodes.startswith('compositor color timeline match to')
+timeline_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Color Timeline Match ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeColorBalance',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in timeline_node_types, required
+timeline_balance = next(node for node in tree.nodes if node.name == 'VTK Color Timeline Match Balance')
+assert action_keyframe_count(tree.animation_data.action, timeline_balance['video_toolkit_gamma_socket_path']) >= 2
+assert action_keyframe_count(tree.animation_data.action, timeline_balance['video_toolkit_gain_socket_path']) >= 2
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='MATCHED_COLOR')
 assert scene.video_toolkit_last_compositor_nodes.startswith('matched compositor to')
 matched_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Matched to ')]

@@ -544,6 +544,37 @@ lighting_compositor_keyframes = action_keyframe_count(
 )
 assert lighting_compositor_keyframes >= 2, lighting_compositor_keyframes
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='COLOR_TIMELINE_MATCH')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('compositor color timeline match to')
+timeline_compositor_summary = scene.video_toolkit_last_compositor_nodes
+timeline_compositor_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Color Timeline Match ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeColorBalance',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in timeline_compositor_node_types, required
+timeline_balance_node = next(node for node in tree.nodes if node.name == 'VTK Color Timeline Match Balance')
+timeline_compositor_gamma_keyframes = action_keyframe_count(
+    tree.animation_data.action,
+    timeline_balance_node['video_toolkit_gamma_socket_path'],
+)
+timeline_compositor_gain_keyframes = action_keyframe_count(
+    tree.animation_data.action,
+    timeline_balance_node['video_toolkit_gain_socket_path'],
+)
+assert timeline_compositor_gamma_keyframes >= 2, timeline_compositor_gamma_keyframes
+assert timeline_compositor_gain_keyframes >= 2, timeline_compositor_gain_keyframes
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='MATCHED_COLOR')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('matched compositor to')
@@ -706,6 +737,10 @@ Path({str(report)!r}).write_text(json.dumps({{
     'lighting_compositor_summary': lighting_compositor_summary,
     'lighting_compositor_node_types': lighting_compositor_node_types,
     'lighting_compositor_keyframes': lighting_compositor_keyframes,
+    'timeline_compositor_summary': timeline_compositor_summary,
+    'timeline_compositor_node_types': timeline_compositor_node_types,
+    'timeline_compositor_gamma_keyframes': timeline_compositor_gamma_keyframes,
+    'timeline_compositor_gain_keyframes': timeline_compositor_gain_keyframes,
     'matched_compositor_summary': matched_compositor_summary,
     'matched_compositor_node_types': matched_compositor_node_types,
     'translated_compositor_summary': translated_compositor_summary,
