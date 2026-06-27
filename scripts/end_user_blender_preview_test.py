@@ -460,6 +460,35 @@ for required in [
     assert required in color_node_types, required
 assert len(tree.links) >= 12, f'Expected linked compositor color graph, got {{len(tree.links)}} links'
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('sampled compositor grade')
+sampled_compositor_summary = scene.video_toolkit_last_compositor_nodes
+sampled_compositor_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Sampled ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeExposure',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeColorCorrection',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueSat',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in sampled_compositor_node_types, required
+sampled_exposure_node = next(node for node in tree.nodes if node.name == 'VTK Sampled Exposure')
+sampled_exposure_socket = next(socket for socket in sampled_exposure_node.inputs if socket.name == 'Exposure')
+assert abs(sampled_exposure_socket.default_value) > 0.001
+sampled_curve_node = next(node for node in tree.nodes if node.name == 'VTK Sampled RGB Curves')
+assert len(sampled_curve_node.mapping.curves[0].points) >= 5
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='RESTORATION')
 assert result == {{'FINISHED'}}, result
 all_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK ')]
@@ -562,6 +591,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'color_timeline_gamma_keyframes': color_timeline_gamma_keyframes,
     'color_timeline_gain_keyframes': color_timeline_gain_keyframes,
     'compositor_color_node_types': color_node_types,
+    'sampled_compositor_summary': sampled_compositor_summary,
+    'sampled_compositor_node_types': sampled_compositor_node_types,
+    'sampled_compositor_exposure': sampled_exposure_socket.default_value,
     'compositor_all_node_types': all_node_types,
     'compositor_library_node_types': library_node_types,
     'compositor_library_summary': library_summary,

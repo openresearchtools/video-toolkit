@@ -12,6 +12,7 @@ from video_toolkit.color_analysis import (
     build_color_identity_stack,
     build_color_match_stack,
     build_sampled_color_management,
+    build_sampled_compositor_grade,
     build_sampled_hue_chroma_stack,
     build_sampled_levels_gamma_stack,
     build_sampled_pro_grade_stack,
@@ -282,6 +283,43 @@ def test_sampled_color_management_builds_scene_view_profile():
     assert len(profile.curve_points) == 5
     assert profile.curve_points[2][1] < 0.50
     assert profile.sequencer_input == "bt709"
+
+
+def test_sampled_compositor_grade_builds_node_values():
+    stats = ColorStats(
+        samples=24,
+        mean_r=148.0,
+        mean_g=122.0,
+        mean_b=96.0,
+        mean_luma=126.0,
+        luma_std=31.0,
+        luma_p05=42.0,
+        luma_p95=204.0,
+        shadow_rgb=(38.0, 34.0, 30.0),
+        midtone_rgb=(126.0, 116.0, 100.0),
+        highlight_rgb=(206.0, 188.0, 160.0),
+        shadow_luma=35.0,
+        midtone_luma=116.0,
+        highlight_luma=188.0,
+        shadow_count=100,
+        midtone_count=320,
+        highlight_count=92,
+        dominant_rgb=((190.0, 96.0, 42.0), (42.0, 88.0, 170.0)),
+        warm_ratio=0.36,
+        cool_ratio=0.18,
+        skin_ratio=0.09,
+        mean_saturation=0.44,
+        mean_chroma=72.0,
+    )
+    profile = build_sampled_compositor_grade(stats)
+    assert profile.summary.startswith("sampled compositor grade")
+    assert profile.exposure < 0.0
+    assert profile.contrast > 0.0
+    assert profile.gamma[2] > profile.gamma[0]
+    assert 0.78 <= profile.saturation <= 1.18
+    assert len(profile.curve_points) == 5
+    assert set(profile.hue_curve_points) == {0, 1, 2}
+    assert profile.tonemap_gamma > 0.0
 
 
 def test_color_diagnosis_reports_palette_and_suggested_tools(tmp_path):

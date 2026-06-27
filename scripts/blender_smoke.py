@@ -294,6 +294,25 @@ assert 'CompositorNodeMovieClip' in node_types
 assert 'CompositorNodeColorCorrection' in node_types
 assert 'CompositorNodeTonemap' in node_types
 assert len(tree.links) >= 12
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR')
+assert scene.video_toolkit_last_compositor_nodes.startswith('sampled compositor grade')
+sampled_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Sampled ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeExposure',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeColorCorrection',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+]:
+    assert required in sampled_node_types, required
+sampled_exposure = next(node for node in tree.nodes if node.name == 'VTK Sampled Exposure')
+exposure_socket = next(socket for socket in sampled_exposure.inputs if socket.name == 'Exposure')
+assert abs(exposure_socket.default_value) > 0.001
+sampled_curves = next(node for node in tree.nodes if node.name == 'VTK Sampled RGB Curves')
+assert len(sampled_curves.mapping.curves[0].points) >= 5
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='RESTORATION')
 node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK ')]
 assert 'CompositorNodeStabilize' in node_types

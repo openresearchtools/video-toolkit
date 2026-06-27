@@ -86,6 +86,27 @@ class SampledColorManagement:
     summary: str
 
 
+@dataclass(frozen=True)
+class SampledCompositorGrade:
+    exposure: float
+    brightness: float
+    contrast: float
+    lift: tuple[float, float, float]
+    gamma: tuple[float, float, float]
+    gain: tuple[float, float, float]
+    saturation: float
+    master_gamma: float
+    master_gain: float
+    midtones_start: float
+    midtones_end: float
+    curve_points: tuple[tuple[float, float], ...]
+    hue_curve_points: dict[int, tuple[tuple[float, float], ...]]
+    tonemap_intensity: float
+    tonemap_contrast: float
+    tonemap_gamma: float
+    summary: str
+
+
 def sample_video_color(
     input_path: str | Path,
     *,
@@ -638,6 +659,69 @@ def build_sampled_color_management(stats: ColorStats) -> SampledColorManagement:
         white_balance_tint=white_balance_tint,
         curve_points=curve_points,
         sequencer_input="bt709",
+        summary=summary,
+    )
+
+
+def build_sampled_compositor_grade(stats: ColorStats) -> SampledCompositorGrade:
+    """Build sampled values for an editable Blender compositor finishing graph."""
+
+    white_balance = build_sampled_white_balance_stack(stats)
+    levels_gamma = build_sampled_levels_gamma_stack(stats)
+    hue_chroma = build_sampled_hue_chroma_stack(stats)
+
+    white_balance_settings = white_balance[1][1]
+    levels_balance_settings = levels_gamma[1][1]
+    levels_bright_settings = levels_gamma[2][1]
+    tonemap_settings = levels_gamma[3][1]
+    lift = _blend_rgb(
+        white_balance_settings["color_balance.lift"],
+        levels_balance_settings["color_balance.lift"],
+        0.35,
+    )
+    gamma = _blend_rgb(
+        white_balance_settings["color_balance.gamma"],
+        levels_balance_settings["color_balance.gamma"],
+        0.50,
+    )
+    gain = _blend_rgb(
+        white_balance_settings["color_balance.gain"],
+        levels_balance_settings["color_balance.gain"],
+        0.45,
+    )
+    exposure = _clamp((118.0 - stats.mean_luma) / 255.0 * 0.95, -0.42, 0.34)
+    saturation = _clamp(1.0 + (0.34 - stats.mean_saturation) * 0.42, 0.78, 1.18)
+    if stats.skin_ratio > 0.10:
+        saturation = _clamp(saturation, 0.90, 1.10)
+    master_gamma = _clamp(1.0 + (118.0 - (stats.midtone_luma or stats.mean_luma)) / 255.0 * 0.30, 0.88, 1.14)
+    master_gain = _clamp(1.0 + (218.0 - (stats.highlight_luma or stats.luma_p95)) / 255.0 * 0.22, 0.90, 1.14)
+    dynamic_range = stats.luma_p95 - stats.luma_p05
+    summary = (
+        f"sampled compositor grade {stats.samples} frames, "
+        f"luma {stats.luma_p05:.1f}/{stats.mean_luma:.1f}/{stats.luma_p95:.1f}, "
+        f"exposure {exposure:.2f}, contrast {levels_bright_settings['contrast']:.1f}, "
+        f"saturation {saturation:.2f}"
+    )
+    return SampledCompositorGrade(
+        exposure=exposure,
+        brightness=levels_bright_settings["bright"],
+        contrast=levels_bright_settings["contrast"],
+        lift=lift,
+        gamma=gamma,
+        gain=gain,
+        saturation=saturation,
+        master_gamma=master_gamma,
+        master_gain=master_gain,
+        midtones_start=_clamp((stats.luma_p05 / 255.0) + 0.08, 0.10, 0.34),
+        midtones_end=_clamp((stats.luma_p95 / 255.0) - 0.08, 0.62, 0.90),
+        curve_points=tuple(levels_gamma[0][1]["__curve_points__"][0]),
+        hue_curve_points={
+            curve_index: tuple(points)
+            for curve_index, points in hue_chroma[0][1]["__curve_points__"].items()
+        },
+        tonemap_intensity=tonemap_settings["intensity"],
+        tonemap_contrast=_clamp(tonemap_settings["contrast"] + max(118.0 - dynamic_range, 0.0) / 255.0 * 0.06, 0.0, 0.24),
+        tonemap_gamma=tonemap_settings["gamma"],
         summary=summary,
     )
 

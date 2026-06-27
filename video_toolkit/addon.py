@@ -12,6 +12,7 @@ from .color_analysis import (
     build_color_identity_stack,
     build_color_match_stack,
     build_sampled_color_management,
+    build_sampled_compositor_grade,
     build_sampled_hue_chroma_stack,
     build_sampled_levels_gamma_stack,
     build_sampled_pro_grade_stack,
@@ -45,6 +46,7 @@ APPLY_TARGET_ITEMS = (
 
 COMPOSITOR_STACK_ITEMS = (
     ("COLOR", "Color Node Stack", "Build a Blender compositor color node graph from the active movie strip"),
+    ("SAMPLED_COLOR", "Sampled Color Node Stack", "Sample real frames and build a Blender compositor color graph from the measured footage"),
     ("RESTORATION", "Restoration Node Stack", "Build a Blender compositor restoration node graph from the active movie strip"),
     ("NODE_LIBRARY", "Native Node Library", "Create every tracked Blender compositor video-finishing node in organized groups"),
 )
@@ -623,16 +625,25 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
     def execute(self, context):
         try:
             strip = context.scene.sequence_editor.active_strip
+            summary = None
             if self.stack_type == "NODE_LIBRARY":
                 created = _create_compositor_node_library(context.scene, strip)
                 label = "native node library"
             elif self.stack_type == "RESTORATION":
                 created = _create_compositor_restoration_stack(context.scene, strip)
                 label = "restoration"
+            elif self.stack_type == "SAMPLED_COLOR":
+                stats = sample_video_color(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
+                profile = build_sampled_compositor_grade(stats)
+                created = _create_sampled_compositor_color_stack(context.scene, strip, profile)
+                label = "sampled color"
+                summary = f"{profile.summary}; {_compositor_node_summary(created)}"
             else:
                 created = _create_compositor_color_stack(context.scene, strip)
                 label = "color"
-            context.scene.video_toolkit_last_compositor_nodes = _compositor_node_summary(created)
+            if summary is None:
+                summary = _compositor_node_summary(created)
+            context.scene.video_toolkit_last_compositor_nodes = summary
             self.report({"INFO"}, f"Created {len(created)} Blender compositor {label} node(s)")
             return {"FINISHED"}
         except Exception as exc:
@@ -743,6 +754,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         layout.menu("VIDEO_TOOLKIT_MT_blender_vse_modifiers", icon="SEQ_STRIP_DUPLICATE")
         op = layout.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Create Color Node Stack", icon="NODETREE")
         op.stack_type = "COLOR"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Sampled Color Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "SAMPLED_COLOR"
         op = layout.operator(
             VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
             text="Create Restoration Node Stack",
@@ -951,6 +968,8 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Color Stack", icon="COLOR")
     op.stack_type = "COLOR"
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Sampled", icon="EYEDROPPER")
+    op.stack_type = "SAMPLED_COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
     op.stack_type = "RESTORATION"
     op = box.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Native Node Library", icon="NODETREE")
@@ -1466,6 +1485,65 @@ def _create_compositor_color_stack(scene, strip):
     return [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap, separate, combine, levels, viewer, output]
 
 
+def _create_sampled_compositor_color_stack(scene, strip, profile):
+    tree = _ensure_compositor_tree(scene)
+    origin = _next_node_origin(tree)
+    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", "VTK Sampled Movie Clip", 0, origin=origin)
+    _assign_movie_clip(movie, _movie_path(strip))
+    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", "VTK Sampled Color Space", 1, origin=origin)
+    exposure = _new_compositor_node(tree, "CompositorNodeExposure", "VTK Sampled Exposure", 2, origin=origin)
+    _set_input_default(exposure, "Exposure", profile.exposure)
+    bright = _new_compositor_node(tree, "CompositorNodeBrightContrast", "VTK Sampled Brightness/Contrast", 3, origin=origin)
+    _set_input_default(bright, "Brightness", profile.brightness)
+    _set_input_default(bright, "Bright", profile.brightness)
+    _set_input_default(bright, "Contrast", profile.contrast)
+    balance = _new_compositor_node(tree, "CompositorNodeColorBalance", "VTK Sampled Lift Gamma Gain", 4, origin=origin)
+    _set_input_default_candidates(balance, ("Fac", "Factor"), 1.0)
+    _set_input_default_candidates(balance, ("Type",), "LIFT_GAMMA_GAIN")
+    _set_input_default_candidates(balance, ("Color Lift", "Lift"), profile.lift + (1.0,))
+    _set_input_default_candidates(balance, ("Color Gamma", "Gamma"), profile.gamma + (1.0,))
+    _set_input_default_candidates(balance, ("Color Gain", "Gain"), profile.gain + (1.0,))
+    correction = _new_compositor_node(tree, "CompositorNodeColorCorrection", "VTK Sampled Zone Correction", 5, origin=origin)
+    _set_input_default_candidates(correction, ("Saturation", "Master Saturation"), profile.saturation)
+    _set_input_default_candidates(correction, ("Contrast", "Master Contrast"), _clamp_node_value(1.0 + profile.contrast / 100.0, 0.75, 1.35))
+    _set_input_default_candidates(correction, ("Gamma", "Master Gamma"), profile.master_gamma)
+    _set_input_default_candidates(correction, ("Gain", "Master Gain"), profile.master_gain)
+    _set_input_default_candidates(correction, ("Midtones Start",), profile.midtones_start)
+    _set_input_default_candidates(correction, ("Midtones End",), profile.midtones_end)
+    curves = _new_compositor_node(tree, "CompositorNodeCurveRGB", "VTK Sampled RGB Curves", 6, origin=origin)
+    _apply_curve_points(curves.mapping, {0: profile.curve_points})
+    hue_sat = _new_compositor_node(tree, "CompositorNodeHueSat", "VTK Sampled Hue/Saturation", 7, origin=origin)
+    _set_input_default(hue_sat, "Saturation", profile.saturation)
+    _set_input_default(hue_sat, "Value", _clamp_node_value(1.0 + profile.exposure * 0.12, 0.92, 1.08))
+    hue_correct = _new_compositor_node(tree, "CompositorNodeHueCorrect", "VTK Sampled Hue Correct", 8, origin=origin)
+    _apply_curve_points(hue_correct.mapping, profile.hue_curve_points)
+    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Sampled Tone Map", 9, origin=origin)
+    _set_input_default(tonemap, "Type", "RD_PHOTORECEPTOR")
+    _set_input_default(tonemap, "Intensity", profile.tonemap_intensity)
+    _set_input_default(tonemap, "Contrast", profile.tonemap_contrast)
+    _set_input_default(tonemap, "Gamma", profile.tonemap_gamma)
+    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", "VTK Sampled Separate Color", 10, y_offset=-120, origin=origin)
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", "VTK Sampled Combine Color", 11, y_offset=-120, origin=origin)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Sampled Levels", 12, y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Sampled Viewer", 13, origin=origin)
+    output = _new_output_file_node(tree, scene, 13, y_offset=-160, origin=origin)
+    output.name = "VTK Sampled Output File"
+    output.label = "VTK Sampled Output File"
+
+    final_socket = _link_compositor_chain(
+        tree,
+        [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap],
+    )
+    _link_socket(tree, final_socket, _image_input(separate))
+    for socket_name in ("Red", "Green", "Blue", "Alpha"):
+        _link_socket(tree, _socket_by_name(separate.outputs, socket_name), _socket_by_name(combine.inputs, socket_name))
+    combined_socket = _image_output(combine)
+    _link_socket(tree, combined_socket, _image_input(levels))
+    _link_socket(tree, combined_socket, _image_input(viewer))
+    _link_socket(tree, combined_socket, _first_socket(output.inputs))
+    return [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap, separate, combine, levels, viewer, output]
+
+
 def _create_compositor_restoration_stack(scene, strip):
     tree = _ensure_compositor_tree(scene)
     origin = _next_node_origin(tree)
@@ -1633,9 +1711,22 @@ def _first_socket(sockets):
 
 
 def _set_input_default(node, socket_name: str, value) -> None:
-    socket = _socket_by_name(node.inputs, socket_name)
+    _set_input_default_candidates(node, (socket_name,), value)
+
+
+def _set_input_default_candidates(node, socket_names, value) -> bool:
+    names = set(socket_names)
+    for socket in node.inputs:
+        if socket.name not in names and getattr(socket, "identifier", "") not in names:
+            continue
+        if _try_set_socket_default(socket, value):
+            return True
+    return False
+
+
+def _try_set_socket_default(socket, value) -> bool:
     if socket is None or not hasattr(socket, "default_value"):
-        return
+        return False
     current = socket.default_value
     try:
         if hasattr(current, "__setitem__") and isinstance(value, (tuple, list)):
@@ -1643,8 +1734,9 @@ def _set_input_default(node, socket_name: str, value) -> None:
                 current[index] = item
         else:
             socket.default_value = value
+        return True
     except Exception:
-        return
+        return False
 
 
 def _set_output_default(node, socket_name: str, value) -> None:
@@ -1660,6 +1752,10 @@ def _set_output_default(node, socket_name: str, value) -> None:
             socket.default_value = value
     except Exception:
         return
+
+
+def _clamp_node_value(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
 
 
 def _modifier_label(modifier_type: str) -> str:
