@@ -374,6 +374,44 @@ class VIDEO_TOOLKIT_OT_color_diagnostics(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_recommend_catalog_recipes(Operator):
+    bl_idname = "video_toolkit.recommend_catalog_recipes"
+    bl_label = "Recommend Color Recipes"
+    bl_description = "Sample real frames and rank Blender-native color tools against the selected footage"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            stats = sample_video_color(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            diagnosis = diagnose_color(stats)
+            recommendations = _rank_catalog_recipes(stats, diagnosis)
+            if not recommendations:
+                raise RuntimeError("No Blender-native color recipes were available for recommendation")
+            text = _write_recipe_recommendation_text(strip, stats, diagnosis, recommendations)
+            top_score, top_tool, _top_reasons = recommendations[0]
+            scene.video_toolkit_last_recipe_recommendations = text.name
+            scene["video_toolkit_last_recommended_recipe_ids"] = ",".join(
+                tool.id for _score, tool, _reasons in recommendations[:12]
+            )
+            scene.video_toolkit_sidecar_group = _enum_key(top_tool.category)
+            scene.video_toolkit_sidecar_tool = top_tool.id
+            self.report({"INFO"}, f"recommended {top_tool.label} ({top_score:.0f}); report {text.name}")
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_apply_diagnostic_grade(Operator):
     bl_idname = "video_toolkit.apply_diagnostic_grade"
     bl_label = "Apply Diagnostic Grade"
@@ -1556,6 +1594,7 @@ def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
     row = quick.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Diagnostics", icon="TEXT")
     row.operator(VIDEO_TOOLKIT_OT_apply_diagnostic_grade.bl_idname, text="Fix Grade", icon="COLOR")
+    quick.operator(VIDEO_TOOLKIT_OT_recommend_catalog_recipes.bl_idname, text="Recommend Recipes", icon="SORT_ASC")
     row = quick.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Deflicker", icon="IPO_EASE_IN_OUT")
     row.menu("VIDEO_TOOLKIT_MT_compositor_recipes", text="Recipe Nodes", icon="NODETREE")
@@ -1578,6 +1617,8 @@ def _draw_sidecar_status(layout, scene) -> None:
         layout.label(text=scene.video_toolkit_last_compositor_nodes, icon="NODETREE")
     if scene.video_toolkit_last_catalog_report:
         layout.label(text=scene.video_toolkit_last_catalog_report, icon="TEXT")
+    if scene.video_toolkit_last_recipe_recommendations:
+        layout.label(text=scene.video_toolkit_last_recipe_recommendations, icon="SORT_ASC")
     if scene.video_toolkit_last_output:
         layout.label(text=scene.video_toolkit_last_output, icon="FILE_MOVIE")
 
@@ -1601,6 +1642,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     box.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Lighting Timeline", icon="GRAPH")
     box.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color Timeline", icon="COLOR")
     box.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Color Diagnostics Report", icon="TEXT")
+    box.operator(VIDEO_TOOLKIT_OT_recommend_catalog_recipes.bl_idname, text="Recommend Catalog Recipes", icon="SORT_ASC")
     box.operator(VIDEO_TOOLKIT_OT_apply_diagnostic_grade.bl_idname, text="Apply Diagnostic Grade", icon="COLOR")
     box.prop(scene, "video_toolkit_analysis_samples")
     row = box.row(align=True)
@@ -1618,6 +1660,8 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
         box.label(text=scene.video_toolkit_last_diagnostics, icon="INFO")
         if scene.video_toolkit_last_diagnostics_text:
             box.label(text=scene.video_toolkit_last_diagnostics_text, icon="TEXT")
+    if scene.video_toolkit_last_recipe_recommendations:
+        box.label(text=scene.video_toolkit_last_recipe_recommendations, icon="SORT_ASC")
     if scene.video_toolkit_last_diagnostic_grade:
         box.label(text=scene.video_toolkit_last_diagnostic_grade, icon="MODIFIER")
     if scene.video_toolkit_last_sampled_white_balance:
@@ -3032,6 +3076,184 @@ def _write_catalog_coverage_text():
     return text
 
 
+def _write_recipe_recommendation_text(strip, stats, diagnosis, recommendations):
+    name = f"VTK Recipe Recommendations - {strip.name}"
+    text = bpy.data.texts.get(name)
+    if text is None:
+        text = bpy.data.texts.new(name)
+    text.clear()
+    text.write(_recipe_recommendation_report(strip, stats, diagnosis, recommendations) + "\n")
+    return text
+
+
+def _recipe_recommendation_report(strip, stats, diagnosis, recommendations) -> str:
+    dynamic_range = stats.luma_p95 - stats.luma_p05
+    top_ids = ", ".join(tool.id for _score, tool, _reasons in recommendations[:12])
+    lines = [
+        "Open Research Video Toolkit Recipe Recommendations",
+        "",
+        f"Source strip: {strip.name}",
+        f"Sampled frames: {stats.samples}",
+        f"Frame stats: {summarize_stats(stats)}",
+        f"Luma p05/mean/p95/range: {stats.luma_p05:.1f}/{stats.mean_luma:.1f}/{stats.luma_p95:.1f}/{dynamic_range:.1f}",
+        f"Saturation/chroma: {stats.mean_saturation:.2f}/{stats.mean_chroma:.1f}",
+        f"Warm/cool/skin: {stats.warm_ratio:.2f}/{stats.cool_ratio:.2f}/{stats.skin_ratio:.2f}",
+        "Palette: " + (" ".join(diagnosis.palette_hex) if diagnosis.palette_hex else "none"),
+        "",
+        "Diagnosis:",
+        *[f"- {finding}" for finding in diagnosis.findings],
+        "",
+        "Diagnostic suggested tools:",
+        *[f"- {tool}" for tool in diagnosis.suggested_tools],
+        "",
+        "Top Blender-native recipes:",
+    ]
+    for rank, (score, tool, reasons) in enumerate(recommendations[:12], start=1):
+        compatibility = "compositor-compatible" if _tool_has_compositor_stack(tool) else "VSE live only"
+        modifiers = ", ".join(_tool_modifier_names(tool)) or "none"
+        lines.extend(
+            [
+                f"{rank}. {tool.label} ({tool.id}) - score {score:.1f}",
+                f"   Category: {tool.category}; {compatibility}",
+                f"   Blender modifiers: {modifiers}",
+                "   Reasons: " + "; ".join(reasons[:6]),
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "Recommended sidecar order:",
+            top_ids,
+            "",
+            "How to use:",
+            "Open the Video Effects sidecar, keep the selected Tool entry or choose another ranked recipe, then Apply for live VSE modifiers or Nodes for the compositor graph when available.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _rank_catalog_recipes(stats, diagnosis):
+    recommendations = []
+    for tool in all_tools():
+        if not _is_color_recommendation_tool(tool):
+            continue
+        score, reasons = _score_catalog_recipe(tool, stats, diagnosis)
+        if score <= 0.0:
+            continue
+        recommendations.append((score, tool, tuple(reasons)))
+    recommendations.sort(key=lambda item: (-item[0], item[1].category, item[1].label))
+    return tuple(recommendations)
+
+
+def _is_color_recommendation_tool(tool) -> bool:
+    if not tool.is_blender_modifier:
+        return False
+    if tool.category not in {"Live Blender Color", "Native Blender Primitives", "Live Blender Modifiers"}:
+        return False
+    if "mask" in tool.id:
+        return False
+    return bool(_tool_modifier_names(tool))
+
+
+def _score_catalog_recipe(tool, stats, diagnosis):
+    text = f"{tool.id} {tool.label} {tool.description}".lower()
+    modifiers = set(_tool_modifier_names(tool))
+    dynamic_range = stats.luma_p95 - stats.luma_p05
+    warm_delta = stats.warm_ratio - stats.cool_ratio
+    score = 0.0
+    reasons: list[str] = []
+
+    def add(points: float, reason: str) -> None:
+        nonlocal score
+        score += points
+        if reason not in reasons:
+            reasons.append(reason)
+
+    if tool.label in diagnosis.suggested_tools:
+        add(40.0, "direct match to sampled color diagnosis")
+    if _tool_has_compositor_stack(tool):
+        add(2.0, "can also generate a native compositor recipe")
+    if tool.category == "Live Blender Color":
+        add(3.0, "one-click live Blender color recipe")
+    if tool.id in {"live_pro_color_stack", "auto_enhance"}:
+        add(8.0, "broad finishing stack for mixed luma/color issues")
+    if tool.id == "neutral_grade" and 108.0 <= stats.mean_luma <= 170.0 and 0.20 <= stats.mean_saturation <= 0.58:
+        add(9.0, "sampled exposure and saturation are close to neutral")
+
+    if stats.mean_luma < 92.0:
+        if _matches(text, "exposure", "lift", "gamma", "brighten", "shadow", "recovery"):
+            add(26.0, "underexposed average luma needs lift/gamma")
+        if "BRIGHT_CONTRAST" in modifiers or "COLOR_BALANCE" in modifiers:
+            add(5.0, "has native brightness or gamma controls")
+    elif stats.mean_luma > 176.0 or stats.luma_p95 > 236.0:
+        if _matches(text, "protect", "hdr", "compress", "white point", "recovery", "clamp"):
+            add(27.0, "bright or highlight-heavy footage needs roll-off/protection")
+        if "TONEMAP" in modifiers or "CURVES" in modifiers:
+            add(5.0, "has native tone-map or curve controls")
+    else:
+        if _matches(text, "neutral", "pro color", "auto enhance", "shadow/highlight"):
+            add(9.0, "balanced exposure benefits from a complete editorial baseline")
+
+    if dynamic_range < 118.0 or stats.luma_std < 34.0:
+        if _matches(text, "contrast", "levels", "curve", "s-curve", "black point", "auto enhance"):
+            add(24.0, "low tonal separation needs curve/levels expansion")
+        if "CURVES" in modifiers or "BRIGHT_CONTRAST" in modifiers:
+            add(4.0, "contains native contrast/curve controls")
+    elif dynamic_range > 222.0:
+        if _matches(text, "hdr", "tone", "compress", "soft contrast", "white point", "legal"):
+            add(18.0, "wide tonal range benefits from compression")
+
+    if stats.mean_saturation < 0.18 or stats.mean_chroma < 28.0:
+        if _matches(text, "vibrance", "saturation boost", "punchy", "pro color"):
+            add(22.0, "low sampled chroma needs vibrance/saturation")
+        if "HUE_CORRECT" in modifiers:
+            add(4.0, "has native Hue Correct saturation control")
+    elif stats.mean_saturation > 0.62:
+        if _matches(text, "saturation reduce", "skin-safe", "legal"):
+            add(22.0, "high sampled saturation needs restraint")
+        if "HUE_CORRECT" in modifiers:
+            add(3.0, "can control saturation with Hue Correct")
+
+    if warm_delta > 0.18:
+        if _matches(text, "cool", "temperature cool", "blue gamma", "white balance"):
+            add(24.0, "warm cast detected; cool/white-balance correction fits")
+        if "WHITE_BALANCE" in modifiers:
+            add(5.0, "contains native White Balance")
+    elif warm_delta < -0.18:
+        if _matches(text, "warm", "temperature warm", "highlight warm", "red gamma", "white balance"):
+            add(24.0, "cool cast detected; warm/white-balance correction fits")
+        if "WHITE_BALANCE" in modifiers:
+            add(5.0, "contains native White Balance")
+
+    if stats.mean_g > stats.mean_r + 4.0 and stats.mean_g > stats.mean_b + 4.0:
+        if _matches(text, "green cast", "magenta/green", "green gamma", "white balance"):
+            add(18.0, "sampled average RGB suggests a green/magenta tint issue")
+    if stats.mean_r > stats.mean_g + 6.0 and stats.mean_r > stats.mean_b + 6.0:
+        if _matches(text, "red gamma", "cool", "temperature cool"):
+            add(12.0, "sampled average RGB leans red")
+    if stats.mean_b > stats.mean_r + 6.0 and stats.mean_b > stats.mean_g + 6.0:
+        if _matches(text, "blue gamma", "warm", "temperature warm"):
+            add(12.0, "sampled average RGB leans blue")
+
+    if stats.skin_ratio > 0.10:
+        if _matches(text, "skin", "skin-safe", "vibrance"):
+            add(18.0, "skin-tone-like pixels detected; prefer skin-safe tools")
+    if stats.shadow_count > stats.highlight_count * 1.35:
+        if _matches(text, "shadow", "black point", "lift", "gamma"):
+            add(10.0, "shadow-heavy sample distribution")
+    if stats.highlight_count > stats.shadow_count * 1.35:
+        if _matches(text, "highlight", "white point", "protect", "hdr"):
+            add(10.0, "highlight-heavy sample distribution")
+
+    if not reasons and tool.id in {"live_pro_color_stack", "auto_enhance", "neutral_grade"}:
+        add(4.0, "fallback broad Blender-native grade")
+    return score, reasons
+
+
+def _matches(text: str, *needles: str) -> bool:
+    return any(needle in text for needle in needles)
+
+
 def _catalog_coverage_report() -> str:
     tools = all_tools()
     blender_tools = tuple(tool for tool in tools if tool.is_blender_modifier)
@@ -3284,6 +3506,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_set_sidecar_section,
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_color_diagnostics,
+    VIDEO_TOOLKIT_OT_recommend_catalog_recipes,
     VIDEO_TOOLKIT_OT_apply_diagnostic_grade,
     VIDEO_TOOLKIT_OT_apply_sampled_white_balance,
     VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma,
@@ -3389,6 +3612,10 @@ def register() -> None:
     )
     bpy.types.Scene.video_toolkit_last_catalog_report = bpy.props.StringProperty(
         name="Last Catalog Coverage Report",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_last_recipe_recommendations = bpy.props.StringProperty(
+        name="Last Recipe Recommendations",
         default="",
     )
     bpy.types.Scene.video_toolkit_last_diagnostic_grade = bpy.props.StringProperty(
@@ -3503,6 +3730,7 @@ def unregister() -> None:
         "video_toolkit_last_diagnostics",
         "video_toolkit_last_diagnostics_text",
         "video_toolkit_last_catalog_report",
+        "video_toolkit_last_recipe_recommendations",
         "video_toolkit_last_diagnostic_grade",
         "video_toolkit_last_sampled_white_balance",
         "video_toolkit_last_sampled_levels_gamma",

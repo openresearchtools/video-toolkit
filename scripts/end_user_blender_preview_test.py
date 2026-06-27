@@ -302,6 +302,18 @@ assert diagnostics_text_name in bpy.data.texts
 diagnostics_report = bpy.data.texts[diagnostics_text_name].as_string()
 assert 'Video Toolkit Color Diagnostics' in diagnostics_report
 assert 'Suggested native Blender tools' in diagnostics_report
+result = bpy.ops.video_toolkit.recommend_catalog_recipes()
+assert result == {{'FINISHED'}}, result
+recipe_recommendations_name = scene.video_toolkit_last_recipe_recommendations
+assert recipe_recommendations_name.startswith('VTK Recipe Recommendations')
+assert recipe_recommendations_name in bpy.data.texts
+recipe_recommendations_report = bpy.data.texts[recipe_recommendations_name].as_string()
+assert 'Open Research Video Toolkit Recipe Recommendations' in recipe_recommendations_report
+assert 'Top Blender-native recipes:' in recipe_recommendations_report
+assert 'Frame stats:' in recipe_recommendations_report
+recommended_recipe_ids = scene.get('video_toolkit_last_recommended_recipe_ids', '').split(',')
+assert scene.video_toolkit_sidecar_tool in recommended_recipe_ids
+assert any(recipe_id in recommended_recipe_ids for recipe_id in ('exposure_protect', 'hdr_tone_compress', 'levels_expand', 'live_contrast_pop'))
 result = bpy.ops.video_toolkit.apply_diagnostic_grade()
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_diagnostic_grade.startswith('diagnostic grade')
@@ -888,6 +900,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'diagnostics_summary': scene.video_toolkit_last_diagnostics,
     'diagnostics_text': diagnostics_text_name,
     'diagnostics_report_excerpt': diagnostics_report.splitlines()[:12],
+    'recipe_recommendations_text': recipe_recommendations_name,
+    'recipe_recommendations_ids': recommended_recipe_ids,
+    'recipe_recommendations_excerpt': recipe_recommendations_report.splitlines()[:24],
     'diagnostic_grade_summary': scene.video_toolkit_last_diagnostic_grade,
     'diagnostic_grade_modifier_types': diagnostic_grade_types,
     'sampled_white_balance_summary': scene.video_toolkit_last_sampled_white_balance,

@@ -126,6 +126,17 @@ bpy.ops.video_toolkit.color_diagnostics()
 assert scene.video_toolkit_last_diagnostics.startswith('diagnosis')
 assert scene.video_toolkit_last_diagnostics_text in bpy.data.texts
 assert 'Suggested native Blender tools' in bpy.data.texts[scene.video_toolkit_last_diagnostics_text].as_string()
+bpy.ops.video_toolkit.recommend_catalog_recipes()
+assert scene.video_toolkit_last_recipe_recommendations.startswith('VTK Recipe Recommendations')
+assert scene.video_toolkit_last_recipe_recommendations in bpy.data.texts
+recipe_report = bpy.data.texts[scene.video_toolkit_last_recipe_recommendations].as_string()
+assert 'Top Blender-native recipes:' in recipe_report
+assert 'Frame stats:' in recipe_report
+assert 'Exposure Lift' in recipe_report
+assert 'Gamma Brighten' in recipe_report
+recommended_recipe_ids = scene.get('video_toolkit_last_recommended_recipe_ids', '').split(',')
+assert scene.video_toolkit_sidecar_tool in recommended_recipe_ids
+assert any(recipe_id in recommended_recipe_ids for recipe_id in ('exposure_lift', 'gamma_brighten', 'saturation_reduce'))
 scene.video_toolkit_apply_target = 'SELECTED'
 bpy.ops.video_toolkit.apply_diagnostic_grade()
 assert scene.video_toolkit_last_diagnostic_grade.startswith('diagnostic grade')
