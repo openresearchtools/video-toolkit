@@ -489,6 +489,32 @@ assert abs(sampled_exposure_socket.default_value) > 0.001
 sampled_curve_node = next(node for node in tree.nodes if node.name == 'VTK Sampled RGB Curves')
 assert len(sampled_curve_node.mapping.curves[0].points) >= 5
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='MATCHED_COLOR')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('matched compositor to')
+matched_compositor_summary = scene.video_toolkit_last_compositor_nodes
+matched_compositor_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Matched to ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in matched_compositor_node_types, required
+matched_curve_node = next(
+    node for node in tree.nodes if node.name.startswith('VTK Matched to ') and node.bl_idname == 'CompositorNodeCurveRGB'
+)
+assert len(matched_curve_node.mapping.curves[0].points) >= 5
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_COLOR')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
@@ -620,6 +646,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_compositor_summary': sampled_compositor_summary,
     'sampled_compositor_node_types': sampled_compositor_node_types,
     'sampled_compositor_exposure': sampled_exposure_socket.default_value,
+    'matched_compositor_summary': matched_compositor_summary,
+    'matched_compositor_node_types': matched_compositor_node_types,
     'translated_compositor_summary': translated_compositor_summary,
     'translated_compositor_node_types': translated_compositor_node_types,
     'translated_compositor_contrast': translated_contrast_socket.default_value,

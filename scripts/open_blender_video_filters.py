@@ -51,9 +51,18 @@ def _setup_scene() -> None:
             channel=1,
             frame_start=1,
         )
+    reference = next((candidate for candidate in editor.strips_all if candidate.name.startswith("REFERENCE VIDEO")), None)
+    if reference is None or reference.type != "MOVIE":
+        reference = editor.strips.new_movie(
+            name="REFERENCE VIDEO - OPEN RESEARCH TOOLKIT",
+            filepath=str(VIDEO),
+            channel=2,
+            frame_start=1,
+        )
     for candidate in editor.strips_all:
         candidate.select = False
     strip.select = True
+    reference.select = True
     editor.active_strip = strip
     scene.frame_start = int(strip.frame_final_start)
     scene.frame_end = int(strip.frame_final_end)
@@ -70,6 +79,7 @@ def _setup_scene() -> None:
         bpy.ops.video_toolkit.apply_sampled_pro_grade()
         bpy.ops.video_toolkit.apply_sampled_color_management()
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="SAMPLED_COLOR")
+        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="MATCHED_COLOR")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="TRANSLATED_COLOR")
     except Exception:
         traceback.print_exc()

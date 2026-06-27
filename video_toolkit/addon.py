@@ -47,6 +47,7 @@ APPLY_TARGET_ITEMS = (
 COMPOSITOR_STACK_ITEMS = (
     ("COLOR", "Color Node Stack", "Build a Blender compositor color node graph from the active movie strip"),
     ("SAMPLED_COLOR", "Sampled Color Node Stack", "Sample real frames and build a Blender compositor color graph from the measured footage"),
+    ("MATCHED_COLOR", "Matched Color Node Stack", "Match the active movie strip to a selected reference strip with Blender compositor nodes"),
     ("TRANSLATED_COLOR", "Translated Color Node Stack", "Translate the FFmpeg-style color chain into a Blender compositor graph"),
     ("RESTORATION", "Restoration Node Stack", "Build a Blender compositor restoration node graph from the active movie strip"),
     ("NODE_LIBRARY", "Native Node Library", "Create every tracked Blender compositor video-finishing node in organized groups"),
@@ -639,6 +640,23 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
                 created = _create_sampled_compositor_color_stack(context.scene, strip, profile)
                 label = "sampled color"
                 summary = f"{profile.summary}; {_compositor_node_summary(created)}"
+            elif self.stack_type == "MATCHED_COLOR":
+                reference = _reference_movie_strip(context, strip)
+                if reference is None:
+                    raise RuntimeError("Select a reference movie strip as well as the active target strip")
+                target_stats = sample_video_color(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
+                reference_stats = sample_video_color(
+                    _movie_path(reference),
+                    max_samples=context.scene.video_toolkit_analysis_samples,
+                )
+                stack = build_color_match_stack(target_stats, reference_stats)
+                created = _create_matched_compositor_color_stack(context.scene, strip, stack, reference.name)
+                label = "matched color"
+                summary = (
+                    f"matched compositor to {reference.name}, "
+                    f"{summarize_stats(target_stats)} -> {summarize_stats(reference_stats)}; "
+                    f"{_compositor_node_summary(created)}"
+                )
             elif self.stack_type == "TRANSLATED_COLOR":
                 chain = context.scene.video_toolkit_ffmpeg_chain.strip()
                 if not chain:
@@ -773,6 +791,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
             icon="NODETREE",
         )
         op.stack_type = "SAMPLED_COLOR"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Matched Color Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "MATCHED_COLOR"
         op = layout.operator(
             VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
             text="Create Translated Color Node Stack",
@@ -990,6 +1014,8 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Sampled", icon="EYEDROPPER")
     op.stack_type = "SAMPLED_COLOR"
     row = box.row(align=True)
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Matched", icon="EYEDROPPER")
+    op.stack_type = "MATCHED_COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Translated", icon="MODIFIER")
     op.stack_type = "TRANSLATED_COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
@@ -1578,30 +1604,39 @@ def _create_sampled_compositor_color_stack(scene, strip, profile):
 
 
 def _create_translated_compositor_color_stack(scene, strip, translation):
+    return _create_compositor_nodes_from_blender_stack(scene, strip, translation.stack, "Translated")
+
+
+def _create_matched_compositor_color_stack(scene, strip, stack, reference_name: str):
+    return _create_compositor_nodes_from_blender_stack(scene, strip, stack, f"Matched to {reference_name}")
+
+
+def _create_compositor_nodes_from_blender_stack(scene, strip, stack, label_prefix: str):
     tree = _ensure_compositor_tree(scene)
     origin = _next_node_origin(tree)
-    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", "VTK Translated Movie Clip", 0, origin=origin)
+    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", f"VTK {label_prefix} Movie Clip", 0, origin=origin)
     _assign_movie_clip(movie, _movie_path(strip))
-    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", "VTK Translated Color Space", 1, origin=origin)
+    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", f"VTK {label_prefix} Color Space", 1, origin=origin)
     chain_nodes = [movie, convert]
     skipped = 0
-    for modifier_type, settings in translation.stack:
+    for modifier_type, settings in stack:
         node = _translated_modifier_to_compositor_node(
             tree,
             modifier_type,
             settings,
             len(chain_nodes),
             origin,
+            label_prefix,
         )
         if node is None:
             skipped += 1
             continue
         chain_nodes.append(node)
-    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Translated Levels", len(chain_nodes), y_offset=160, origin=origin)
-    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Translated Viewer", len(chain_nodes) + 1, origin=origin)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", f"VTK {label_prefix} Levels", len(chain_nodes), y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", f"VTK {label_prefix} Viewer", len(chain_nodes) + 1, origin=origin)
     output = _new_output_file_node(tree, scene, len(chain_nodes) + 1, y_offset=-160, origin=origin)
-    output.name = "VTK Translated Output File"
-    output.label = "VTK Translated Output File"
+    output.name = f"VTK {label_prefix} Output File"
+    output.label = f"VTK {label_prefix} Output File"
     final_socket = _link_compositor_chain(tree, chain_nodes)
     _link_socket(tree, final_socket, _image_input(levels))
     _link_socket(tree, final_socket, _image_input(viewer))
@@ -1613,8 +1648,8 @@ def _create_translated_compositor_color_stack(scene, strip, translation):
     return created
 
 
-def _translated_modifier_to_compositor_node(tree, modifier_type: str, settings: dict[str, object], index: int, origin):
-    label = f"VTK Translated {_modifier_label(modifier_type)}"
+def _translated_modifier_to_compositor_node(tree, modifier_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    label = f"VTK {label_prefix} {_modifier_label(modifier_type)}"
     if modifier_type == "BRIGHT_CONTRAST":
         node = _new_compositor_node(tree, "CompositorNodeBrightContrast", label, index, origin=origin)
         _set_input_default_candidates(node, ("Brightness", "Bright"), settings.get("bright", 0.0))
