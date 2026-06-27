@@ -94,6 +94,17 @@ strip.select = True
 second_strip.select = True
 scene.sequence_editor.active_strip = strip
 scene.video_toolkit_apply_target = 'SELECTED'
+bpy.ops.video_toolkit.apply_color_management_preset(preset_id='STANDARD_VIDEO')
+assert scene.view_settings.view_transform == 'Standard'
+assert scene.view_settings.gamma == 1.0
+bpy.ops.video_toolkit.apply_color_management_preset(preset_id='AGX_PUNCH')
+assert scene.view_settings.view_transform in {{'AgX', 'Khronos PBR Neutral', 'Standard'}}
+assert 'AgX Punch' in scene.video_toolkit_last_color_management
+bpy.ops.video_toolkit.apply_color_management_preset(preset_id='VIEW_CURVE_CONTRAST')
+assert scene.view_settings.use_curve_mapping
+view_curve_points = [tuple(point.location[:]) for point in scene.view_settings.curve_mapping.curves[0].points]
+assert view_curve_points[1][1] < view_curve_points[1][0]
+assert view_curve_points[-2][1] > view_curve_points[-2][0]
 bpy.ops.video_toolkit.apply_filter(filter_id='neutral_grade')
 assert any(m.name.startswith('VTK Neutral Grade') for m in strip.modifiers)
 assert any(m.name.startswith('VTK Neutral Grade') for m in second_strip.modifiers)

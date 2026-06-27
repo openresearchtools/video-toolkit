@@ -43,6 +43,15 @@ COMPOSITOR_STACK_ITEMS = (
     ("NODE_LIBRARY", "Native Node Library", "Create every tracked Blender compositor video-finishing node in organized groups"),
 )
 
+COLOR_MANAGEMENT_PRESET_ITEMS = (
+    ("AGX_BALANCED", "AgX Balanced", "AgX view transform with a moderate editorial contrast look"),
+    ("AGX_PUNCH", "AgX Punch", "AgX with a stronger contrast look and tiny exposure lift"),
+    ("FILMIC_SOFT", "Filmic Soft", "Filmic-style softer review transform for highlight-safe grading"),
+    ("STANDARD_VIDEO", "Standard Video", "Standard display transform for direct Rec.709-style review"),
+    ("WARM_REVIEW", "Warm Review", "Native Color Management white-balance warm review preset"),
+    ("VIEW_CURVE_CONTRAST", "View Curve Contrast", "Enable Blender view curve mapping with a gentle S-curve"),
+)
+
 
 def _tool_items(_self, _context):
     return enum_items()
@@ -417,6 +426,26 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_apply_color_management_preset(Operator):
+    bl_idname = "video_toolkit.apply_color_management_preset"
+    bl_label = "Apply Blender Color Management Preset"
+    bl_description = "Apply a one-click native Blender Color Management look to the Sequencer preview"
+    bl_options = {"REGISTER", "UNDO"}
+
+    preset_id: bpy.props.EnumProperty(name="Preset", items=COLOR_MANAGEMENT_PRESET_ITEMS, default="AGX_BALANCED")
+
+    def execute(self, context):
+        try:
+            summary = _apply_color_management_preset(context.scene, self.preset_id)
+            context.scene.video_toolkit_last_color_management = summary
+            self.report({"INFO"}, summary)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_open_output_folder(Operator):
     bl_idname = "video_toolkit.open_output_folder"
     bl_label = "Open Output Folder"
@@ -445,6 +474,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         layout.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Analyze: Normalize Flicker", icon="IPO_EASE_IN_OUT")
         layout.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Analyze: Match Lighting Timeline", icon="GRAPH")
         layout.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Analyze: Match Color Timeline", icon="COLOR")
+        layout.menu("VIDEO_TOOLKIT_MT_color_management", icon="WORLD")
         layout.operator(
             VIDEO_TOOLKIT_OT_translate_ffmpeg_chain.bl_idname,
             text="Translate Color Chain to Live Stack",
@@ -516,6 +546,16 @@ class VIDEO_TOOLKIT_MT_blender_vse_modifiers(Menu):
 
     def draw(self, _context):
         _draw_category(self.layout, "Live Blender Modifiers")
+
+
+class VIDEO_TOOLKIT_MT_color_management(Menu):
+    bl_idname = "VIDEO_TOOLKIT_MT_color_management"
+    bl_label = "Blender Color Management"
+
+    def draw(self, _context):
+        for preset_id, label, _description in COLOR_MANAGEMENT_PRESET_ITEMS:
+            op = self.layout.operator(VIDEO_TOOLKIT_OT_apply_color_management_preset.bl_idname, text=label, icon="WORLD")
+            op.preset_id = preset_id
 
 
 class VIDEO_TOOLKIT_PT_video_filters(Panel):
@@ -590,6 +630,10 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
 def _draw_scene_color_management(layout, scene) -> None:
     box = layout.box()
     box.label(text="Blender Color Management", icon="WORLD")
+    preset_grid = box.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=False, align=True)
+    for preset_id, label, _description in COLOR_MANAGEMENT_PRESET_ITEMS:
+        op = preset_grid.operator(VIDEO_TOOLKIT_OT_apply_color_management_preset.bl_idname, text=label, icon="WORLD")
+        op.preset_id = preset_id
     if hasattr(scene, "sequencer_colorspace_settings"):
         box.prop(scene.sequencer_colorspace_settings, "name", text="Input")
     view = scene.view_settings
@@ -609,6 +653,8 @@ def _draw_scene_color_management(layout, scene) -> None:
                 box.template_curve_mapping(view, "curve_mapping")
             except Exception:
                 box.label(text="Open Color Management for curve editing.", icon="INFO")
+    if scene.video_toolkit_last_color_management:
+        box.label(text=scene.video_toolkit_last_color_management, icon="INFO")
 
 
 def _draw_compositor_nodes(layout, scene, strip) -> None:
@@ -761,6 +807,96 @@ def _draw_render_tools(layout, scene) -> None:
     row.prop(scene, "video_toolkit_preset", text="")
     settings.prop(scene, "video_toolkit_keep_audio")
     settings.prop(scene, "video_toolkit_add_strip")
+
+
+def _apply_color_management_preset(scene, preset_id: str) -> str:
+    view = scene.view_settings
+    presets = {
+        "AGX_BALANCED": {
+            "view_transform": ("AgX", "Khronos PBR Neutral", "Standard"),
+            "look": ("Medium High Contrast", "High Contrast", "None"),
+            "exposure": 0.0,
+            "gamma": 1.0,
+            "white_balance": False,
+            "curves": None,
+        },
+        "AGX_PUNCH": {
+            "view_transform": ("AgX", "Khronos PBR Neutral", "Standard"),
+            "look": ("Very High Contrast", "High Contrast", "Medium High Contrast", "None"),
+            "exposure": 0.05,
+            "gamma": 0.98,
+            "white_balance": False,
+            "curves": None,
+        },
+        "FILMIC_SOFT": {
+            "view_transform": ("Filmic", "AgX", "Khronos PBR Neutral", "Standard"),
+            "look": ("Medium Low Contrast", "Low Contrast", "None"),
+            "exposure": 0.05,
+            "gamma": 1.02,
+            "white_balance": False,
+            "curves": None,
+        },
+        "STANDARD_VIDEO": {
+            "view_transform": ("Standard", "Khronos PBR Neutral", "AgX"),
+            "look": ("None",),
+            "exposure": 0.0,
+            "gamma": 1.0,
+            "white_balance": False,
+            "curves": None,
+        },
+        "WARM_REVIEW": {
+            "view_transform": ("AgX", "Khronos PBR Neutral", "Standard"),
+            "look": ("Medium High Contrast", "High Contrast", "None"),
+            "exposure": 0.03,
+            "gamma": 1.0,
+            "white_balance": True,
+            "temperature": 5600.0,
+            "tint": 6.0,
+            "curves": None,
+        },
+        "VIEW_CURVE_CONTRAST": {
+            "view_transform": ("AgX", "Khronos PBR Neutral", "Standard"),
+            "look": ("None",),
+            "exposure": 0.0,
+            "gamma": 1.0,
+            "white_balance": False,
+            "curves": {0: ((0.0, 0.0), (0.22, 0.17), (0.72, 0.78), (1.0, 1.0))},
+        },
+    }
+    preset = presets[preset_id]
+    view_transform = _set_enum_candidate(view, "view_transform", preset["view_transform"])
+    look = _set_enum_candidate(view, "look", preset["look"])
+    _set_if_present(view, "exposure", preset["exposure"])
+    _set_if_present(view, "gamma", preset["gamma"])
+    if hasattr(view, "use_white_balance"):
+        view.use_white_balance = bool(preset["white_balance"])
+        if view.use_white_balance:
+            _set_if_present(view, "white_balance_temperature", preset.get("temperature", 6500.0))
+            _set_if_present(view, "white_balance_tint", preset.get("tint", 0.0))
+    if hasattr(view, "use_curve_mapping"):
+        view.use_curve_mapping = bool(preset["curves"])
+        if view.use_curve_mapping and hasattr(view, "curve_mapping"):
+            _apply_curve_points(view.curve_mapping, preset["curves"])
+    label = dict((item[0], item[1]) for item in COLOR_MANAGEMENT_PRESET_ITEMS).get(preset_id, preset_id)
+    return f"{label}: {view_transform or view.view_transform}, {look or view.look}, exposure {view.exposure:.2f}, gamma {view.gamma:.2f}"
+
+
+def _set_enum_candidate(target, prop: str, candidates) -> str | None:
+    for candidate in candidates:
+        try:
+            setattr(target, prop, candidate)
+            return getattr(target, prop)
+        except Exception:
+            continue
+    return getattr(target, prop, None)
+
+
+def _set_if_present(target, prop: str, value) -> None:
+    if hasattr(target, prop):
+        try:
+            setattr(target, prop, value)
+        except Exception:
+            return
 
 
 def _add_blender_tool(strip, tool):
@@ -1355,12 +1491,14 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_translate_ffmpeg_chain,
     VIDEO_TOOLKIT_OT_clear_live_modifiers,
     VIDEO_TOOLKIT_OT_create_compositor_nodes,
+    VIDEO_TOOLKIT_OT_apply_color_management_preset,
     VIDEO_TOOLKIT_OT_open_output_folder,
     VIDEO_TOOLKIT_MT_live_blender_color,
     VIDEO_TOOLKIT_MT_native_blender_primitives,
     VIDEO_TOOLKIT_MT_restoration,
     VIDEO_TOOLKIT_MT_resolution_motion,
     VIDEO_TOOLKIT_MT_blender_vse_modifiers,
+    VIDEO_TOOLKIT_MT_color_management,
     VIDEO_TOOLKIT_MT_tools,
     VIDEO_TOOLKIT_PT_video_filters,
 )
@@ -1426,6 +1564,10 @@ def register() -> None:
     )
     bpy.types.Scene.video_toolkit_last_translation = bpy.props.StringProperty(
         name="Last Color Translation",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_last_color_management = bpy.props.StringProperty(
+        name="Last Color Management Preset",
         default="",
     )
     bpy.types.Scene.video_toolkit_flicker_smoothing = bpy.props.IntProperty(
@@ -1494,6 +1636,7 @@ def unregister() -> None:
         "video_toolkit_apply_target",
         "video_toolkit_ffmpeg_chain",
         "video_toolkit_last_translation",
+        "video_toolkit_last_color_management",
         "video_toolkit_flicker_smoothing",
         "video_toolkit_flicker_strength",
         "video_toolkit_match_smoothing",

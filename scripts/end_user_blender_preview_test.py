@@ -132,6 +132,7 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     before = output_dir / "before_live_edit.png"
     after = output_dir / "after_live_edit.png"
     translated = output_dir / "after_native_color_chain.png"
+    color_managed = output_dir / "after_color_management_preset.png"
     blend = output_dir / "end_user_preview.blend"
     report = output_dir / "report.json"
     return f"""
@@ -233,6 +234,18 @@ translated_diff = (
     + abs(translated_stats['b'] - before_stats['b'])
 )
 assert translated_diff > 0.015, f'Translated live color chain did not visibly change preview pixels: {{translated_diff}}'
+
+result = bpy.ops.video_toolkit.apply_color_management_preset(preset_id='VIEW_CURVE_CONTRAST')
+assert result == {{'FINISHED'}}, result
+assert scene.view_settings.use_curve_mapping
+assert 'View Curve Contrast' in scene.video_toolkit_last_color_management
+color_managed_stats = render_preview({str(color_managed)!r})
+color_management_diff = (
+    abs(color_managed_stats['r'] - translated_stats['r'])
+    + abs(color_managed_stats['g'] - translated_stats['g'])
+    + abs(color_managed_stats['b'] - translated_stats['b'])
+)
+assert color_management_diff > 0.001, f'Color Management preset did not visibly change preview pixels: {{color_management_diff}}'
 
 result = bpy.ops.video_toolkit.analyze_color(mode='PALETTE')
 assert result == {{'FINISHED'}}, result
@@ -353,15 +366,19 @@ Path({str(report)!r}).write_text(json.dumps({{
     'before_png': {str(before)!r},
     'after_png': {str(after)!r},
     'translated_png': {str(translated)!r},
+    'color_managed_png': {str(color_managed)!r},
     'before': before_stats,
     'after': after_stats,
     'translated': translated_stats,
+    'color_managed': color_managed_stats,
     'rgb_abs_diff': diff,
     'translated_rgb_abs_diff': translated_diff,
+    'color_management_rgb_abs_diff': color_management_diff,
     'edited_modifiers': edited,
     'native_modifier_types': types,
     'translated_chain_summary': scene.video_toolkit_last_translation,
     'translated_modifier_types': translated_types,
+    'color_management_summary': scene.video_toolkit_last_color_management,
     'palette_modifier_types': palette_types,
     'palette_summary': palette_summary,
     'normalizer_keyframes': normalizer_keyframes,
