@@ -79,9 +79,83 @@ COLOR_MANAGEMENT_PRESET_ITEMS = (
     ("VIEW_CURVE_CONTRAST", "View Curve Contrast", "Enable Blender view curve mapping with a gentle S-curve"),
 )
 
+SIDECAR_GROUP_ICONS = {
+    "Live Blender Color": "COLOR",
+    "Native Blender Primitives": "PROPERTIES",
+    "Live Blender Modifiers": "MODIFIER",
+    "Restoration": "RENDER_ANIMATION",
+    "Resolution & Motion": "RENDER_ANIMATION",
+}
+
+
+def _enum_key(value: str) -> str:
+    cleaned = "".join(ch.upper() if ch.isalnum() else "_" for ch in value).strip("_")
+    while "__" in cleaned:
+        cleaned = cleaned.replace("__", "_")
+    return cleaned or "TOOLS"
+
+
+SIDECAR_GROUP_BY_KEY = {_enum_key(category): category for category in categories()}
+SIDECAR_GROUP_ITEMS = tuple(
+    (
+        key,
+        category,
+        f"{sum(1 for tool in all_tools() if tool.category == category)} video tools",
+        SIDECAR_GROUP_ICONS.get(category, "TOOL_SETTINGS"),
+        index,
+    )
+    for index, (key, category) in enumerate(SIDECAR_GROUP_BY_KEY.items())
+)
+
 
 def _tool_items(_self, _context):
     return enum_items()
+
+
+def _sidecar_group_name(scene) -> str:
+    key = getattr(scene, "video_toolkit_sidecar_group", "")
+    return SIDECAR_GROUP_BY_KEY.get(key) or next(iter(SIDECAR_GROUP_BY_KEY.values()), "")
+
+
+def _sidecar_tools_for_scene(scene):
+    group = _sidecar_group_name(scene)
+    return tuple(tool for tool in all_tools() if tool.category == group)
+
+
+def _sidecar_tool_items(self, context):
+    scene = self if hasattr(self, "video_toolkit_sidecar_group") else getattr(context, "scene", None)
+    tools = _sidecar_tools_for_scene(scene) if scene is not None else ()
+    if not tools:
+        return [("none", "No tools", "No tools are available in this group", "ERROR", 0)]
+    return [
+        (tool.id, tool.label, tool.description, _sidecar_tool_icon(tool), index)
+        for index, tool in enumerate(tools)
+    ]
+
+
+def _selected_sidecar_tool(scene):
+    tools = _sidecar_tools_for_scene(scene)
+    selected = getattr(scene, "video_toolkit_sidecar_tool", "")
+    for tool in tools:
+        if tool.id == selected:
+            return tool
+    return tools[0] if tools else None
+
+
+def _sync_sidecar_tool_to_group(self, _context) -> None:
+    tool = _selected_sidecar_tool(self)
+    if tool is not None and getattr(self, "video_toolkit_sidecar_tool", "") != tool.id:
+        self.video_toolkit_sidecar_tool = tool.id
+
+
+def _sidecar_tool_icon(tool) -> str:
+    if tool is None:
+        return "ERROR"
+    if tool.is_blender_modifier:
+        return "MODIFIER"
+    if tool.is_ffmpeg:
+        return "RENDER_ANIMATION"
+    return "TOOL_SETTINGS"
 
 
 def _tool_compositor_stack(tool):
@@ -157,6 +231,26 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
             traceback.print_exc()
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
+
+
+class VIDEO_TOOLKIT_OT_apply_sidecar_tool(Operator):
+    bl_idname = "video_toolkit.apply_sidecar_tool"
+    bl_label = "Apply Video Effect"
+    bl_description = "Apply the selected Video Effects sidebar tool to the active Sequencer strip"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        return bool(editor and editor.active_strip)
+
+    def execute(self, context):
+        tool = _selected_sidecar_tool(context.scene)
+        if tool is None:
+            self.report({"ERROR"}, "No Video Effects tool is selected")
+            return {"CANCELLED"}
+        return bpy.ops.video_toolkit.apply_filter(filter_id=tool.id, target="SCENE")
 
 
 class VIDEO_TOOLKIT_OT_analyze_color(Operator):
@@ -913,7 +1007,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Video Filters", icon="SEQ_SEQUENCER")
+        layout.label(text="Video Effects", icon="SEQ_SEQUENCER")
         op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Live Auto Balance", icon="COLOR")
         op.mode = "AUTO"
         op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Match Selected", icon="EYEDROPPER")
@@ -1093,28 +1187,139 @@ class VIDEO_TOOLKIT_MT_color_management(Menu):
 
 class VIDEO_TOOLKIT_PT_video_filters(Panel):
     bl_idname = "VIDEO_TOOLKIT_PT_video_filters"
-    bl_label = "Video Filters"
+    bl_label = "Video Effects"
     bl_space_type = "SEQUENCE_EDITOR"
     bl_region_type = "UI"
-    bl_category = "Video Filters"
+    bl_category = "Video Effects"
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         strip = scene.sequence_editor.active_strip if scene.sequence_editor else None
+        layout.use_property_split = True
+        layout.use_property_decorate = False
 
         if not strip:
-            layout.label(text="Select a strip to enable one-click filters.", icon="INFO")
+            layout.label(text="Select a strip to enable one-click effects.", icon="INFO")
+            _draw_sidecar_browser(layout, scene, strip)
             return
 
-        layout.label(text=f"Active: {strip.name}", icon="SEQ_STRIP_META")
+        _draw_sidecar_browser(layout, scene, strip)
+
+
+class VIDEO_TOOLKIT_PT_video_effects_analysis(Panel):
+    bl_idname = "VIDEO_TOOLKIT_PT_video_effects_analysis"
+    bl_label = "Frame Analysis"
+    bl_space_type = "SEQUENCE_EDITOR"
+    bl_region_type = "UI"
+    bl_category = "Video Effects"
+    bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+
+    def draw(self, context):
+        scene = context.scene
+        strip = scene.sequence_editor.active_strip if scene.sequence_editor else None
+        layout = self.layout
+        if not strip:
+            layout.label(text="Select a strip.", icon="INFO")
+            return
         _draw_live_analysis(layout, scene, strip, context)
-        _draw_scene_color_management(layout, scene)
+
+
+class VIDEO_TOOLKIT_PT_video_effects_color_management(Panel):
+    bl_idname = "VIDEO_TOOLKIT_PT_video_effects_color_management"
+    bl_label = "Color Management"
+    bl_space_type = "SEQUENCE_EDITOR"
+    bl_region_type = "UI"
+    bl_category = "Video Effects"
+    bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+
+    def draw(self, context):
+        _draw_scene_color_management(self.layout, context.scene)
+
+
+class VIDEO_TOOLKIT_PT_video_effects_compositor(Panel):
+    bl_idname = "VIDEO_TOOLKIT_PT_video_effects_compositor"
+    bl_label = "Compositor Nodes"
+    bl_space_type = "SEQUENCE_EDITOR"
+    bl_region_type = "UI"
+    bl_category = "Video Effects"
+    bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+
+    def draw(self, context):
+        scene = context.scene
+        strip = scene.sequence_editor.active_strip if scene.sequence_editor else None
+        layout = self.layout
+        if not strip:
+            layout.label(text="Select a movie strip.", icon="INFO")
+            return
         _draw_compositor_nodes(layout, scene, strip)
+
+
+class VIDEO_TOOLKIT_PT_video_effects_live_tools(Panel):
+    bl_idname = "VIDEO_TOOLKIT_PT_video_effects_live_tools"
+    bl_label = "Live Blender Tools"
+    bl_space_type = "SEQUENCE_EDITOR"
+    bl_region_type = "UI"
+    bl_category = "Video Effects"
+    bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        scene = context.scene
+        strip = scene.sequence_editor.active_strip if scene.sequence_editor else None
+        layout = self.layout
+        if not strip:
+            layout.label(text="Select a strip.", icon="INFO")
+            return
         _draw_live_color_tools(layout, scene)
+
+
+class VIDEO_TOOLKIT_PT_video_effects_strip(Panel):
+    bl_idname = "VIDEO_TOOLKIT_PT_video_effects_strip"
+    bl_label = "Strip Edit"
+    bl_space_type = "SEQUENCE_EDITOR"
+    bl_region_type = "UI"
+    bl_category = "Video Effects"
+    bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        strip = context.scene.sequence_editor.active_strip if context.scene.sequence_editor else None
+        layout = self.layout
+        if not strip:
+            layout.label(text="Select a strip.", icon="INFO")
+            return
         _draw_strip_editing_tools(layout, strip)
+
+
+class VIDEO_TOOLKIT_PT_video_effects_modifiers(Panel):
+    bl_idname = "VIDEO_TOOLKIT_PT_video_effects_modifiers"
+    bl_label = "Modifier Stack"
+    bl_space_type = "SEQUENCE_EDITOR"
+    bl_region_type = "UI"
+    bl_category = "Video Effects"
+    bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+
+    def draw(self, context):
+        strip = context.scene.sequence_editor.active_strip if context.scene.sequence_editor else None
+        layout = self.layout
+        if not strip:
+            layout.label(text="Select a strip.", icon="INFO")
+            return
         _draw_live_modifier_editor(layout, strip)
-        _draw_render_tools(layout, scene)
+
+
+class VIDEO_TOOLKIT_PT_video_effects_render(Panel):
+    bl_idname = "VIDEO_TOOLKIT_PT_video_effects_render"
+    bl_label = "Rendered Restoration"
+    bl_space_type = "SEQUENCE_EDITOR"
+    bl_region_type = "UI"
+    bl_category = "Video Effects"
+    bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        _draw_render_tools(self.layout, context.scene)
 
 
 def _draw_category(layout, category: str) -> None:
@@ -1131,6 +1336,60 @@ def _draw_operator(layout, tool_id: str, icon: str = "NONE") -> None:
 
 def _draw_header_menu(self, _context) -> None:
     self.layout.menu(VIDEO_TOOLKIT_MT_tools.bl_idname, text="Tools", icon="TOOL_SETTINGS")
+
+
+def _draw_sidecar_browser(layout, scene, strip) -> None:
+    editor = scene.sequence_editor
+    selected = [candidate for candidate in editor.strips_all if candidate.select] if editor else []
+    selected_tool = _selected_sidecar_tool(scene)
+
+    selected_box = layout.box()
+    selected_box.use_property_split = False
+    row = selected_box.row(align=True)
+    row.label(text=f"{len(selected)} selected", icon="SEQ_STRIP_DUPLICATE" if selected else "ERROR")
+    row.menu(VIDEO_TOOLKIT_MT_tools.bl_idname, text="", icon="DOWNARROW_HLT")
+    if strip is not None:
+        selected_box.label(text=getattr(strip, "name", "Active Strip"), icon="SEQ_STRIP_META")
+    else:
+        selected_box.label(text="Select a movie or video strip", icon="INFO")
+
+    browser = layout.box()
+    browser.label(text="Video Effects Browser", icon="TOOL_SETTINGS")
+    browser.use_property_split = True
+    browser.use_property_decorate = False
+    browser.prop(scene, "video_toolkit_sidecar_group", text="Group")
+    browser.prop(scene, "video_toolkit_sidecar_tool", text="Tool")
+    action = browser.row(align=True)
+    action.enabled = strip is not None and selected_tool is not None
+    action.operator(
+        VIDEO_TOOLKIT_OT_apply_sidecar_tool.bl_idname,
+        text="Apply",
+        icon=_sidecar_tool_icon(selected_tool),
+    )
+    if selected_tool is not None:
+        if selected_tool.is_blender_modifier:
+            browser.label(text="Live Blender effect", icon="MODIFIER")
+        elif selected_tool.is_ffmpeg:
+            browser.label(text="Rendered video effect", icon="RENDER_ANIMATION")
+
+    quick = layout.box()
+    quick.label(text="One-Click Video Effects", icon="COLOR")
+    row = quick.row(align=True)
+    row.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Pro Grade", icon="MODIFIER")
+    row.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname, text="Color Mgmt", icon="WORLD")
+    row = quick.row(align=True)
+    row.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Diagnostics", icon="TEXT")
+    row.operator(VIDEO_TOOLKIT_OT_apply_diagnostic_grade.bl_idname, text="Fix Grade", icon="COLOR")
+    row = quick.row(align=True)
+    row.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Deflicker", icon="IPO_EASE_IN_OUT")
+    row.menu("VIDEO_TOOLKIT_MT_compositor_recipes", text="Recipe Nodes", icon="NODETREE")
+
+    if scene.video_toolkit_last_analysis:
+        layout.label(text=scene.video_toolkit_last_analysis, icon="INFO")
+    if scene.video_toolkit_last_compositor_nodes:
+        layout.label(text=scene.video_toolkit_last_compositor_nodes, icon="NODETREE")
+    if scene.video_toolkit_last_output:
+        layout.label(text=scene.video_toolkit_last_output, icon="FILE_MOVIE")
 
 
 def _draw_live_analysis(layout, scene, strip, context) -> None:
@@ -2672,6 +2931,7 @@ def _overlaps(strip, start: int, end: int) -> bool:
 
 CLASSES = (
     VIDEO_TOOLKIT_OT_apply_filter,
+    VIDEO_TOOLKIT_OT_apply_sidecar_tool,
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_color_diagnostics,
     VIDEO_TOOLKIT_OT_apply_diagnostic_grade,
@@ -2698,6 +2958,13 @@ CLASSES = (
     VIDEO_TOOLKIT_MT_color_management,
     VIDEO_TOOLKIT_MT_tools,
     VIDEO_TOOLKIT_PT_video_filters,
+    VIDEO_TOOLKIT_PT_video_effects_analysis,
+    VIDEO_TOOLKIT_PT_video_effects_color_management,
+    VIDEO_TOOLKIT_PT_video_effects_compositor,
+    VIDEO_TOOLKIT_PT_video_effects_live_tools,
+    VIDEO_TOOLKIT_PT_video_effects_strip,
+    VIDEO_TOOLKIT_PT_video_effects_modifiers,
+    VIDEO_TOOLKIT_PT_video_effects_render,
 )
 
 
@@ -2731,6 +2998,18 @@ def register() -> None:
         name="Add Rendered Strip",
         description="Add the processed output above the source strip",
         default=True,
+    )
+    bpy.types.Scene.video_toolkit_sidecar_group = bpy.props.EnumProperty(
+        name="Group",
+        description="Video effect group shown in the Video Sequencer sidebar",
+        items=SIDECAR_GROUP_ITEMS,
+        default=SIDECAR_GROUP_ITEMS[0][0] if SIDECAR_GROUP_ITEMS else "",
+        update=_sync_sidecar_tool_to_group,
+    )
+    bpy.types.Scene.video_toolkit_sidecar_tool = bpy.props.EnumProperty(
+        name="Tool",
+        description="Video effect to apply from the Video Effects sidebar",
+        items=_sidecar_tool_items,
     )
     bpy.types.Scene.video_toolkit_last_output = bpy.props.StringProperty(
         name="Last Output",
@@ -2859,6 +3138,8 @@ def unregister() -> None:
         "video_toolkit_preset",
         "video_toolkit_keep_audio",
         "video_toolkit_add_strip",
+        "video_toolkit_sidecar_group",
+        "video_toolkit_sidecar_tool",
         "video_toolkit_last_output",
         "video_toolkit_analysis_samples",
         "video_toolkit_last_analysis",

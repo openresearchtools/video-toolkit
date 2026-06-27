@@ -203,6 +203,11 @@ scene.video_toolkit_ffmpeg_chain = 'setparams=color_primaries=bt709:color_trc=bt
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert 'translated setparams, setrange into 0 live modifier(s)' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
+assert bpy.types.VIDEO_TOOLKIT_PT_video_filters.bl_category == 'Video Effects'
+scene.video_toolkit_sidecar_group = 'LIVE_BLENDER_COLOR'
+scene.video_toolkit_sidecar_tool = 'live_gamma_grade'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert any(m.name.startswith('VTK Live Gamma Grade') for m in strip.modifiers)
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',

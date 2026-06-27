@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Open Blender's Sequencer with Video Toolkit ready for manual testing."""
+"""Open Blender's Sequencer with the Video Effects sidebar ready for manual testing."""
 
 from __future__ import annotations
 
@@ -30,7 +30,6 @@ def main() -> None:
     _setup_scene()
     _open_sequencer()
     bpy.ops.wm.save_as_mainfile(filepath=str(OUTPUT / "video_toolkit_open_ready.blend"))
-    bpy.app.timers.register(_show_panel, first_interval=0.5)
 
 
 def _hide_startup_splash() -> None:
@@ -100,17 +99,6 @@ def _open_sequencer() -> None:
     if hasattr(space, "show_region_ui"):
         space.show_region_ui = True
     _frame_selected_strip(area, region, space)
-
-
-def _show_panel():
-    try:
-        area, region, space = _sequencer_area()
-        _frame_selected_strip(area, region, space)
-        with bpy.context.temp_override(area=area, region=region, space_data=space):
-            bpy.ops.wm.call_panel(name="VIDEO_TOOLKIT_PT_video_filters", keep_open=True)
-    except Exception:
-        traceback.print_exc()
-    return None
 
 
 def _sequencer_area():

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture proof screenshots of the Blender Video Toolkit UI."""
+"""Capture proof screenshots of the Blender Video Effects sidebar."""
 
 from __future__ import annotations
 
@@ -25,7 +25,6 @@ def main() -> None:
     area, region, space = _sequencer_area()
     with bpy.context.temp_override(area=area, region=region, space_data=space):
         _frame_selected_strip()
-        bpy.ops.wm.call_panel(name="VIDEO_TOOLKIT_PT_video_filters", keep_open=True)
     bpy.app.timers.register(_screenshot_and_quit, first_interval=1.5)
 
 
