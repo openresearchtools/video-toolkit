@@ -143,6 +143,7 @@ from pathlib import Path
 sys.path.insert(0, {str(ROOT)!r})
 import bpy
 import video_toolkit
+from video_toolkit.compositor import compositor_node_types
 
 video_toolkit.register()
 scene = bpy.context.scene
@@ -319,6 +320,32 @@ for required in [
 ]:
     assert required in all_node_types, required
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='NODE_LIBRARY')
+assert result == {{'FINISHED'}}, result
+library_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Library ')
+]
+for required in [
+    'CompositorNodeConvertToDisplay',
+    'CompositorNodeRGBToBW',
+    'CompositorNodeNormalize',
+    'CompositorNodeGlare',
+    'CompositorNodeLensdist',
+    'CompositorNodeCornerPin',
+    'CompositorNodeTransform',
+    'CompositorNodeChannelMatte',
+    'CompositorNodeLumaMatte',
+    'CompositorNodeSequencerStripInfo',
+    'CompositorNodeConvolve',
+    'CompositorNodeOutputFile',
+]:
+    assert required in library_node_types, required
+assert len(set(library_node_types)) == len(compositor_node_types())
+library_summary = scene.video_toolkit_last_compositor_nodes
+assert library_summary.startswith(str(len(compositor_node_types())) + ' nodes:')
+
 bpy.ops.wm.save_as_mainfile(filepath={str(blend)!r})
 Path({str(report)!r}).write_text(json.dumps({{
     'video': {str(video)!r},
@@ -344,6 +371,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'color_timeline_gain_keyframes': color_timeline_gain_keyframes,
     'compositor_color_node_types': color_node_types,
     'compositor_all_node_types': all_node_types,
+    'compositor_library_node_types': library_node_types,
+    'compositor_library_summary': library_summary,
     'compositor_links': len(tree.links),
     'blend': {str(blend)!r},
 }}, indent=2), encoding='utf-8')

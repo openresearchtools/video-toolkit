@@ -67,6 +67,7 @@ import sys
 sys.path.insert(0, {str(ROOT)!r})
 import bpy
 import video_toolkit
+from video_toolkit.compositor import compositor_node_types
 
 video_toolkit.register()
 scene = bpy.context.scene
@@ -214,6 +215,16 @@ node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK
 assert 'CompositorNodeStabilize' in node_types
 assert 'CompositorNodeMovieDistortion' in node_types
 assert 'CompositorNodeDenoise' in node_types
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='NODE_LIBRARY')
+library_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Library ')
+]
+for required in compositor_node_types():
+    assert required in library_node_types, required
+assert len(set(library_node_types)) == len(compositor_node_types())
+assert scene.video_toolkit_last_compositor_nodes.startswith(str(len(compositor_node_types())) + ' nodes:')
 bpy.ops.video_toolkit.apply_filter(filter_id='deflicker_normalize')
 assert scene.video_toolkit_last_output
 assert os.path.exists(scene.video_toolkit_last_output)

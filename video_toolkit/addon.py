@@ -19,6 +19,7 @@ from .color_analysis import (
     sample_video_color,
     summarize_stats,
 )
+from .compositor import compositor_node_tools
 from .ffmpeg_backend import FFmpegError, process_video
 from .ffmpeg_native import translate_filter_chain
 
@@ -39,6 +40,7 @@ APPLY_TARGET_ITEMS = (
 COMPOSITOR_STACK_ITEMS = (
     ("COLOR", "Color Node Stack", "Build a Blender compositor color node graph from the active movie strip"),
     ("RESTORATION", "Restoration Node Stack", "Build a Blender compositor restoration node graph from the active movie strip"),
+    ("NODE_LIBRARY", "Native Node Library", "Create every tracked Blender compositor video-finishing node in organized groups"),
 )
 
 
@@ -397,13 +399,16 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
     def execute(self, context):
         try:
             strip = context.scene.sequence_editor.active_strip
-            if self.stack_type == "RESTORATION":
+            if self.stack_type == "NODE_LIBRARY":
+                created = _create_compositor_node_library(context.scene, strip)
+                label = "native node library"
+            elif self.stack_type == "RESTORATION":
                 created = _create_compositor_restoration_stack(context.scene, strip)
                 label = "restoration"
             else:
                 created = _create_compositor_color_stack(context.scene, strip)
                 label = "color"
-            context.scene.video_toolkit_last_compositor_nodes = ", ".join(node.label or node.bl_idname for node in created)
+            context.scene.video_toolkit_last_compositor_nodes = _compositor_node_summary(created)
             self.report({"INFO"}, f"Created {len(created)} Blender compositor {label} node(s)")
             return {"FINISHED"}
         except Exception as exc:
@@ -458,6 +463,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
             icon="NODETREE",
         )
         op.stack_type = "RESTORATION"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Native Node Library",
+            icon="NODETREE",
+        )
+        op.stack_type = "NODE_LIBRARY"
         layout.separator()
         _draw_operator(layout, "deflicker_normalize", icon="LIGHT")
         _draw_operator(layout, "stabilize", icon="TRACKING")
@@ -610,6 +621,8 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op.stack_type = "COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
     op.stack_type = "RESTORATION"
+    op = box.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Native Node Library", icon="NODETREE")
+    op.stack_type = "NODE_LIBRARY"
     if scene.video_toolkit_last_compositor_nodes:
         box.label(text=scene.video_toolkit_last_compositor_nodes, icon="INFO")
 
@@ -973,6 +986,33 @@ def _create_compositor_restoration_stack(scene, strip):
     return [movie, stabilize, distortion, denoise, despeckle, bilateral, antialias, viewer, output]
 
 
+def _create_compositor_node_library(scene, strip):
+    tree = _ensure_compositor_tree(scene)
+    origin = _next_node_origin(tree)
+    clip = _assign_movie_clip_to_data(_movie_path(strip))
+    created = []
+    category_rows: dict[str, int] = {}
+    category_columns: dict[str, int] = {}
+    for tool in compositor_node_tools():
+        if tool.category not in category_rows:
+            category_rows[tool.category] = len(category_rows)
+            category_columns[tool.category] = 0
+        row = category_rows[tool.category]
+        column = category_columns[tool.category]
+        category_columns[tool.category] += 1
+        node = _new_compositor_node(
+            tree,
+            tool.node_type,
+            f"VTK Library {tool.category} - {tool.label}",
+            column,
+            y_offset=-(row * 280),
+            origin=origin,
+        )
+        _configure_library_node(node, scene, clip)
+        created.append(node)
+    return created
+
+
 def _ensure_compositor_tree(scene):
     if hasattr(scene.render, "use_compositing"):
         scene.render.use_compositing = True
@@ -1014,14 +1054,42 @@ def _next_node_origin(tree) -> tuple[int, int]:
 
 
 def _assign_movie_clip(node, path: Path):
-    clip = bpy.data.movieclips.load(str(path), check_existing=True)
+    clip = _assign_movie_clip_to_data(path)
     node.clip = clip
     return clip
+
+
+def _assign_movie_clip_to_data(path: Path):
+    return bpy.data.movieclips.load(str(path), check_existing=True)
 
 
 def _assign_node_clip(node, clip) -> None:
     if hasattr(node, "clip"):
         node.clip = clip
+
+
+def _configure_library_node(node, scene, clip) -> None:
+    if node.bl_idname == "CompositorNodeMovieClip":
+        node.clip = clip
+    else:
+        _assign_node_clip(node, clip)
+    if node.bl_idname == "CompositorNodeOutputFile" and hasattr(node, "base_path"):
+        node.base_path = str(_output_dir(scene))
+    if node.bl_idname == "CompositorNodeRGB":
+        _set_output_default(node, "Color", (1.0, 1.0, 1.0, 1.0))
+    _set_input_default(node, "Factor", 1.0)
+    _set_input_default(node, "Fac", 1.0)
+    _set_input_default(node, "Threshold", 0.08)
+    _set_input_default(node, "Size", 3.0)
+    _set_input_default(node, "Saturation", 1.0)
+    _set_input_default(node, "Value", 1.0)
+
+
+def _compositor_node_summary(nodes) -> str:
+    labels = [node.label or node.bl_idname for node in nodes]
+    if len(labels) <= 8:
+        return ", ".join(labels)
+    return f"{len(labels)} nodes: " + ", ".join(labels[:8]) + ", ..."
 
 
 def _link_compositor_chain(tree, nodes):
@@ -1059,6 +1127,21 @@ def _first_socket(sockets):
 
 def _set_input_default(node, socket_name: str, value) -> None:
     socket = _socket_by_name(node.inputs, socket_name)
+    if socket is None or not hasattr(socket, "default_value"):
+        return
+    current = socket.default_value
+    try:
+        if hasattr(current, "__setitem__") and isinstance(value, (tuple, list)):
+            for index, item in enumerate(value[: len(current)]):
+                current[index] = item
+        else:
+            socket.default_value = value
+    except Exception:
+        return
+
+
+def _set_output_default(node, socket_name: str, value) -> None:
+    socket = _socket_by_name(node.outputs, socket_name)
     if socket is None or not hasattr(socket, "default_value"):
         return
     current = socket.default_value
