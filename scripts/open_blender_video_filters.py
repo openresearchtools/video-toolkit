@@ -16,6 +16,7 @@ VIDEO = ROOT / "tests" / "fixtures" / "real_user_video.mp4"
 
 
 def main() -> None:
+    _hide_startup_splash()
     sys.path.insert(0, str(ROOT))
     import video_toolkit
 
@@ -30,6 +31,11 @@ def main() -> None:
     _open_sequencer()
     bpy.ops.wm.save_as_mainfile(filepath=str(OUTPUT / "video_toolkit_open_ready.blend"))
     bpy.app.timers.register(_show_panel, first_interval=0.5)
+
+
+def _hide_startup_splash() -> None:
+    if hasattr(bpy.context.preferences.view, "show_splash"):
+        bpy.context.preferences.view.show_splash = False
 
 
 def _setup_scene() -> None:
@@ -63,17 +69,19 @@ def _setup_scene() -> None:
 
 
 def _open_sequencer() -> None:
-    area, _region, space = _sequencer_area()
+    area, region, space = _sequencer_area()
     area.type = "SEQUENCE_EDITOR"
     if hasattr(space, "view_type"):
         space.view_type = "SEQUENCER_PREVIEW"
     if hasattr(space, "show_region_ui"):
         space.show_region_ui = True
+    _frame_selected_strip(area, region, space)
 
 
 def _show_panel():
     try:
         area, region, space = _sequencer_area()
+        _frame_selected_strip(area, region, space)
         with bpy.context.temp_override(area=area, region=region, space_data=space):
             bpy.ops.wm.call_panel(name="VIDEO_TOOLKIT_PT_video_filters", keep_open=True)
     except Exception:
@@ -88,6 +96,19 @@ def _sequencer_area():
     space = area.spaces.active
     region = next(region for region in area.regions if region.type == "WINDOW")
     return area, region, space
+
+
+def _frame_selected_strip(area, region, space) -> None:
+    with bpy.context.temp_override(area=area, region=region, space_data=space):
+        for operator in (
+            bpy.ops.sequencer.refresh_all,
+            bpy.ops.sequencer.view_selected,
+            bpy.ops.sequencer.view_all_preview,
+        ):
+            try:
+                operator()
+            except Exception:
+                pass
 
 
 main()
