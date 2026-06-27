@@ -17,6 +17,7 @@ python -m pip install -e . pytest
 python scripts/download_blender.py
 pytest
 python scripts/end_user_blender_preview_test.py
+python scripts/blender_native_coverage.py
 ```
 
 The Blender download script stores builds under `.local/blender/`, which is ignored by Git.
@@ -51,6 +52,7 @@ FFmpeg must be installed and visible on `PATH`.
 ## Included Tool Groups
 
 - Live frame analysis: auto balance selected footage, or match the active movie strip to another selected reference strip.
+- Zone-aware matching: frame samples are split into shadows, midtones, and highlights, then mapped to Blender Lift/Gamma/Gain, Tone Map, RGB Curves, and Hue Correct.
 - Live Blender color room: Color Management, Sequencer input color space, exposure, gamma, white balance, strip transform/crop/opacity, and editable live modifier stack.
 - Live one-click Blender stacks: Pro Color Stack, Gamma Grade, Shadow Recovery, Contrast Pop, Warm Grade, Cool Grade, saturation boost/reduce, monochrome, faded film, and contrast curves.
 - Native Blender primitives: Brightness/Contrast, Lift/Gamma/Gain, ASC CDL Offset/Power/Slope, R/D Photoreceptor Tone Map, Rh Simple Tone Map, Curves, Hue Correct, White Balance, Mask.

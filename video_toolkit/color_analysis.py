@@ -20,6 +20,15 @@ class ColorStats:
     luma_std: float
     luma_p05: float
     luma_p95: float
+    shadow_rgb: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    midtone_rgb: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    highlight_rgb: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    shadow_luma: float = 0.0
+    midtone_luma: float = 0.0
+    highlight_luma: float = 0.0
+    shadow_count: int = 0
+    midtone_count: int = 0
+    highlight_count: int = 0
 
     @property
     def mean_rgb(self) -> tuple[float, float, float]:
@@ -83,7 +92,22 @@ def sample_video_color(
         gs.append(g)
         bs.append(b)
         lumas.append(0.2126 * r + 0.7152 * g + 0.0722 * b)
+    shadow_threshold = 85.0
+    highlight_threshold = 170.0
+    shadow_pixels: list[tuple[int, int, int, float]] = []
+    midtone_pixels: list[tuple[int, int, int, float]] = []
+    highlight_pixels: list[tuple[int, int, int, float]] = []
+    for r, g, b, luma in zip(rs, gs, bs, lumas):
+        if luma < shadow_threshold:
+            shadow_pixels.append((r, g, b, luma))
+        elif luma > highlight_threshold:
+            highlight_pixels.append((r, g, b, luma))
+        else:
+            midtone_pixels.append((r, g, b, luma))
     lumas.sort()
+    shadow_rgb, shadow_luma = _pixel_zone_average(shadow_pixels)
+    midtone_rgb, midtone_luma = _pixel_zone_average(midtone_pixels)
+    highlight_rgb, highlight_luma = _pixel_zone_average(highlight_pixels)
     return ColorStats(
         samples=usable // frame_size,
         mean_r=sum(rs) / count,
@@ -93,6 +117,15 @@ def sample_video_color(
         luma_std=_stddev(lumas),
         luma_p05=_percentile(lumas, 0.05),
         luma_p95=_percentile(lumas, 0.95),
+        shadow_rgb=shadow_rgb,
+        midtone_rgb=midtone_rgb,
+        highlight_rgb=highlight_rgb,
+        shadow_luma=shadow_luma,
+        midtone_luma=midtone_luma,
+        highlight_luma=highlight_luma,
+        shadow_count=len(shadow_pixels),
+        midtone_count=len(midtone_pixels),
+        highlight_count=len(highlight_pixels),
     )
 
 
@@ -106,6 +139,12 @@ def build_auto_balance_stack(stats: ColorStats) -> tuple[tuple[str, dict[str, ob
         luma_std=54.0,
         luma_p05=24.0,
         luma_p95=224.0,
+        shadow_rgb=(38.0, 38.0, 38.0),
+        midtone_rgb=(118.0, 118.0, 118.0),
+        highlight_rgb=(218.0, 218.0, 218.0),
+        shadow_luma=38.0,
+        midtone_luma=118.0,
+        highlight_luma=218.0,
     )
     return build_color_match_stack(stats, reference)
 
@@ -116,11 +155,11 @@ def build_color_match_stack(
 ) -> tuple[tuple[str, dict[str, object]], ...]:
     brightness = _clamp((reference.mean_luma - target.mean_luma) / 255.0, -0.18, 0.18)
     contrast = _clamp((_safe_ratio(reference.luma_std, target.luma_std) - 1.0) * 18.0, -22.0, 22.0)
-    gain = _channel_balance(reference.mean_rgb, target.mean_rgb, power=0.60)
-    gamma = _channel_balance(reference.mean_rgb, target.mean_rgb, power=0.28)
-    lift_delta = _clamp((reference.luma_p05 - target.luma_p05) / 255.0, -0.08, 0.08)
-    lift = tuple(_clamp(1.0 + lift_delta, 0.88, 1.12) for _ in range(3))
+    lift = _zone_balance(reference.shadow_rgb, target.shadow_rgb, fallback=reference.mean_rgb, power=0.42, low=0.84, high=1.18)
+    gamma = _zone_balance(reference.midtone_rgb, target.midtone_rgb, fallback=reference.mean_rgb, power=0.32, low=0.82, high=1.22)
+    gain = _zone_balance(reference.highlight_rgb, target.highlight_rgb, fallback=reference.mean_rgb, power=0.55, low=0.80, high=1.25)
     tone_intensity = _clamp((target.luma_p95 - reference.luma_p95) / 255.0, 0.0, 0.20)
+    curve_points = _contrast_curve_points(target, reference)
     return (
         ("BRIGHT_CONTRAST", {"bright": brightness, "contrast": contrast}),
         (
@@ -142,8 +181,8 @@ def build_color_match_stack(
                 "gamma": _clamp(_safe_ratio(reference.mean_luma, target.mean_luma), 0.80, 1.25),
             },
         ),
-        ("CURVES", {}),
-        ("HUE_CORRECT", {}),
+        ("CURVES", {"__curve_points__": {0: curve_points}}),
+        ("HUE_CORRECT", {"__hue_correct__": {"saturation": _saturation_curve_value(target, reference)}}),
     )
 
 
@@ -151,7 +190,8 @@ def summarize_stats(stats: ColorStats) -> str:
     return (
         f"{stats.samples} frames, RGB "
         f"{stats.mean_r:.1f}/{stats.mean_g:.1f}/{stats.mean_b:.1f}, "
-        f"luma {stats.mean_luma:.1f}, spread {stats.luma_std:.1f}"
+        f"luma {stats.mean_luma:.1f}, spread {stats.luma_std:.1f}, "
+        f"zones S/M/H {stats.shadow_count}/{stats.midtone_count}/{stats.highlight_count}"
     )
 
 
@@ -164,6 +204,61 @@ def _channel_balance(
     ratios = [_safe_ratio(ref, target) ** power for ref, target in zip(reference_rgb, target_rgb)]
     average = sum(ratios) / len(ratios)
     return tuple(_clamp(value / average, 0.82, 1.22) for value in ratios)
+
+
+def _zone_balance(
+    reference_rgb: tuple[float, float, float],
+    target_rgb: tuple[float, float, float],
+    *,
+    fallback: tuple[float, float, float],
+    power: float,
+    low: float,
+    high: float,
+) -> tuple[float, float, float]:
+    if sum(target_rgb) <= 1.0 or sum(reference_rgb) <= 1.0:
+        return _channel_balance(fallback, target_rgb if sum(target_rgb) > 1.0 else fallback, power=power)
+    ratios = [_safe_ratio(ref, target) ** power for ref, target in zip(reference_rgb, target_rgb)]
+    average = sum(ratios) / len(ratios)
+    return tuple(_clamp(value / average, low, high) for value in ratios)
+
+
+def _pixel_zone_average(pixels: list[tuple[int, int, int, float]]) -> tuple[tuple[float, float, float], float]:
+    if not pixels:
+        return (0.0, 0.0, 0.0), 0.0
+    count = len(pixels)
+    return (
+        (
+            sum(pixel[0] for pixel in pixels) / count,
+            sum(pixel[1] for pixel in pixels) / count,
+            sum(pixel[2] for pixel in pixels) / count,
+        ),
+        sum(pixel[3] for pixel in pixels) / count,
+    )
+
+
+def _contrast_curve_points(target: ColorStats, reference: ColorStats) -> list[tuple[float, float]]:
+    shadow_delta = _clamp((reference.shadow_luma - target.shadow_luma) / 255.0, -0.12, 0.12)
+    mid_delta = _clamp((reference.midtone_luma - target.midtone_luma) / 255.0, -0.10, 0.10)
+    highlight_delta = _clamp((reference.highlight_luma - target.highlight_luma) / 255.0, -0.12, 0.12)
+    return [
+        (0.0, 0.0),
+        (0.25, _clamp(0.25 + shadow_delta, 0.02, 0.48)),
+        (0.50, _clamp(0.50 + mid_delta, 0.25, 0.75)),
+        (0.75, _clamp(0.75 + highlight_delta, 0.52, 0.98)),
+        (1.0, 1.0),
+    ]
+
+
+def _saturation_curve_value(target: ColorStats, reference: ColorStats) -> float:
+    target_chroma = _rgb_chroma(target.mean_rgb)
+    reference_chroma = _rgb_chroma(reference.mean_rgb)
+    if target_chroma <= 1e-6:
+        return 0.5
+    return _clamp(0.5 * _safe_ratio(reference_chroma, target_chroma), 0.15, 0.85)
+
+
+def _rgb_chroma(rgb: tuple[float, float, float]) -> float:
+    return max(rgb) - min(rgb)
 
 
 def _safe_ratio(numerator: float, denominator: float) -> float:
@@ -191,4 +286,3 @@ def _percentile(values: list[float], percentile: float) -> float:
         return values[lower]
     fraction = index - lower
     return values[lower] * (1 - fraction) + values[upper] * fraction
-

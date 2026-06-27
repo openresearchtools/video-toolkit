@@ -46,6 +46,7 @@ def test_sample_video_color_reads_real_pixels(tmp_path):
     assert stats.samples > 0
     assert stats.mean_r > stats.mean_g
     assert stats.mean_r > stats.mean_b
+    assert stats.highlight_count + stats.midtone_count + stats.shadow_count > 0
 
 
 def test_auto_balance_builds_live_blender_stack(tmp_path):
@@ -63,4 +64,7 @@ def test_color_match_uses_reference_statistics(tmp_path):
     color_balance = dict(stack[1][1])
     gain = color_balance["color_balance.gain"]
     assert gain[2] > gain[0]
-
+    curves = dict(stack[3][1])
+    assert "__curve_points__" in curves
+    hue_correct = dict(stack[4][1])
+    assert "__hue_correct__" in hue_correct
