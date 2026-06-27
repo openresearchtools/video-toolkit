@@ -125,6 +125,10 @@ def _hue_correct() -> tuple[str, dict[str, Any]]:
     return ("HUE_CORRECT", {})
 
 
+def _curve_points(curve_points: dict[int, list[tuple[float, float]]]) -> tuple[str, dict[str, Any]]:
+    return ("CURVES", {"__curve_points__": curve_points})
+
+
 _AUTO_ENHANCE_STACK = translate_filter_chain("eq=contrast=1.08:saturation=1.08:gamma=1.02").stack
 _NEUTRAL_GRADE_STACK = translate_filter_chain("eq=contrast=1.04:saturation=1.03:gamma=1.00").stack
 _PUNCHY_COLOR_STACK = translate_filter_chain("eq=contrast=1.14:saturation=1.18:gamma=0.98").stack
@@ -150,6 +154,50 @@ _TEMP_WARM_STACK = translate_filter_chain("colortemperature=temperature=5200:mix
 _TEMP_COOL_STACK = translate_filter_chain("colortemperature=temperature=7600:mix=0.75:pl=1").stack
 _LEGAL_RANGE_STACK = translate_filter_chain("limiter=min=16:max=235").stack
 _HDR_TONE_COMPRESS_STACK = translate_filter_chain("tonemap=tonemap=mobius:param=0.35:desat=0.4:peak=400").stack
+_BLACK_POINT_CLEANUP_STACK = (
+    _bright_contrast(bright=-0.008, contrast=4.0),
+    _curve_points({0: [(0.0, 0.0), (0.08, 0.035), (0.50, 0.50), (1.0, 1.0)]}),
+)
+_WHITE_POINT_RECOVERY_STACK = (
+    _tonemap(tonemap_type="RD_PHOTORECEPTOR", intensity=0.18, contrast=0.04, gamma=0.96),
+    _curve_points({0: [(0.0, 0.0), (0.50, 0.50), (0.88, 0.84), (1.0, 0.96)]}),
+)
+_LUMA_S_CURVE_STACK = (
+    _bright_contrast(bright=0.0, contrast=6.0),
+    _curve_points({0: [(0.0, 0.0), (0.18, 0.12), (0.50, 0.50), (0.82, 0.90), (1.0, 1.0)]}),
+)
+_RED_GAMMA_TRIM_STACK = (
+    _color_balance(gamma=(1.08, 1.0, 1.0), gain=(1.03, 1.0, 0.99)),
+    _white_balance((1.03, 1.0, 0.99)),
+)
+_GREEN_GAMMA_TRIM_STACK = (
+    _color_balance(gamma=(1.0, 1.08, 1.0), gain=(1.0, 1.03, 1.0)),
+    _white_balance((1.0, 1.03, 1.0)),
+)
+_BLUE_GAMMA_TRIM_STACK = (
+    _color_balance(gamma=(1.0, 1.0, 1.08), gain=(0.99, 1.0, 1.03)),
+    _white_balance((0.99, 1.0, 1.03)),
+)
+_MAGENTA_GREEN_TINT_STACK = (
+    _white_balance((1.02, 0.98, 1.02)),
+    _color_balance(gamma=(1.015, 0.985, 1.015), gain=(1.02, 0.98, 1.02)),
+)
+_GREEN_CAST_REPAIR_STACK = (
+    _white_balance((1.03, 0.94, 1.03)),
+    _color_balance(lift=(1.01, 0.98, 1.01), gamma=(1.03, 0.96, 1.03), gain=(1.02, 0.98, 1.02)),
+)
+_SHADOW_COOL_TINT_STACK = (
+    _color_balance(lift=(0.98, 1.00, 1.06), gamma=(0.99, 1.00, 1.02), gain=(1.0, 1.0, 1.0)),
+    _curve_points({0: [(0.0, 0.02), (0.25, 0.23), (1.0, 1.0)]}),
+)
+_HIGHLIGHT_WARM_TINT_STACK = (
+    _color_balance(lift=(1.0, 1.0, 1.0), gamma=(1.01, 1.0, 0.99), gain=(1.06, 1.02, 0.96)),
+    _tonemap(tonemap_type="RD_PHOTORECEPTOR", intensity=0.08, contrast=0.06, gamma=1.0),
+)
+_SKIN_TONE_ISOLATION_STACK = (
+    _color_balance(gamma=(1.035, 1.015, 0.985), gain=(1.025, 1.01, 0.985), color_multiply=1.02),
+    ("HUE_CORRECT", {"__hue_correct__": {"saturation": 0.56, "value": 0.52}}),
+)
 
 
 TOOLS: tuple[VideoTool, ...] = (
@@ -465,6 +513,94 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_BLENDER_MODIFIER,
         description="Translated FFmpeg tonemap intent into Blender Tone Map plus saturation control.",
         blender_stack=_HDR_TONE_COMPRESS_STACK,
+    ),
+    VideoTool(
+        id="black_point_cleanup",
+        label="Black Point Cleanup",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Native Blender brightness plus RGB curve cleanup for milky blacks and lifted shadows.",
+        blender_stack=_BLACK_POINT_CLEANUP_STACK,
+    ),
+    VideoTool(
+        id="white_point_recovery",
+        label="White Point Recovery",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Native Blender tone map and curve roll-off for hot whites and clipped-looking highlights.",
+        blender_stack=_WHITE_POINT_RECOVERY_STACK,
+    ),
+    VideoTool(
+        id="luma_s_curve",
+        label="Luma S-Curve",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Editable native RGB curve contrast shape for fast primary color correction.",
+        blender_stack=_LUMA_S_CURVE_STACK,
+    ),
+    VideoTool(
+        id="red_gamma_trim",
+        label="Red Gamma Trim",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Live Blender midtone red-channel gamma trim using Color Balance and White Balance.",
+        blender_stack=_RED_GAMMA_TRIM_STACK,
+    ),
+    VideoTool(
+        id="green_gamma_trim",
+        label="Green Gamma Trim",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Live Blender midtone green-channel gamma trim using Color Balance and White Balance.",
+        blender_stack=_GREEN_GAMMA_TRIM_STACK,
+    ),
+    VideoTool(
+        id="blue_gamma_trim",
+        label="Blue Gamma Trim",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Live Blender midtone blue-channel gamma trim using Color Balance and White Balance.",
+        blender_stack=_BLUE_GAMMA_TRIM_STACK,
+    ),
+    VideoTool(
+        id="magenta_green_tint",
+        label="Magenta/Green Tint",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Native White Balance and Color Balance tint correction for fluorescent or camera tint shifts.",
+        blender_stack=_MAGENTA_GREEN_TINT_STACK,
+    ),
+    VideoTool(
+        id="green_cast_repair",
+        label="Green Cast Repair",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="One-click native Blender repair stack for green-biased footage.",
+        blender_stack=_GREEN_CAST_REPAIR_STACK,
+    ),
+    VideoTool(
+        id="shadow_cool_tint",
+        label="Shadow Cool Tint",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Native lift/gamma and curve setup for cooler shadows without changing the whole image.",
+        blender_stack=_SHADOW_COOL_TINT_STACK,
+    ),
+    VideoTool(
+        id="highlight_warm_tint",
+        label="Highlight Warm Tint",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Native gain and tone-map setup for warmer highlights and gentle roll-off.",
+        blender_stack=_HIGHLIGHT_WARM_TINT_STACK,
+    ),
+    VideoTool(
+        id="skin_tone_isolation",
+        label="Skin Tone Isolation",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Conservative native gamma and Hue Correct stack for warmer skin-tone-like ranges.",
+        blender_stack=_SKIN_TONE_ISOLATION_STACK,
     ),
     VideoTool(
         id="native_all_color_tools",

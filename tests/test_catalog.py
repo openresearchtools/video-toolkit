@@ -84,6 +84,17 @@ def test_color_enhance_tools_are_blender_native_live_stacks():
         "temperature_cool",
         "legal_range_clamp",
         "hdr_tone_compress",
+        "black_point_cleanup",
+        "white_point_recovery",
+        "luma_s_curve",
+        "red_gamma_trim",
+        "green_gamma_trim",
+        "blue_gamma_trim",
+        "magenta_green_tint",
+        "green_cast_repair",
+        "shadow_cool_tint",
+        "highlight_warm_tint",
+        "skin_tone_isolation",
     ):
         tool = get_tool(tool_id)
         assert tool.is_blender_modifier

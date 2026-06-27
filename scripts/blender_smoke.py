@@ -184,6 +184,17 @@ for filter_id in (
     'temperature_cool',
     'legal_range_clamp',
     'hdr_tone_compress',
+    'black_point_cleanup',
+    'white_point_recovery',
+    'luma_s_curve',
+    'red_gamma_trim',
+    'green_gamma_trim',
+    'blue_gamma_trim',
+    'magenta_green_tint',
+    'green_cast_repair',
+    'shadow_cool_tint',
+    'highlight_warm_tint',
+    'skin_tone_isolation',
     'native_all_color_tools',
     'vse_bright_contrast',
     'vse_color_balance',
@@ -194,7 +205,7 @@ for filter_id in (
     'vse_white_balance',
 ):
     bpy.ops.video_toolkit.apply_filter(filter_id=filter_id)
-assert len(strip.modifiers) >= 77
+assert len(strip.modifiers) >= 99
 high_curve = next(m for m in strip.modifiers if m.name.startswith('VTK High Contrast Curve') and m.type == 'CURVES')
 high_points = [tuple(p.location[:]) for p in high_curve.curve_mapping.curves[0].points]
 assert high_points[1][1] < high_points[1][0]
@@ -209,6 +220,12 @@ vibrance = next(m for m in strip.modifiers if m.name.startswith('VTK Vibrance') 
 assert vibrance.curve_mapping.curves[1].points[0].location[1] > 0.5
 temperature = next(m for m in strip.modifiers if m.name.startswith('VTK Temperature Warm') and m.type == 'WHITE_BALANCE')
 assert temperature.white_value[0] > temperature.white_value[2]
+red_trim = next(m for m in strip.modifiers if m.name.startswith('VTK Red Gamma Trim') and m.type == 'COLOR_BALANCE')
+assert red_trim.color_balance.gamma[0] > red_trim.color_balance.gamma[1]
+green_repair = next(m for m in strip.modifiers if m.name.startswith('VTK Green Cast Repair') and m.type == 'WHITE_BALANCE')
+assert green_repair.white_value[1] < green_repair.white_value[0]
+white_recovery = next(m for m in strip.modifiers if m.name.startswith('VTK White Point Recovery') and m.type == 'TONEMAP')
+assert white_recovery.intensity > 0.0
 scene.sequence_editor.active_strip = strip
 for candidate in scene.sequence_editor.strips_all:
     candidate.select = False

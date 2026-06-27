@@ -216,6 +216,19 @@ assert result == {{'FINISHED'}}, result
 types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK ')]
 for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'TONEMAP', 'WHITE_BALANCE', 'CURVES', 'HUE_CORRECT', 'MASK']:
     assert required in types, required
+for filter_id in ['luma_s_curve', 'green_cast_repair', 'red_gamma_trim']:
+    result = bpy.ops.video_toolkit.apply_filter(filter_id=filter_id)
+    assert result == {{'FINISHED'}}, result
+primary_correction_types = [
+    modifier.type
+    for modifier in strip.modifiers
+    if (
+        modifier.name.startswith('VTK Luma S-Curve')
+        or modifier.name.startswith('VTK Green Cast Repair')
+        or modifier.name.startswith('VTK Red Gamma Trim')
+    )
+]
+assert {{'CURVES', 'COLOR_BALANCE', 'WHITE_BALANCE'}}.issubset(set(primary_correction_types))
 
 scene.video_toolkit_ffmpeg_chain = (
     'eq=contrast=1.12:saturation=1.08:gamma=1.02,'
@@ -410,6 +423,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'diagnostics_report_excerpt': diagnostics_report.splitlines()[:12],
     'diagnostic_grade_summary': scene.video_toolkit_last_diagnostic_grade,
     'diagnostic_grade_modifier_types': diagnostic_grade_types,
+    'primary_correction_modifier_types': primary_correction_types,
     'normalizer_keyframes': normalizer_keyframes,
     'timeline_match_reference': {str(reference_video)!r},
     'timeline_match_keyframes': timeline_match_keyframes,
