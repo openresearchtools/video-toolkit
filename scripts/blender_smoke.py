@@ -204,6 +204,12 @@ bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert 'translated setparams, setrange into 0 live modifier(s)' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 assert bpy.types.VIDEO_TOOLKIT_PT_video_filters.bl_category == 'Video Effects'
+assert scene.video_toolkit_sidecar_section == 'BROWSER'
+for sidecar_section in ['ANALYSIS', 'COLOR', 'COMPOSITOR', 'LIVE', 'STRIP', 'MODIFIERS', 'RENDER', 'BROWSER']:
+    result = bpy.ops.video_toolkit.set_sidecar_section(section=sidecar_section)
+    assert result == {{'FINISHED'}}, result
+    assert scene.video_toolkit_sidecar_section == sidecar_section
+assert not hasattr(bpy.types, 'VIDEO_TOOLKIT_PT_video_effects_analysis')
 scene.video_toolkit_sidecar_group = 'LIVE_BLENDER_COLOR'
 scene.video_toolkit_sidecar_tool = 'live_gamma_grade'
 bpy.ops.video_toolkit.apply_sidecar_tool()

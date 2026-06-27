@@ -5,7 +5,7 @@ bl_info = {
     "author": "Open Research Tools",
     "version": (0, 1, 0),
     "blender": (4, 2, 0),
-    "location": "Video Sequencer > Tools > Video Filters",
+    "location": "Video Sequencer > Sidebar > Video Effects",
     "description": "One-click video enhancement, VSE filters, and restoration tools.",
     "category": "Sequencer",
 }
@@ -21,4 +21,3 @@ def unregister():
     from . import addon
 
     addon.unregister()
-

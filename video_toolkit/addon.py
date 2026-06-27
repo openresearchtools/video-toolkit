@@ -92,6 +92,17 @@ SIDECAR_GROUP_ICONS = {
     "Resolution & Motion": "RENDER_ANIMATION",
 }
 
+SIDECAR_SECTION_ITEMS = (
+    ("BROWSER", "Tools", "One-click video effect browser", "TOOL_SETTINGS", 0),
+    ("ANALYSIS", "Analyze", "Sample frames, diagnose color, and match lighting or color", "EYEDROPPER", 1),
+    ("COLOR", "Color Mgmt", "Blender scene and view color-management controls", "WORLD", 2),
+    ("COMPOSITOR", "Nodes", "Native Blender compositor node stacks and recipe graphs", "NODETREE", 3),
+    ("LIVE", "Live", "Live Blender color tools and FFmpeg-style native color translation", "COLOR", 4),
+    ("STRIP", "Strip", "Selected strip transform, crop, opacity, and lock controls", "SEQ_STRIP_META", 5),
+    ("MODIFIERS", "Modifiers", "Editable VSE live modifier stack for the selected strip", "MODIFIER", 6),
+    ("RENDER", "Render", "Rendered restoration, scaling, motion, and output settings", "RENDER_ANIMATION", 7),
+)
+
 
 def _enum_key(value: str) -> str:
     cleaned = "".join(ch.upper() if ch.isalnum() else "_" for ch in value).strip("_")
@@ -260,6 +271,19 @@ class VIDEO_TOOLKIT_OT_apply_sidecar_tool(Operator):
             self.report({"ERROR"}, "No Video Effects tool is selected")
             return {"CANCELLED"}
         return bpy.ops.video_toolkit.apply_filter(filter_id=tool.id, target="SCENE")
+
+
+class VIDEO_TOOLKIT_OT_set_sidecar_section(Operator):
+    bl_idname = "video_toolkit.set_sidecar_section"
+    bl_label = "Show Video Effects Section"
+    bl_description = "Switch the active mini tab in the Video Effects sidebar"
+    bl_options = {"REGISTER"}
+
+    section: bpy.props.EnumProperty(name="Section", items=SIDECAR_SECTION_ITEMS)
+
+    def execute(self, context):
+        context.scene.video_toolkit_sidecar_section = self.section
+        return {"FINISHED"}
 
 
 class VIDEO_TOOLKIT_OT_analyze_color(Operator):
@@ -1286,12 +1310,7 @@ class VIDEO_TOOLKIT_PT_video_filters(Panel):
         layout.use_property_split = True
         layout.use_property_decorate = False
 
-        if not strip:
-            layout.label(text="Select a strip to enable one-click effects.", icon="INFO")
-            _draw_sidecar_browser(layout, scene, strip)
-            return
-
-        _draw_sidecar_browser(layout, scene, strip)
+        _draw_sidecar_browser(layout, scene, strip, context)
 
 
 class VIDEO_TOOLKIT_PT_video_effects_analysis(Panel):
@@ -1425,10 +1444,16 @@ def _draw_header_menu(self, _context) -> None:
     self.layout.menu(VIDEO_TOOLKIT_MT_tools.bl_idname, text="Tools", icon="TOOL_SETTINGS")
 
 
-def _draw_sidecar_browser(layout, scene, strip) -> None:
+def _draw_sidecar_browser(layout, scene, strip, context) -> None:
+    _draw_sidecar_selection(layout, scene, strip)
+    _draw_sidecar_tabs(layout, scene)
+    _draw_sidecar_section_body(layout, scene, strip, context)
+    _draw_sidecar_status(layout, scene)
+
+
+def _draw_sidecar_selection(layout, scene, strip) -> None:
     editor = scene.sequence_editor
     selected = [candidate for candidate in editor.strips_all if candidate.select] if editor else []
-    selected_tool = _selected_sidecar_tool(scene)
 
     selected_box = layout.box()
     selected_box.use_property_split = False
@@ -1439,6 +1464,62 @@ def _draw_sidecar_browser(layout, scene, strip) -> None:
         selected_box.label(text=getattr(strip, "name", "Active Strip"), icon="SEQ_STRIP_META")
     else:
         selected_box.label(text="Select a movie or video strip", icon="INFO")
+
+
+def _draw_sidecar_tabs(layout, scene) -> None:
+    current = getattr(scene, "video_toolkit_sidecar_section", "BROWSER")
+    tabs = layout.box()
+    tabs.label(text="Video Effects Sidecar", icon="SEQ_SEQUENCER")
+    grid = tabs.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
+    for section, label, _description, icon, _index in SIDECAR_SECTION_ITEMS:
+        op = grid.operator(
+            VIDEO_TOOLKIT_OT_set_sidecar_section.bl_idname,
+            text=label,
+            icon=icon,
+            depress=current == section,
+        )
+        op.section = section
+
+
+def _draw_sidecar_section_body(layout, scene, strip, context) -> None:
+    section = getattr(scene, "video_toolkit_sidecar_section", "BROWSER")
+    if section == "BROWSER":
+        _draw_sidecar_tool_browser(layout, scene, strip)
+    elif section == "ANALYSIS":
+        if strip is None or getattr(strip, "type", None) != "MOVIE":
+            layout.label(text="Select a movie strip for frame analysis.", icon="INFO")
+        else:
+            _draw_live_analysis(layout, scene, strip, context)
+    elif section == "COLOR":
+        _draw_scene_color_management(layout, scene)
+    elif section == "COMPOSITOR":
+        if strip is None or getattr(strip, "type", None) != "MOVIE":
+            layout.label(text="Select a movie strip for compositor nodes.", icon="INFO")
+        else:
+            _draw_compositor_nodes(layout, scene, strip)
+    elif section == "LIVE":
+        if strip is None:
+            layout.label(text="Select a strip for live Blender tools.", icon="INFO")
+        else:
+            _draw_live_color_tools(layout, scene)
+    elif section == "STRIP":
+        if strip is None:
+            layout.label(text="Select a strip for strip editing.", icon="INFO")
+        else:
+            _draw_strip_editing_tools(layout, strip)
+    elif section == "MODIFIERS":
+        if strip is None:
+            layout.label(text="Select a strip to edit live modifiers.", icon="INFO")
+        else:
+            _draw_live_modifier_editor(layout, strip)
+    elif section == "RENDER":
+        _draw_render_tools(layout, scene)
+    else:
+        _draw_sidecar_tool_browser(layout, scene, strip)
+
+
+def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
+    selected_tool = _selected_sidecar_tool(scene)
 
     browser = layout.box()
     browser.label(text="Video Effects Browser", icon="TOOL_SETTINGS")
@@ -1489,6 +1570,8 @@ def _draw_sidecar_browser(layout, scene, strip) -> None:
         icon="TEXT",
     )
 
+
+def _draw_sidecar_status(layout, scene) -> None:
     if scene.video_toolkit_last_analysis:
         layout.label(text=scene.video_toolkit_last_analysis, icon="INFO")
     if scene.video_toolkit_last_compositor_nodes:
@@ -3198,6 +3281,7 @@ def _overlaps(strip, start: int, end: int) -> bool:
 CLASSES = (
     VIDEO_TOOLKIT_OT_apply_filter,
     VIDEO_TOOLKIT_OT_apply_sidecar_tool,
+    VIDEO_TOOLKIT_OT_set_sidecar_section,
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_color_diagnostics,
     VIDEO_TOOLKIT_OT_apply_diagnostic_grade,
@@ -3227,13 +3311,6 @@ CLASSES = (
     VIDEO_TOOLKIT_MT_color_management,
     VIDEO_TOOLKIT_MT_tools,
     VIDEO_TOOLKIT_PT_video_filters,
-    VIDEO_TOOLKIT_PT_video_effects_analysis,
-    VIDEO_TOOLKIT_PT_video_effects_color_management,
-    VIDEO_TOOLKIT_PT_video_effects_compositor,
-    VIDEO_TOOLKIT_PT_video_effects_live_tools,
-    VIDEO_TOOLKIT_PT_video_effects_strip,
-    VIDEO_TOOLKIT_PT_video_effects_modifiers,
-    VIDEO_TOOLKIT_PT_video_effects_render,
 )
 
 
@@ -3267,6 +3344,12 @@ def register() -> None:
         name="Add Rendered Strip",
         description="Add the processed output above the source strip",
         default=True,
+    )
+    bpy.types.Scene.video_toolkit_sidecar_section = bpy.props.EnumProperty(
+        name="Section",
+        description="Mini tab shown inside the Video Effects sidebar",
+        items=SIDECAR_SECTION_ITEMS,
+        default="BROWSER",
     )
     bpy.types.Scene.video_toolkit_sidecar_group = bpy.props.EnumProperty(
         name="Group",
@@ -3411,6 +3494,7 @@ def unregister() -> None:
         "video_toolkit_preset",
         "video_toolkit_keep_audio",
         "video_toolkit_add_strip",
+        "video_toolkit_sidecar_section",
         "video_toolkit_sidecar_group",
         "video_toolkit_sidecar_tool",
         "video_toolkit_last_output",

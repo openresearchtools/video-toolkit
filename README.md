@@ -1,6 +1,6 @@
 # Open Research Video Toolkit
 
-Blender Video Sequencer add-on for one-click video enhancement, live color tools, and restoration filters. It adds a **Tools** menu inside the Video Sequencer plus a **Video Effects** sidebar tab.
+Blender Video Sequencer add-on for one-click video enhancement, live color tools, and restoration filters. It adds a **Video Effects** sidecar tab in the Video Sequencer with mini tabs for tools, analysis, color management, compositor nodes, strip controls, modifiers, and rendered restoration, plus a secondary header menu.
 
 The add-on has two tool classes:
 
@@ -36,13 +36,15 @@ In Blender:
 1. Open **Edit > Preferences > Add-ons**.
 2. Install the generated zip from `dist/`.
 3. Enable **Open Research Video Toolkit**.
-4. Open the Video Sequencer and use the **Tools** menu or the sidebar **Video Effects** tab.
+4. Open the Video Sequencer and use the sidebar **Video Effects** tab.
 
 The tools operate on the active Video Sequencer strip. Add or open a movie in the
-Video Sequencer, click the strip so it is selected, then use either:
+Video Sequencer, click the strip so it is selected, then open the sidebar with
+**N** and use the **Video Effects** tab. The sidecar contains mini tabs for the
+tool browser, frame analysis, Color Management, compositor nodes, live tools,
+strip controls, modifiers, and rendered restoration.
 
-- The Sequencer header **Tools** menu.
-- The Sequencer sidebar opened with **N**, tab **Video Effects**.
+The Sequencer header menu also exposes the same tools as a secondary shortcut.
 
 Live Blender color tools update the selected strip immediately in the Sequencer
 preview. The **Native Color Chain Translation** field accepts supported
@@ -91,6 +93,6 @@ Generated videos are written to `video_toolkit_outputs/` by default and are igno
 
 `scripts/blender_native_coverage.py` audits the installed Blender build directly. It verifies every VSE color modifier used by the add-on and every tracked Blender compositor video node can be created in Blender 5.2.
 
-`scripts/capture_blender_ui.py` opens Blender's Sequencer with a selected movie strip and captures the **Video Effects** sidebar to `tests/output/blender_ui/video_filters_panel_open.png`.
+`scripts/capture_blender_ui.py` opens Blender's Sequencer with a selected movie strip and captures the **Video Effects** sidecar mini-tab UI to `tests/output/blender_ui/video_filters_panel_open.png`.
 
 `scripts/open_blender_video_filters.py` opens Blender for manual checking, registers the add-on from this checkout, selects a real video strip and reference strip in the Sequencer, applies diagnostic grade plus sampled Color Management, white-balance, levels/gamma, hue/chroma, pro-grade tools, connected native color-room nodes, catalog color-recipe compositor nodes, sampled Color Management compositor nodes, sampled compositor color nodes, diagnostic compositor grade nodes, palette-identity compositor color nodes, reference-matched compositor color nodes, animated color-timeline match compositor nodes, FFmpeg-translated compositor color nodes, and keyframed lighting-normalizer compositor nodes, and leaves the Sequencer **Video Effects** sidebar tab available instead of opening a detached panel.
