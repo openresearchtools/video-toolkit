@@ -30,6 +30,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
     unsupported: list[str] = []
     notes: list[str] = []
     for name, args in _split_filters(chain):
+        name = name.lower()
         if name == "eq":
             stack.extend(eq_to_blender_stack(**args))
             supported.append(name)
@@ -45,6 +46,29 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             notes.append("Color channel mixer is approximated with Blender Color Balance and White Balance.")
         elif name == "curves":
             stack.extend(curves_to_blender_stack(**args))
+            supported.append(name)
+        elif name == "colorlevels":
+            stack.extend(colorlevels_to_blender_stack(**args))
+            supported.append(name)
+        elif name == "colorbalance":
+            stack.extend(colorbalance_to_blender_stack(**args))
+            supported.append(name)
+        elif name == "vibrance":
+            stack.extend(vibrance_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Vibrance is approximated with Blender Hue Correct and Color Balance saturation controls.")
+        elif name == "exposure":
+            stack.extend(exposure_to_blender_stack(**args))
+            supported.append(name)
+        elif name == "colortemperature":
+            stack.extend(colortemperature_to_blender_stack(**args))
+            supported.append(name)
+        elif name == "limiter":
+            stack.extend(limiter_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Limiter is approximated with Blender RGB curves because VSE has no legal-range clamp modifier.")
+        elif name == "tonemap":
+            stack.extend(tonemap_to_blender_stack(**args))
             supported.append(name)
         elif name in {"normalize", "unsharp"}:
             unsupported.append(name)
@@ -221,6 +245,203 @@ def curves_to_blender_stack(
     return (("CURVES", {"__curve_points__": points}),)
 
 
+def colorlevels_to_blender_stack(
+    *,
+    rimin: str | float = 0.0,
+    gimin: str | float = 0.0,
+    bimin: str | float = 0.0,
+    rimax: str | float = 1.0,
+    gimax: str | float = 1.0,
+    bimax: str | float = 1.0,
+    romin: str | float = 0.0,
+    gomin: str | float = 0.0,
+    bomin: str | float = 0.0,
+    romax: str | float = 1.0,
+    gomax: str | float = 1.0,
+    bomax: str | float = 1.0,
+    **_unused: str,
+) -> BlenderStack:
+    points = {
+        1: _range_curve_points(_float(rimin, 0.0), _float(rimax, 1.0), _float(romin, 0.0), _float(romax, 1.0)),
+        2: _range_curve_points(_float(gimin, 0.0), _float(gimax, 1.0), _float(gomin, 0.0), _float(gomax, 1.0)),
+        3: _range_curve_points(_float(bimin, 0.0), _float(bimax, 1.0), _float(bomin, 0.0), _float(bomax, 1.0)),
+    }
+    return (("CURVES", {"__curve_points__": points}),)
+
+
+def colorbalance_to_blender_stack(
+    *,
+    rs: str | float = 0.0,
+    gs: str | float = 0.0,
+    bs: str | float = 0.0,
+    rm: str | float = 0.0,
+    gm: str | float = 0.0,
+    bm: str | float = 0.0,
+    rh: str | float = 0.0,
+    gh: str | float = 0.0,
+    bh: str | float = 0.0,
+    pl: str | float = 0.0,
+    **_unused: str,
+) -> BlenderStack:
+    preserve_luma = _float(pl, 0.0) > 0.0
+    lift = _balance_triplet(rs, gs, bs, scale=0.38, preserve_luma=preserve_luma)
+    gamma = _balance_triplet(rm, gm, bm, scale=0.30, preserve_luma=preserve_luma)
+    gain = _balance_triplet(rh, gh, bh, scale=0.46, preserve_luma=preserve_luma)
+    return (
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.lift": lift,
+                "color_balance.gamma": gamma,
+                "color_balance.gain": gain,
+            },
+        ),
+    )
+
+
+def vibrance_to_blender_stack(
+    *,
+    intensity: str | float = 0.0,
+    rbal: str | float = 1.0,
+    gbal: str | float = 1.0,
+    bbal: str | float = 1.0,
+    **_unused: str,
+) -> BlenderStack:
+    intensity_value = _clamp(_float(intensity, 0.0), -2.0, 2.0)
+    saturation_factor = _clamp(1.0 + intensity_value * 0.35, 0.0, 2.0)
+    red = _clamp(1.0 + (_float(rbal, 1.0) - 1.0) * 0.35, 0.5, 1.5)
+    green = _clamp(1.0 + (_float(gbal, 1.0) - 1.0) * 0.35, 0.5, 1.5)
+    blue = _clamp(1.0 + (_float(bbal, 1.0) - 1.0) * 0.35, 0.5, 1.5)
+    return (
+        (
+            "HUE_CORRECT",
+            {
+                "__hue_correct__": {
+                    "saturation": _saturation_to_curve_y(saturation_factor),
+                    "value": _value_to_curve_y(_clamp(1.0 + max(intensity_value, 0.0) * 0.04, 0.8, 1.12)),
+                }
+            },
+        ),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.gamma": (red, green, blue),
+                "color_multiply": _clamp(1.0 + intensity_value * 0.04, 0.6, 1.4),
+            },
+        ),
+    )
+
+
+def exposure_to_blender_stack(
+    *,
+    exposure: str | float = 0.0,
+    black: str | float = 0.0,
+    **_unused: str,
+) -> BlenderStack:
+    exposure_value = _clamp(_float(exposure, 0.0), -3.0, 3.0)
+    black_value = _clamp(_float(black, 0.0), -1.0, 1.0)
+    midpoint = _clamp(0.5 + exposure_value * 0.08 - black_value * 0.05, 0.18, 0.82)
+    return (
+        ("BRIGHT_CONTRAST", {"bright": _clamp(exposure_value * 0.045 - black_value * 0.08, -0.35, 0.35), "contrast": 0.0}),
+        (
+            "CURVES",
+            {
+                "__curve_points__": {
+                    0: [
+                        (0.0, _clamp(black_value * 0.08, 0.0, 0.20)),
+                        (0.50, midpoint),
+                        (1.0, 1.0),
+                    ]
+                }
+            },
+        ),
+        (
+            "TONEMAP",
+            {
+                "tonemap_type": "RD_PHOTORECEPTOR",
+                "intensity": _clamp(max(exposure_value, 0.0) * 0.08, 0.0, 0.35),
+                "contrast": _clamp(abs(black_value) * 0.15, 0.0, 0.28),
+                "gamma": _clamp(1.0 + exposure_value * 0.06, 0.65, 1.45),
+            },
+        ),
+    )
+
+
+def colortemperature_to_blender_stack(
+    *,
+    temperature: str | float = 6500.0,
+    mix: str | float = 1.0,
+    pl: str | float = 0.0,
+    **_unused: str,
+) -> BlenderStack:
+    temperature_value = _clamp(_float(temperature, 6500.0), 1000.0, 40000.0)
+    mix_value = _clamp(_float(mix, 1.0), 0.0, 1.0)
+    warmth = _clamp((6500.0 - temperature_value) / 6500.0, -1.2, 1.2) * mix_value
+    red = _clamp(1.0 + warmth * 0.24, 0.55, 1.55)
+    green = _clamp(1.0 + warmth * 0.04, 0.75, 1.25)
+    blue = _clamp(1.0 - warmth * 0.26, 0.55, 1.55)
+    if _float(pl, 0.0) > 0.0:
+        red, green, blue = _preserve_average((red, green, blue))
+    return (
+        ("WHITE_BALANCE", {"white_value": (red, green, blue)}),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.gamma": (red, green, blue),
+                "color_balance.gain": (red, green, blue),
+            },
+        ),
+    )
+
+
+def limiter_to_blender_stack(
+    *,
+    min: str | float = 0.0,
+    max: str | float = 1.0,
+    **_unused: str,
+) -> BlenderStack:
+    minimum = _normalize_limiter_value(_float(min, 0.0))
+    maximum = _normalize_limiter_value(_float(max, 1.0))
+    if maximum <= minimum:
+        maximum = 1.0 if minimum + 0.01 > 1.0 else minimum + 0.01
+    points = _range_curve_points(minimum, maximum, minimum, maximum)
+    return (("CURVES", {"__curve_points__": {0: points}}),)
+
+
+def tonemap_to_blender_stack(
+    *,
+    tonemap: str | int = "reinhard",
+    param: str | float = 0.0,
+    desat: str | float = 0.0,
+    peak: str | float = 100.0,
+    **_unused: str,
+) -> BlenderStack:
+    method = str(tonemap).lower()
+    tonemap_type = "RH_SIMPLE" if method in {"reinhard", "clip", "linear", "gamma"} else "RD_PHOTORECEPTOR"
+    param_value = abs(_float(param, 0.0))
+    peak_value = _float(peak, 100.0)
+    desat_value = _float(desat, 0.0)
+    stack: list[tuple[str, dict[str, Any]]] = [
+        (
+            "TONEMAP",
+            {
+                "tonemap_type": tonemap_type,
+                "key": _clamp(0.18 + param_value * 0.08, 0.02, 1.0),
+                "offset": _clamp(1.0 + param_value * 0.10, 0.1, 4.0),
+                "gamma": _clamp(1.0 + (100.0 / max(peak_value, 1.0) - 1.0) * 0.08, 0.65, 1.45),
+                "intensity": _clamp(param_value * 0.08, 0.0, 0.45),
+                "contrast": _clamp(param_value * 0.06, 0.0, 0.35),
+            },
+        )
+    ]
+    if desat_value:
+        stack.append(("HUE_CORRECT", {"__hue_correct__": {"saturation": _saturation_to_curve_y(_clamp(1.0 - desat_value * 0.08, 0.0, 1.2))}}))
+    return tuple(stack)
+
+
 def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
     filters: list[tuple[str, dict[str, str]]] = []
     for item in chain.split(","):
@@ -273,6 +494,58 @@ def _curve_preset_points(preset: str | int) -> list[tuple[float, float]]:
     return presets.get(key, [])
 
 
+def _range_curve_points(in_min: float, in_max: float, out_min: float, out_max: float) -> list[tuple[float, float]]:
+    in_min = _clamp(in_min, 0.0, 1.0)
+    in_max = _clamp(in_max, in_min + 0.001, 1.0)
+    out_min = _clamp(out_min, 0.0, 1.0)
+    out_max = _clamp(out_max, 0.0, 1.0)
+    midpoint_x = (in_min + in_max) * 0.5
+    midpoint_y = (out_min + out_max) * 0.5
+    raw_points = [
+        (0.0, out_min),
+        (in_min, out_min),
+        (midpoint_x, midpoint_y),
+        (in_max, out_max),
+        (1.0, out_max),
+    ]
+    points: list[tuple[float, float]] = []
+    for x, y in sorted(raw_points):
+        if points and abs(points[-1][0] - x) < 0.001:
+            points[-1] = (points[-1][0], y)
+            continue
+        points.append((x, y))
+    return points
+
+
+def _balance_triplet(
+    red: str | float,
+    green: str | float,
+    blue: str | float,
+    *,
+    scale: float,
+    preserve_luma: bool,
+) -> tuple[float, float, float]:
+    triplet = (
+        _clamp(1.0 + _float(red, 0.0) * scale, 0.35, 1.85),
+        _clamp(1.0 + _float(green, 0.0) * scale, 0.35, 1.85),
+        _clamp(1.0 + _float(blue, 0.0) * scale, 0.35, 1.85),
+    )
+    return _preserve_average(triplet) if preserve_luma else triplet
+
+
+def _preserve_average(values: tuple[float, float, float]) -> tuple[float, float, float]:
+    average = sum(values) / max(len(values), 1)
+    if average <= 1e-6:
+        return values
+    return tuple(_clamp(value / average, 0.35, 1.85) for value in values)
+
+
+def _normalize_limiter_value(value: float) -> float:
+    if value > 1.0:
+        return _clamp(value / 255.0, 0.0, 1.0)
+    return _clamp(value, 0.0, 1.0)
+
+
 def _saturation_to_curve_y(value: float) -> float:
     return _clamp(0.5 * value, 0.0, 1.0)
 
@@ -296,4 +569,3 @@ def _float(value: str | float | int | None, default: float) -> float:
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
-

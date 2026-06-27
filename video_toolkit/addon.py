@@ -9,6 +9,7 @@ from bpy.types import Menu, Operator, Panel
 from .catalog import categories, enum_items, get_tool, all_tools
 from .color_analysis import (
     build_auto_balance_stack,
+    build_color_identity_stack,
     build_color_match_stack,
     sample_video_color,
     summarize_stats,
@@ -103,6 +104,7 @@ class VIDEO_TOOLKIT_OT_analyze_color(Operator):
         items=(
             ("AUTO", "Auto Balance", "Balance the active strip against a neutral Rec.709-style target"),
             ("MATCH", "Match Selected", "Match the active movie strip to another selected movie strip"),
+            ("PALETTE", "Identify Colors", "Identify dominant colors and build a live palette-aware grade"),
         ),
         default="AUTO",
     )
@@ -131,6 +133,10 @@ class VIDEO_TOOLKIT_OT_analyze_color(Operator):
                 stack = build_color_match_stack(target_stats, reference_stats)
                 label = f"Frame Match to {reference.name}"
                 summary = f"{summarize_stats(target_stats)} -> {summarize_stats(reference_stats)}"
+            elif self.mode == "PALETTE":
+                stack = build_color_identity_stack(target_stats)
+                label = "Frame Color Identity"
+                summary = summarize_stats(target_stats)
             else:
                 stack = build_auto_balance_stack(target_stats)
                 label = "Frame Auto Balance"
@@ -225,6 +231,8 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         op.mode = "AUTO"
         op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Match Selected", icon="EYEDROPPER")
         op.mode = "MATCH"
+        op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Identify Colors", icon="COLOR")
+        op.mode = "PALETTE"
         _draw_operator(layout, "live_pro_color_stack", icon="MODIFIER")
         layout.separator()
         layout.menu("VIDEO_TOOLKIT_MT_live_blender_color", icon="COLOR")
@@ -337,6 +345,8 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     op.mode = "AUTO"
     op = row.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Match", icon="EYEDROPPER")
     op.mode = "MATCH"
+    op = row.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Identify", icon="COLOR")
+    op.mode = "PALETTE"
     box.prop(scene, "video_toolkit_analysis_samples")
     if scene.video_toolkit_last_analysis:
         box.label(text=scene.video_toolkit_last_analysis, icon="INFO")

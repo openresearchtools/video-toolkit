@@ -74,6 +74,16 @@ def test_color_enhance_tools_are_blender_native_live_stacks():
         "faded_film",
         "high_contrast_curve",
         "medium_contrast_curve",
+        "levels_expand",
+        "levels_soft_clamp",
+        "shadow_highlight_balance",
+        "vibrance",
+        "skin_safe_vibrance",
+        "exposure_protect",
+        "temperature_warm",
+        "temperature_cool",
+        "legal_range_clamp",
+        "hdr_tone_compress",
     ):
         tool = get_tool(tool_id)
         assert tool.is_blender_modifier

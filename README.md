@@ -52,17 +52,18 @@ FFmpeg must be installed and visible on `PATH`.
 
 ## Included Tool Groups
 
-- Live frame analysis: auto balance selected footage, or match the active movie strip to another selected reference strip.
+- Live frame analysis: auto balance selected footage, match the active movie strip to another selected reference strip, or identify dominant colors and build a palette-aware live grade.
 - Zone-aware matching: frame samples are split into shadows, midtones, and highlights, then mapped to Blender Lift/Gamma/Gain, Tone Map, RGB Curves, and Hue Correct.
+- Palette math: sampled frames report dominant swatches, warm/cool balance, skin-tone-like pixel ratio, average saturation, and chroma, then map that identity into White Balance, Color Balance, Curves, Hue Correct, and Tone Map.
 - Live Blender color room: Color Management, Sequencer input color space, exposure, gamma, white balance, strip transform/crop/opacity, and editable live modifier stack.
 - Apply targets: live tools can be applied to the active strip, every selected strip, or a new native VSE adjustment layer above the selected range.
-- Live one-click Blender stacks: Pro Color Stack, Gamma Grade, Shadow Recovery, Contrast Pop, Warm Grade, Cool Grade, saturation boost/reduce, monochrome, faded film, and contrast curves.
+- Live one-click Blender stacks: Pro Color Stack, Gamma Grade, Shadow Recovery, Contrast Pop, Warm Grade, Cool Grade, saturation boost/reduce, monochrome, faded film, contrast curves, levels, shadow/highlight balance, vibrance, exposure protection, temperature correction, legal-range clamp, and HDR tone compression.
 - Native Blender primitives: Brightness/Contrast, Lift/Gamma/Gain, ASC CDL Offset/Power/Slope, R/D Photoreceptor Tone Map, Rh Simple Tone Map, Curves, Hue Correct, White Balance, Mask.
 - Blender VSE modifiers: Brightness/Contrast, Color Balance, Curves, Hue Correct, Mask, Tone Map, White Balance.
 - Blender compositor nodes: active-strip Movie Clip source, Color Space, Exposure, Brightness/Contrast, Color Balance, Color Correction, RGB Curves, Hue/Saturation/Value, Hue Correct, Tone Map, channel split/combine, Levels, Viewer, and Output File.
 - Native restoration nodes: Stabilize, Movie Distortion, Denoise, Despeckle, Bilateral Blur, Anti-Aliasing, plus broader coverage for Blender matte, transform, alpha, and utility compositor nodes where they are applicable to video finishing.
 - Blender-native color recipes: auto enhance, neutral grade, punchy color, soft contrast, exposure lift, gamma up/down, warm/cool balance.
-- FFmpeg-to-Blender translation: supported FFmpeg color intent (`eq`, `hue`, `huesaturation`, `colorchannelmixer`, `curves`) is converted into native live Blender VSE modifier stacks; non-native temporal filters stay in rendered restoration.
+- FFmpeg-to-Blender translation: supported FFmpeg color intent (`eq`, `hue`, `huesaturation`, `colorchannelmixer`, `curves`, `colorlevels`, `colorbalance`, `vibrance`, `exposure`, `colortemperature`, `limiter`, `tonemap`) is converted into native live Blender VSE modifier stacks; non-native temporal filters stay in rendered restoration.
 - Restoration: deflicker, lighting normalizer, denoise, sharpen restoration, deinterlace, quick deshake, two-pass vidstab stabilization.
 - Motion and output: 2x Lanczos upscale, 1080p normalize scale, 60 fps interpolation, temporal smoothing.
 

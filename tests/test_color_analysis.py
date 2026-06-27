@@ -6,6 +6,7 @@ import pytest
 
 from video_toolkit.color_analysis import (
     build_auto_balance_stack,
+    build_color_identity_stack,
     build_color_match_stack,
     sample_video_color,
 )
@@ -47,6 +48,8 @@ def test_sample_video_color_reads_real_pixels(tmp_path):
     assert stats.mean_r > stats.mean_g
     assert stats.mean_r > stats.mean_b
     assert stats.highlight_count + stats.midtone_count + stats.shadow_count > 0
+    assert stats.dominant_rgb
+    assert stats.mean_chroma > 0
 
 
 def test_auto_balance_builds_live_blender_stack(tmp_path):
@@ -68,3 +71,21 @@ def test_color_match_uses_reference_statistics(tmp_path):
     assert "__curve_points__" in curves
     hue_correct = dict(stack[4][1])
     assert "__hue_correct__" in hue_correct
+
+
+def test_color_identity_stack_uses_palette_math(tmp_path):
+    warm = sample_video_color(_make_color_clip(tmp_path / "orange.mp4", "orange"), max_samples=6, sample_grid=8)
+    cool = sample_video_color(_make_color_clip(tmp_path / "blue.mp4", "blue"), max_samples=6, sample_grid=8)
+    assert warm.warm_ratio > warm.cool_ratio
+    assert cool.cool_ratio > cool.warm_ratio
+
+    stack = build_color_identity_stack(warm)
+    assert [modifier_type for modifier_type, _settings in stack] == [
+        "WHITE_BALANCE",
+        "COLOR_BALANCE",
+        "CURVES",
+        "HUE_CORRECT",
+        "TONEMAP",
+    ]
+    white_value = stack[0][1]["white_value"]
+    assert white_value[2] > white_value[0]

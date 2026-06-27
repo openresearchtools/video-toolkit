@@ -184,6 +184,12 @@ types = [modifier.type for modifier in strip.modifiers if modifier.name.startswi
 for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'TONEMAP', 'WHITE_BALANCE', 'CURVES', 'HUE_CORRECT', 'MASK']:
     assert required in types, required
 
+result = bpy.ops.video_toolkit.analyze_color(mode='PALETTE')
+assert result == {{'FINISHED'}}, result
+palette_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Frame Color Identity')]
+assert palette_types == ['WHITE_BALANCE', 'COLOR_BALANCE', 'CURVES', 'HUE_CORRECT', 'TONEMAP'], palette_types
+assert 'palette #' in scene.video_toolkit_last_analysis
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='COLOR')
 assert result == {{'FINISHED'}}, result
 if hasattr(scene, 'compositing_node_group'):
@@ -232,6 +238,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'rgb_abs_diff': diff,
     'edited_modifiers': edited,
     'native_modifier_types': types,
+    'palette_modifier_types': palette_types,
+    'palette_summary': scene.video_toolkit_last_analysis,
     'compositor_color_node_types': color_node_types,
     'compositor_all_node_types': all_node_types,
     'compositor_links': len(tree.links),

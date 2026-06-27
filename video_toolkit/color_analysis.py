@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import subprocess
+from colorsys import rgb_to_hsv
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +30,12 @@ class ColorStats:
     shadow_count: int = 0
     midtone_count: int = 0
     highlight_count: int = 0
+    dominant_rgb: tuple[tuple[float, float, float], ...] = ()
+    warm_ratio: float = 0.0
+    cool_ratio: float = 0.0
+    skin_ratio: float = 0.0
+    mean_saturation: float = 0.0
+    mean_chroma: float = 0.0
 
     @property
     def mean_rgb(self) -> tuple[float, float, float]:
@@ -97,6 +104,12 @@ def sample_video_color(
     shadow_pixels: list[tuple[int, int, int, float]] = []
     midtone_pixels: list[tuple[int, int, int, float]] = []
     highlight_pixels: list[tuple[int, int, int, float]] = []
+    dominant_bins: dict[tuple[int, int, int], list[float]] = {}
+    warm_pixels = 0
+    cool_pixels = 0
+    skin_pixels = 0
+    saturation_total = 0.0
+    chroma_total = 0.0
     for r, g, b, luma in zip(rs, gs, bs, lumas):
         if luma < shadow_threshold:
             shadow_pixels.append((r, g, b, luma))
@@ -104,10 +117,28 @@ def sample_video_color(
             highlight_pixels.append((r, g, b, luma))
         else:
             midtone_pixels.append((r, g, b, luma))
+        hue, saturation, value = rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+        hue_degrees = hue * 360.0
+        saturation_total += saturation
+        chroma_total += max(r, g, b) - min(r, g, b)
+        if saturation > 0.16 and value > 0.08:
+            if 18.0 <= hue_degrees <= 75.0 or hue_degrees >= 330.0:
+                warm_pixels += 1
+            if 170.0 <= hue_degrees <= 285.0:
+                cool_pixels += 1
+            if 18.0 <= hue_degrees <= 52.0 and 0.18 <= saturation <= 0.78 and value >= 0.20:
+                skin_pixels += 1
+        key = (r // 32, g // 32, b // 32)
+        bucket = dominant_bins.setdefault(key, [0.0, 0.0, 0.0, 0.0])
+        bucket[0] += 1.0
+        bucket[1] += r
+        bucket[2] += g
+        bucket[3] += b
     lumas.sort()
     shadow_rgb, shadow_luma = _pixel_zone_average(shadow_pixels)
     midtone_rgb, midtone_luma = _pixel_zone_average(midtone_pixels)
     highlight_rgb, highlight_luma = _pixel_zone_average(highlight_pixels)
+    dominant_rgb = _dominant_swatches(dominant_bins)
     return ColorStats(
         samples=usable // frame_size,
         mean_r=sum(rs) / count,
@@ -126,6 +157,12 @@ def sample_video_color(
         shadow_count=len(shadow_pixels),
         midtone_count=len(midtone_pixels),
         highlight_count=len(highlight_pixels),
+        dominant_rgb=dominant_rgb,
+        warm_ratio=warm_pixels / count,
+        cool_ratio=cool_pixels / count,
+        skin_ratio=skin_pixels / count,
+        mean_saturation=saturation_total / count,
+        mean_chroma=chroma_total / count,
     )
 
 
@@ -145,6 +182,12 @@ def build_auto_balance_stack(stats: ColorStats) -> tuple[tuple[str, dict[str, ob
         shadow_luma=38.0,
         midtone_luma=118.0,
         highlight_luma=218.0,
+        dominant_rgb=((118.0, 118.0, 118.0),),
+        warm_ratio=0.18,
+        cool_ratio=0.18,
+        skin_ratio=0.08,
+        mean_saturation=0.36,
+        mean_chroma=52.0,
     )
     return build_color_match_stack(stats, reference)
 
@@ -187,11 +230,57 @@ def build_color_match_stack(
 
 
 def summarize_stats(stats: ColorStats) -> str:
+    palette = ""
+    if stats.dominant_rgb:
+        palette = ", palette " + " ".join(_rgb_hex(rgb) for rgb in stats.dominant_rgb[:3])
     return (
         f"{stats.samples} frames, RGB "
         f"{stats.mean_r:.1f}/{stats.mean_g:.1f}/{stats.mean_b:.1f}, "
         f"luma {stats.mean_luma:.1f}, spread {stats.luma_std:.1f}, "
-        f"zones S/M/H {stats.shadow_count}/{stats.midtone_count}/{stats.highlight_count}"
+        f"zones S/M/H {stats.shadow_count}/{stats.midtone_count}/{stats.highlight_count}, "
+        f"warm/cool/skin {stats.warm_ratio:.2f}/{stats.cool_ratio:.2f}/{stats.skin_ratio:.2f}"
+        f"{palette}"
+    )
+
+
+def build_color_identity_stack(stats: ColorStats) -> tuple[tuple[str, dict[str, object]], ...]:
+    """Build a live stack from palette, warm/cool, skin, and tonal identity."""
+
+    warm_cool_delta = _clamp(stats.warm_ratio - stats.cool_ratio, -0.55, 0.55)
+    red_balance = _clamp(1.0 - warm_cool_delta * 0.16, 0.86, 1.14)
+    blue_balance = _clamp(1.0 + warm_cool_delta * 0.18, 0.84, 1.16)
+    green_balance = _clamp(1.0 - abs(warm_cool_delta) * 0.03, 0.94, 1.04)
+    if stats.skin_ratio > 0.12:
+        red_balance = _clamp((red_balance + 1.0) * 0.5, 0.92, 1.08)
+        blue_balance = _clamp((blue_balance + 1.0) * 0.5, 0.92, 1.08)
+    saturation_target = _palette_saturation_target(stats)
+    curve_points = _identity_curve_points(stats)
+    return (
+        (
+            "WHITE_BALANCE",
+            {"white_value": (red_balance, green_balance, blue_balance)},
+        ),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.lift": _identity_lift(stats),
+                "color_balance.gamma": (red_balance, green_balance, blue_balance),
+                "color_balance.gain": _identity_gain(stats, (red_balance, green_balance, blue_balance)),
+                "color_multiply": _clamp(1.0 + (saturation_target - 1.0) * 0.12, 0.85, 1.16),
+            },
+        ),
+        ("CURVES", {"__curve_points__": {0: curve_points}}),
+        ("HUE_CORRECT", {"__hue_correct__": {"saturation": _clamp(0.5 * saturation_target, 0.18, 0.82)}}),
+        (
+            "TONEMAP",
+            {
+                "tonemap_type": "RD_PHOTORECEPTOR",
+                "intensity": _clamp(max(stats.luma_p95 - 218.0, 0.0) / 255.0, 0.0, 0.16),
+                "contrast": _clamp(abs(stats.luma_std - 54.0) / 255.0, 0.0, 0.18),
+                "gamma": _clamp(118.0 / max(stats.mean_luma, 1.0), 0.82, 1.18),
+            },
+        ),
     )
 
 
@@ -236,6 +325,20 @@ def _pixel_zone_average(pixels: list[tuple[int, int, int, float]]) -> tuple[tupl
     )
 
 
+def _dominant_swatches(bins: dict[tuple[int, int, int], list[float]]) -> tuple[tuple[float, float, float], ...]:
+    swatches: list[tuple[float, float, float, float]] = []
+    for count, red, green, blue in bins.values():
+        if count <= 0:
+            continue
+        swatches.append((count, red / count, green / count, blue / count))
+    swatches.sort(reverse=True)
+    return tuple((red, green, blue) for _count, red, green, blue in swatches[:5])
+
+
+def _rgb_hex(rgb: tuple[float, float, float]) -> str:
+    return "#" + "".join(f"{int(_clamp(channel, 0.0, 255.0)):02x}" for channel in rgb)
+
+
 def _contrast_curve_points(target: ColorStats, reference: ColorStats) -> list[tuple[float, float]]:
     shadow_delta = _clamp((reference.shadow_luma - target.shadow_luma) / 255.0, -0.12, 0.12)
     mid_delta = _clamp((reference.midtone_luma - target.midtone_luma) / 255.0, -0.10, 0.10)
@@ -247,6 +350,38 @@ def _contrast_curve_points(target: ColorStats, reference: ColorStats) -> list[tu
         (0.75, _clamp(0.75 + highlight_delta, 0.52, 0.98)),
         (1.0, 1.0),
     ]
+
+
+def _identity_curve_points(stats: ColorStats) -> list[tuple[float, float]]:
+    black_in = _clamp(stats.luma_p05 / 255.0, 0.01, 0.30)
+    white_in = _clamp(stats.luma_p95 / 255.0, 0.55, 1.0)
+    if white_in - black_in < 0.20:
+        white_in = _clamp(black_in + 0.20, 0.55, 1.0)
+    mid_delta = _clamp((118.0 - stats.midtone_luma) / 255.0, -0.08, 0.08)
+    return [
+        (0.0, 0.0),
+        (black_in, 0.02),
+        (0.50, _clamp(0.50 + mid_delta, 0.36, 0.64)),
+        (white_in, 0.98),
+        (1.0, 1.0),
+    ]
+
+
+def _identity_lift(stats: ColorStats) -> tuple[float, float, float]:
+    lift_value = _clamp(1.0 + (38.0 - stats.shadow_luma) / 255.0 * 0.26, 0.88, 1.12)
+    return (lift_value, lift_value, lift_value)
+
+
+def _identity_gain(stats: ColorStats, balance: tuple[float, float, float]) -> tuple[float, float, float]:
+    gain_value = _clamp(1.0 + (218.0 - stats.highlight_luma) / 255.0 * 0.20, 0.90, 1.14)
+    return tuple(_clamp(gain_value * channel, 0.84, 1.20) for channel in balance)
+
+
+def _palette_saturation_target(stats: ColorStats) -> float:
+    chroma_factor = stats.mean_chroma / 255.0
+    if stats.skin_ratio > 0.10:
+        return _clamp(1.0 + (0.23 - chroma_factor) * 0.55, 0.86, 1.12)
+    return _clamp(1.0 + (0.28 - chroma_factor) * 0.70, 0.76, 1.28)
 
 
 def _saturation_curve_value(target: ColorStats, reference: ColorStats) -> float:

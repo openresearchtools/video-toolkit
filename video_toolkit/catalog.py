@@ -140,6 +140,16 @@ _MONOCHROME_STACK = translate_filter_chain("hue=s=0").stack
 _FADED_FILM_STACK = translate_filter_chain("eq=brightness=0.025:contrast=0.90:gamma=1.08:saturation=0.82").stack
 _HIGH_CONTRAST_CURVE_STACK = translate_filter_chain("curves=preset=strong_contrast").stack
 _MEDIUM_CONTRAST_CURVE_STACK = translate_filter_chain("curves=preset=medium_contrast").stack
+_LEVELS_EXPAND_STACK = translate_filter_chain("colorlevels=rimin=0.02:gimin=0.02:bimin=0.02:rimax=0.98:gimax=0.98:bimax=0.98").stack
+_LEVELS_SOFT_CLAMP_STACK = translate_filter_chain("colorlevels=romin=0.03:gomin=0.03:bomin=0.03:romax=0.96:gomax=0.96:bomax=0.96").stack
+_SHADOW_HIGHLIGHT_BALANCE_STACK = translate_filter_chain("colorbalance=rs=0.04:gs=0.03:bs=0.06:rm=0.02:gm=0.02:bm=0.04:rh=0.03:gh=0.02:bh=0.00:pl=1").stack
+_VIBRANCE_STACK = translate_filter_chain("vibrance=intensity=0.55:rbal=1.05:gbal=1.02:bbal=0.96").stack
+_SKIN_SAFE_VIBRANCE_STACK = translate_filter_chain("vibrance=intensity=0.32:rbal=0.96:gbal=1.02:bbal=1.00").stack
+_EXPOSURE_PROTECT_STACK = translate_filter_chain("exposure=exposure=0.42:black=0.03").stack
+_TEMP_WARM_STACK = translate_filter_chain("colortemperature=temperature=5200:mix=0.75:pl=1").stack
+_TEMP_COOL_STACK = translate_filter_chain("colortemperature=temperature=7600:mix=0.75:pl=1").stack
+_LEGAL_RANGE_STACK = translate_filter_chain("limiter=min=16:max=235").stack
+_HDR_TONE_COMPRESS_STACK = translate_filter_chain("tonemap=tonemap=mobius:param=0.35:desat=0.4:peak=400").stack
 
 
 TOOLS: tuple[VideoTool, ...] = (
@@ -375,6 +385,86 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_BLENDER_MODIFIER,
         description="Translated FFmpeg curves medium_contrast preset as a native Blender RGB Curves modifier.",
         blender_stack=_MEDIUM_CONTRAST_CURVE_STACK,
+    ),
+    VideoTool(
+        id="levels_expand",
+        label="Levels Expand",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg colorlevels black/white point expansion as native Blender RGB Curves.",
+        blender_stack=_LEVELS_EXPAND_STACK,
+    ),
+    VideoTool(
+        id="levels_soft_clamp",
+        label="Levels Soft Clamp",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg colorlevels output clamp as native Blender RGB Curves.",
+        blender_stack=_LEVELS_SOFT_CLAMP_STACK,
+    ),
+    VideoTool(
+        id="shadow_highlight_balance",
+        label="Shadow/Highlight Balance",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg colorbalance shadows/midtones/highlights into Blender Lift/Gamma/Gain.",
+        blender_stack=_SHADOW_HIGHLIGHT_BALANCE_STACK,
+    ),
+    VideoTool(
+        id="vibrance",
+        label="Vibrance",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg vibrance into Blender Hue Correct and Color Balance controls.",
+        blender_stack=_VIBRANCE_STACK,
+    ),
+    VideoTool(
+        id="skin_safe_vibrance",
+        label="Skin-Safe Vibrance",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Conservative Blender-native vibrance setup that avoids heavy red/orange saturation shifts.",
+        blender_stack=_SKIN_SAFE_VIBRANCE_STACK,
+    ),
+    VideoTool(
+        id="exposure_protect",
+        label="Exposure Protect",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg exposure/black controls into Blender Brightness, Curves, and Tone Map.",
+        blender_stack=_EXPOSURE_PROTECT_STACK,
+    ),
+    VideoTool(
+        id="temperature_warm",
+        label="Temperature Warm",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg colortemperature into Blender White Balance and Color Balance.",
+        blender_stack=_TEMP_WARM_STACK,
+    ),
+    VideoTool(
+        id="temperature_cool",
+        label="Temperature Cool",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg colortemperature into Blender White Balance and Color Balance.",
+        blender_stack=_TEMP_COOL_STACK,
+    ),
+    VideoTool(
+        id="legal_range_clamp",
+        label="Legal Range Clamp",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg limiter 16-235 intent into a Blender RGB Curves clamp.",
+        blender_stack=_LEGAL_RANGE_STACK,
+    ),
+    VideoTool(
+        id="hdr_tone_compress",
+        label="HDR Tone Compress",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg tonemap intent into Blender Tone Map plus saturation control.",
+        blender_stack=_HDR_TONE_COMPRESS_STACK,
     ),
     VideoTool(
         id="native_all_color_tools",

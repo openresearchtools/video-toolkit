@@ -99,6 +99,8 @@ assert any(m.name.startswith('VTK Neutral Grade') for m in second_strip.modifier
 scene.video_toolkit_apply_target = 'ACTIVE'
 bpy.ops.video_toolkit.analyze_color(mode='AUTO')
 assert len(strip.modifiers) >= 5
+bpy.ops.video_toolkit.analyze_color(mode='PALETTE')
+assert 'palette #' in scene.video_toolkit_last_analysis
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',
@@ -116,6 +118,16 @@ for filter_id in (
     'faded_film',
     'high_contrast_curve',
     'medium_contrast_curve',
+    'levels_expand',
+    'levels_soft_clamp',
+    'shadow_highlight_balance',
+    'vibrance',
+    'skin_safe_vibrance',
+    'exposure_protect',
+    'temperature_warm',
+    'temperature_cool',
+    'legal_range_clamp',
+    'hdr_tone_compress',
     'native_all_color_tools',
     'vse_bright_contrast',
     'vse_color_balance',
@@ -126,7 +138,7 @@ for filter_id in (
     'vse_white_balance',
 ):
     bpy.ops.video_toolkit.apply_filter(filter_id=filter_id)
-assert len(strip.modifiers) >= 55
+assert len(strip.modifiers) >= 77
 high_curve = next(m for m in strip.modifiers if m.name.startswith('VTK High Contrast Curve') and m.type == 'CURVES')
 high_points = [tuple(p.location[:]) for p in high_curve.curve_mapping.curves[0].points]
 assert high_points[1][1] < high_points[1][0]
@@ -135,6 +147,12 @@ saturation = next(m for m in strip.modifiers if m.name.startswith('VTK Saturatio
 assert saturation.curve_mapping.curves[1].points[0].location[1] > 0.5
 monochrome = next(m for m in strip.modifiers if m.name.startswith('VTK Monochrome') and m.type == 'HUE_CORRECT')
 assert monochrome.curve_mapping.curves[1].points[0].location[1] == 0.0
+levels = next(m for m in strip.modifiers if m.name.startswith('VTK Levels Expand') and m.type == 'CURVES')
+assert len(levels.curve_mapping.curves[1].points) >= 4
+vibrance = next(m for m in strip.modifiers if m.name.startswith('VTK Vibrance') and m.type == 'HUE_CORRECT')
+assert vibrance.curve_mapping.curves[1].points[0].location[1] > 0.5
+temperature = next(m for m in strip.modifiers if m.name.startswith('VTK Temperature Warm') and m.type == 'WHITE_BALANCE')
+assert temperature.white_value[0] > temperature.white_value[2]
 scene.sequence_editor.active_strip = strip
 for candidate in scene.sequence_editor.strips_all:
     candidate.select = False
