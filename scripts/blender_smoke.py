@@ -242,6 +242,16 @@ assert 'VSE-only native tools:' in catalog_report
 assert 'native_mask_slot: Mask Slot' in catalog_report
 assert 'Rendered fallback tools:' in catalog_report
 assert 'Tracked native compositor node library:' in catalog_report
+assert 'Native-translated FFmpeg filters: 23' in catalog_report
+assert 'Native-translated FFmpeg color filters: eq, hue, huesaturation' in catalog_report
+assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange' in catalog_report
+assert 'Rendered fallback FFmpeg filters:' in catalog_report
+assert 'Rendered-only FFmpeg filters:' in catalog_report
+assert 'deflicker' in catalog_report
+assert 'vidstabdetect' in catalog_report
+assert 'Live approximation plus rendered fallback filters: normalize' in catalog_report
+assert 'Representative FFmpeg color-chain translation:' in catalog_report
+assert 'Colorcontrast is approximated with Blender opponent-channel Color Balance controls.' in catalog_report
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',

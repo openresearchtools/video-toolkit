@@ -28,7 +28,12 @@ from .color_analysis import (
 )
 from .compositor import compositor_node_tools
 from .ffmpeg_backend import FFmpegError, process_video
-from .ffmpeg_native import translate_filter_chain
+from .ffmpeg_native import (
+    NATIVE_FFMPEG_COLOR_FILTERS,
+    NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS,
+    NATIVE_FFMPEG_FILTERS,
+    translate_filter_chain,
+)
 
 
 PRESET_ITEMS = (
@@ -2952,6 +2957,10 @@ def _catalog_coverage_report() -> str:
     rendered_tools = tuple(tool for tool in tools if tool.is_ffmpeg)
     modifier_types = sorted({modifier for tool in blender_tools for modifier in _tool_modifier_names(tool)})
     unsupported_modifier_types = sorted(set(modifier_types) - set(COMPOSITOR_MODIFIER_TYPES))
+    rendered_filter_names = sorted({name for tool in rendered_tools for name in _ffmpeg_filter_names_for_tool(tool)})
+    rendered_only_filter_names = sorted(set(rendered_filter_names) - set(NATIVE_FFMPEG_FILTERS))
+    live_and_rendered_filter_names = sorted(set(rendered_filter_names) & set(NATIVE_FFMPEG_FILTERS))
+    translation_sample = translate_filter_chain(_ffmpeg_translation_coverage_chain())
 
     lines = [
         "Open Research Video Toolkit Catalog Coverage",
@@ -2963,12 +2972,29 @@ def _catalog_coverage_report() -> str:
         f"Rendered fallback tools: {len(rendered_tools)}",
         f"Color Management presets: {len(COLOR_MANAGEMENT_PRESET_ITEMS)}",
         f"Tracked native compositor nodes: {len(compositor_node_tools())}",
+        f"Native-translated FFmpeg filters: {len(NATIVE_FFMPEG_FILTERS)}",
+        f"Rendered FFmpeg filters in catalog: {len(rendered_filter_names)}",
         "",
         "Supported compositor modifier types: " + ", ".join(sorted(COMPOSITOR_MODIFIER_TYPES)),
         "VSE-only modifier types: " + (", ".join(unsupported_modifier_types) if unsupported_modifier_types else "None"),
+        "Native-translated FFmpeg color filters: " + ", ".join(NATIVE_FFMPEG_COLOR_FILTERS),
+        "Native Color Management metadata filters: " + ", ".join(NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS),
+        "Rendered fallback FFmpeg filters: " + (", ".join(rendered_filter_names) if rendered_filter_names else "None"),
+        "Rendered-only FFmpeg filters: " + (", ".join(rendered_only_filter_names) if rendered_only_filter_names else "None"),
+        "Live approximation plus rendered fallback filters: "
+        + (", ".join(live_and_rendered_filter_names) if live_and_rendered_filter_names else "None"),
+        "",
+        "Representative FFmpeg color-chain translation:",
+        "- Supported filters: " + ", ".join(translation_sample.supported_filters),
+        "- Blender modifier stack: " + ", ".join(modifier for modifier, _settings in translation_sample.stack),
+        "- Color Management metadata: " + _format_pairs(translation_sample.color_management),
+        "- Approximation notes:",
+    ]
+    lines.extend(f"  - {note}" for note in translation_sample.notes)
+    lines.extend([
         "",
         "Compositor-compatible catalog recipes:",
-    ]
+    ])
     lines.extend(_tool_report_lines(compositor_tools))
     lines.extend(["", "VSE-only native tools:"])
     lines.extend(_tool_report_lines(vse_only_tools))
@@ -2981,6 +3007,80 @@ def _catalog_coverage_report() -> str:
     for node in compositor_node_tools():
         lines.append(f"- {node.node_type}: {node.label} ({node.category})")
     return "\n".join(lines)
+
+
+def _ffmpeg_filter_names_for_tool(tool) -> tuple[str, ...]:
+    names: list[str] = []
+    for chain in (getattr(tool, "ffmpeg_filter", None), getattr(tool, "ffmpeg_filter_after_stabilize", None)):
+        names.extend(_ffmpeg_filter_names(chain))
+    if getattr(tool, "two_pass_stabilize", False):
+        names.extend(("vidstabdetect", "vidstabtransform"))
+    return tuple(dict.fromkeys(name for name in names if name))
+
+
+def _ffmpeg_filter_names(chain: str | None) -> list[str]:
+    if not chain:
+        return []
+    names = []
+    quote = ""
+    token = []
+    for char in chain:
+        if quote:
+            token.append(char)
+            if char == quote:
+                quote = ""
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            token.append(char)
+            continue
+        if char == ",":
+            names.append(_ffmpeg_filter_name("".join(token)))
+            token = []
+            continue
+        token.append(char)
+    if token:
+        names.append(_ffmpeg_filter_name("".join(token)))
+    return [name for name in names if name]
+
+
+def _ffmpeg_filter_name(filter_text: str) -> str:
+    head = filter_text.strip().split("=", 1)[0].split(":", 1)[0].strip()
+    return head.lower()
+
+
+def _ffmpeg_translation_coverage_chain() -> str:
+    return (
+        "colorspace=iall=bt709:all=bt709:irange=tv:range=pc,"
+        "colormatrix=src=smpte170m:dst=bt709,"
+        "setparams=color_primaries=bt2020:color_trc=bt2020-10:colorspace=bt2020nc:range=full,"
+        "setrange=limited,"
+        "normalize=smoothing=24:independence=0.7:strength=0.55,"
+        "eq=contrast=1.12:saturation=1.08:gamma=1.02,"
+        "hue=s=1.05,"
+        "huesaturation=saturation=0.15:intensity=0.04:strength=0.8,"
+        "colorchannelmixer=rr=1.03:gg=1.0:bb=0.97,"
+        "curves=preset=medium_contrast,"
+        "colorlevels=rimin=0.02:rimax=0.98,"
+        "colorbalance=rs=0.05:bm=0.03:bh=-0.04:pl=1,"
+        "vibrance=intensity=0.4,"
+        "exposure=exposure=0.25:black=0.02,"
+        "colortemperature=temperature=5600:mix=0.55,"
+        "limiter=min=16:max=235,"
+        "tonemap=tonemap=mobius:param=0.35:desat=0.4,"
+        "colorcorrect=rl=0.05:bl=-0.03:rh=0.02:bh=-0.02:saturation=1.05,"
+        "colorcontrast=rc=0.12:gm=-0.04:by=0.08:rcw=0.5:gmw=0.35:byw=0.45:pl=1,"
+        "selectivecolor=reds=0.08 -0.03 -0.02 0.00:blues=-0.03 0.01 0.08 0.02:whites=0.01 0.00 -0.06 0.01,"
+        "monochrome=cb=0.05:cr=-0.04:high=0.1,"
+        "colorize=hue=35:saturation=0.25:lightness=0.55:mix=0.85,"
+        "histeq=strength=0.22:intensity=0.20:antibanding=1"
+    )
+
+
+def _format_pairs(pairs: tuple[tuple[str, str], ...]) -> str:
+    if not pairs:
+        return "None"
+    return ", ".join(f"{key}={value}" for key, value in pairs)
 
 
 def _tool_report_lines(tools) -> list[str]:

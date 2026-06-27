@@ -7,6 +7,37 @@ from typing import Any
 
 BlenderStack = tuple[tuple[str, dict[str, Any]], ...]
 
+NATIVE_FFMPEG_COLOR_FILTERS = (
+    "eq",
+    "hue",
+    "huesaturation",
+    "colorchannelmixer",
+    "curves",
+    "colorlevels",
+    "colorbalance",
+    "vibrance",
+    "exposure",
+    "colortemperature",
+    "limiter",
+    "tonemap",
+    "normalize",
+    "colorcorrect",
+    "colorcontrast",
+    "selectivecolor",
+    "monochrome",
+    "colorize",
+    "histeq",
+)
+
+NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS = (
+    "colorspace",
+    "colormatrix",
+    "setparams",
+    "setrange",
+)
+
+NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
+
 
 @dataclass(frozen=True)
 class NativeTranslation:

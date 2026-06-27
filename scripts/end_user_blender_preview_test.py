@@ -567,6 +567,13 @@ assert f'Compositor-compatible catalog recipes: {{len(expected_all_recipe_ids)}}
 assert 'VSE-only native tools:' in catalog_coverage_report
 assert 'native_mask_slot: Mask Slot' in catalog_coverage_report
 assert 'Rendered fallback tools:' in catalog_coverage_report
+assert 'Native-translated FFmpeg filters: 23' in catalog_coverage_report
+assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange' in catalog_coverage_report
+assert 'Rendered-only FFmpeg filters:' in catalog_coverage_report
+assert 'deflicker' in catalog_coverage_report
+assert 'vidstabdetect' in catalog_coverage_report
+assert 'Live approximation plus rendered fallback filters: normalize' in catalog_coverage_report
+assert 'Representative FFmpeg color-chain translation:' in catalog_coverage_report
 
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR_MANAGEMENT')
 assert result == {{'FINISHED'}}, result
