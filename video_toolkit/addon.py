@@ -437,6 +437,12 @@ def _modifier_label(modifier_type: str) -> str:
 
 
 def _set_nested_attr(target, dotted_path: str, value) -> None:
+    if dotted_path == "__curve_points__":
+        _apply_curve_points(target.curve_mapping, value)
+        return
+    if dotted_path == "__hue_correct__":
+        _apply_hue_correct(target.curve_mapping, value)
+        return
     parts = dotted_path.split(".")
     obj = target
     for part in parts[:-1]:
@@ -447,6 +453,37 @@ def _set_nested_attr(target, dotted_path: str, value) -> None:
         current[:] = value
     else:
         setattr(obj, attr, value)
+
+
+def _apply_curve_points(curve_mapping, curve_points) -> None:
+    for curve_index, points in curve_points.items():
+        curve = curve_mapping.curves[int(curve_index)]
+        _set_curve_points(curve, points)
+    curve_mapping.update()
+
+
+def _apply_hue_correct(curve_mapping, values) -> None:
+    for name, curve_index in (("hue", 0), ("saturation", 1), ("value", 2)):
+        if name not in values:
+            continue
+        y_value = float(values[name])
+        curve = curve_mapping.curves[curve_index]
+        for point in curve.points:
+            point.location[1] = y_value
+    curve_mapping.update()
+
+
+def _set_curve_points(curve, points) -> None:
+    points = list(points)
+    while len(curve.points) > len(points):
+        curve.points.remove(curve.points[-1])
+    while len(curve.points) < len(points):
+        x, y = points[len(curve.points)]
+        curve.points.new(float(x), float(y))
+    for point, (x, y) in zip(curve.points, points):
+        point.location[0] = float(x)
+        point.location[1] = float(y)
+        point.handle_type = "AUTO"
 
 
 def _render_ffmpeg_tool(context, strip, tool) -> Path:

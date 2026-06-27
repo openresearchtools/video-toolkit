@@ -95,6 +95,12 @@ for filter_id in (
     'gamma_deepen',
     'warm_balance',
     'cool_balance',
+    'saturation_boost',
+    'saturation_reduce',
+    'monochrome',
+    'faded_film',
+    'high_contrast_curve',
+    'medium_contrast_curve',
     'native_all_color_tools',
     'vse_bright_contrast',
     'vse_color_balance',
@@ -105,7 +111,15 @@ for filter_id in (
     'vse_white_balance',
 ):
     bpy.ops.video_toolkit.apply_filter(filter_id=filter_id)
-assert len(strip.modifiers) >= 45
+assert len(strip.modifiers) >= 55
+high_curve = next(m for m in strip.modifiers if m.name.startswith('VTK High Contrast Curve') and m.type == 'CURVES')
+high_points = [tuple(p.location[:]) for p in high_curve.curve_mapping.curves[0].points]
+assert high_points[1][1] < high_points[1][0]
+assert high_points[-2][1] > high_points[-2][0]
+saturation = next(m for m in strip.modifiers if m.name.startswith('VTK Saturation Boost') and m.type == 'HUE_CORRECT')
+assert saturation.curve_mapping.curves[1].points[0].location[1] > 0.5
+monochrome = next(m for m in strip.modifiers if m.name.startswith('VTK Monochrome') and m.type == 'HUE_CORRECT')
+assert monochrome.curve_mapping.curves[1].points[0].location[1] == 0.0
 bpy.ops.video_toolkit.apply_filter(filter_id='deflicker_normalize')
 assert scene.video_toolkit_last_output
 assert os.path.exists(scene.video_toolkit_last_output)

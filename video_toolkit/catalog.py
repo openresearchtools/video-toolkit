@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from .ffmpeg_native import translate_filter_chain
+
 
 ENGINE_BLENDER_MODIFIER = "blender_modifier"
 ENGINE_FFMPEG = "ffmpeg"
@@ -121,6 +123,23 @@ def _curves() -> tuple[str, dict[str, Any]]:
 
 def _hue_correct() -> tuple[str, dict[str, Any]]:
     return ("HUE_CORRECT", {})
+
+
+_AUTO_ENHANCE_STACK = translate_filter_chain("eq=contrast=1.08:saturation=1.08:gamma=1.02").stack
+_NEUTRAL_GRADE_STACK = translate_filter_chain("eq=contrast=1.04:saturation=1.03:gamma=1.00").stack
+_PUNCHY_COLOR_STACK = translate_filter_chain("eq=contrast=1.14:saturation=1.18:gamma=0.98").stack
+_SOFT_CONTRAST_STACK = translate_filter_chain("eq=contrast=0.94:saturation=1.03:gamma=1.04").stack
+_EXPOSURE_LIFT_STACK = translate_filter_chain("eq=brightness=0.035:contrast=1.03:gamma=1.08:saturation=1.02").stack
+_GAMMA_BRIGHTEN_STACK = translate_filter_chain("eq=gamma=1.18:gamma_weight=0.82").stack
+_GAMMA_DEEPEN_STACK = translate_filter_chain("eq=gamma=0.88:contrast=1.04").stack
+_WARM_BALANCE_STACK = translate_filter_chain("colorchannelmixer=rr=1.04:gg=1.00:bb=0.96,eq=saturation=1.03").stack
+_COOL_BALANCE_STACK = translate_filter_chain("colorchannelmixer=rr=0.97:gg=1.00:bb=1.04,eq=saturation=1.02").stack
+_SATURATION_BOOST_STACK = translate_filter_chain("hue=s=1.25").stack
+_SATURATION_REDUCE_STACK = translate_filter_chain("hue=s=0.75").stack
+_MONOCHROME_STACK = translate_filter_chain("hue=s=0").stack
+_FADED_FILM_STACK = translate_filter_chain("eq=brightness=0.025:contrast=0.90:gamma=1.08:saturation=0.82").stack
+_HIGH_CONTRAST_CURVE_STACK = translate_filter_chain("curves=preset=strong_contrast").stack
+_MEDIUM_CONTRAST_CURVE_STACK = translate_filter_chain("curves=preset=medium_contrast").stack
 
 
 TOOLS: tuple[VideoTool, ...] = (
@@ -243,13 +262,7 @@ TOOLS: tuple[VideoTool, ...] = (
         category="Live Blender Color",
         engine=ENGINE_BLENDER_MODIFIER,
         description="Native Blender live equivalent of FFmpeg eq/normalize intent: contrast, gamma, color balance, tone map, and curves.",
-        blender_stack=(
-            _bright_contrast(bright=0.015, contrast=8.0),
-            _color_balance(gamma=(1.02, 1.02, 1.02), gain=(1.04, 1.04, 1.04), color_multiply=1.02),
-            _tonemap(intensity=0.08, contrast=0.12, gamma=1.02),
-            _curves(),
-            _hue_correct(),
-        ),
+        blender_stack=_AUTO_ENHANCE_STACK + (_curves(),),
     ),
     VideoTool(
         id="neutral_grade",
@@ -257,11 +270,7 @@ TOOLS: tuple[VideoTool, ...] = (
         category="Live Blender Color",
         engine=ENGINE_BLENDER_MODIFIER,
         description="Clean Blender-native baseline grade with conservative contrast and neutral balance.",
-        blender_stack=(
-            _bright_contrast(bright=0.0, contrast=4.0),
-            _color_balance(gain=(1.02, 1.02, 1.02), color_multiply=1.01),
-            _curves(),
-        ),
+        blender_stack=_NEUTRAL_GRADE_STACK + (_curves(),),
     ),
     VideoTool(
         id="punchy_color",
@@ -269,12 +278,7 @@ TOOLS: tuple[VideoTool, ...] = (
         category="Live Blender Color",
         engine=ENGINE_BLENDER_MODIFIER,
         description="Blender-native contrast, gain, and hue-correct stack for denser editorial color.",
-        blender_stack=(
-            _bright_contrast(bright=0.0, contrast=14.0),
-            _color_balance(lift=(0.98, 0.98, 0.98), gamma=(0.99, 0.99, 0.99), gain=(1.08, 1.08, 1.08), color_multiply=1.06),
-            _tonemap(intensity=0.04, contrast=0.18, gamma=0.98),
-            _hue_correct(),
-        ),
+        blender_stack=_PUNCHY_COLOR_STACK,
     ),
     VideoTool(
         id="soft_contrast",
@@ -282,11 +286,7 @@ TOOLS: tuple[VideoTool, ...] = (
         category="Live Blender Color",
         engine=ENGINE_BLENDER_MODIFIER,
         description="Blender-native softer contrast and lifted midtones.",
-        blender_stack=(
-            _bright_contrast(bright=0.01, contrast=-6.0),
-            _color_balance(gamma=(1.04, 1.04, 1.04), gain=(1.01, 1.01, 1.01), color_multiply=1.01),
-            _tonemap(intensity=0.02, contrast=0.04, gamma=1.04),
-        ),
+        blender_stack=_SOFT_CONTRAST_STACK,
     ),
     VideoTool(
         id="exposure_lift",
@@ -294,11 +294,7 @@ TOOLS: tuple[VideoTool, ...] = (
         category="Live Blender Color",
         engine=ENGINE_BLENDER_MODIFIER,
         description="Live Blender exposure and midtone lift for underexposed clips.",
-        blender_stack=(
-            _bright_contrast(bright=0.035, contrast=3.0),
-            _color_balance(gamma=(1.08, 1.08, 1.08), gain=(1.03, 1.03, 1.03), color_multiply=1.01),
-            _tonemap(intensity=0.03, contrast=0.06, gamma=1.08),
-        ),
+        blender_stack=_EXPOSURE_LIFT_STACK,
     ),
     VideoTool(
         id="gamma_brighten",
@@ -306,10 +302,7 @@ TOOLS: tuple[VideoTool, ...] = (
         category="Live Blender Color",
         engine=ENGINE_BLENDER_MODIFIER,
         description="Live Blender gamma lift using Color Balance and Tone Map.",
-        blender_stack=(
-            _color_balance(gamma=(1.18, 1.18, 1.18), gain=(1.01, 1.01, 1.01)),
-            _tonemap(intensity=0.02, contrast=0.0, gamma=1.18),
-        ),
+        blender_stack=_GAMMA_BRIGHTEN_STACK,
     ),
     VideoTool(
         id="gamma_deepen",
@@ -317,11 +310,7 @@ TOOLS: tuple[VideoTool, ...] = (
         category="Live Blender Color",
         engine=ENGINE_BLENDER_MODIFIER,
         description="Live Blender gamma compression for washed midtones.",
-        blender_stack=(
-            _bright_contrast(bright=0.0, contrast=4.0),
-            _color_balance(gamma=(0.88, 0.88, 0.88), gain=(1.02, 1.02, 1.02)),
-            _tonemap(intensity=0.0, contrast=0.08, gamma=0.88),
-        ),
+        blender_stack=_GAMMA_DEEPEN_STACK,
     ),
     VideoTool(
         id="warm_balance",
@@ -329,10 +318,7 @@ TOOLS: tuple[VideoTool, ...] = (
         category="Live Blender Color",
         engine=ENGINE_BLENDER_MODIFIER,
         description="Native Blender channel-balance equivalent of a warm FFmpeg color mixer.",
-        blender_stack=(
-            _color_balance(gamma=(1.03, 1.01, 0.98), gain=(1.06, 1.01, 0.96), color_multiply=1.01),
-            _white_balance((1.04, 1.00, 0.96)),
-        ),
+        blender_stack=_WARM_BALANCE_STACK,
     ),
     VideoTool(
         id="cool_balance",
@@ -340,10 +326,55 @@ TOOLS: tuple[VideoTool, ...] = (
         category="Live Blender Color",
         engine=ENGINE_BLENDER_MODIFIER,
         description="Native Blender channel-balance equivalent of a cool FFmpeg color mixer.",
-        blender_stack=(
-            _color_balance(gamma=(0.98, 1.01, 1.03), gain=(0.96, 1.01, 1.06), color_multiply=1.01),
-            _white_balance((0.96, 1.00, 1.04)),
-        ),
+        blender_stack=_COOL_BALANCE_STACK,
+    ),
+    VideoTool(
+        id="saturation_boost",
+        label="Saturation Boost",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg hue saturation boost as a native Blender Hue Correct curve.",
+        blender_stack=_SATURATION_BOOST_STACK,
+    ),
+    VideoTool(
+        id="saturation_reduce",
+        label="Saturation Reduce",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg hue saturation reduction as a native Blender Hue Correct curve.",
+        blender_stack=_SATURATION_REDUCE_STACK,
+    ),
+    VideoTool(
+        id="monochrome",
+        label="Monochrome",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg hue desaturation as a native Blender Hue Correct curve.",
+        blender_stack=_MONOCHROME_STACK,
+    ),
+    VideoTool(
+        id="faded_film",
+        label="Faded Film",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg brightness/contrast/gamma/saturation recipe as Blender live modifiers.",
+        blender_stack=_FADED_FILM_STACK,
+    ),
+    VideoTool(
+        id="high_contrast_curve",
+        label="High Contrast Curve",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg curves strong_contrast preset as a native Blender RGB Curves modifier.",
+        blender_stack=_HIGH_CONTRAST_CURVE_STACK,
+    ),
+    VideoTool(
+        id="medium_contrast_curve",
+        label="Medium Contrast Curve",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg curves medium_contrast preset as a native Blender RGB Curves modifier.",
+        blender_stack=_MEDIUM_CONTRAST_CURVE_STACK,
     ),
     VideoTool(
         id="native_all_color_tools",
@@ -362,6 +393,14 @@ TOOLS: tuple[VideoTool, ...] = (
             _hue_correct(),
             ("MASK", {}),
         ),
+    ),
+    VideoTool(
+        id="native_bright_contrast",
+        label="Brightness/Contrast",
+        category="Native Blender Primitives",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Adds Blender's Brightness/Contrast modifier.",
+        blender_stack=(_bright_contrast(),),
     ),
     VideoTool(
         id="native_lift_gamma_gain",
@@ -418,6 +457,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_BLENDER_MODIFIER,
         description="Adds Blender's White Balance modifier.",
         blender_stack=(_white_balance(),),
+    ),
+    VideoTool(
+        id="native_mask_slot",
+        label="Mask Slot",
+        category="Native Blender Primitives",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Adds Blender's Mask strip modifier for masked color work.",
+        blender_stack=(("MASK", {}),),
     ),
     VideoTool(
         id="deflicker",

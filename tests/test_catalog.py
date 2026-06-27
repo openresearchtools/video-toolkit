@@ -63,6 +63,12 @@ def test_color_enhance_tools_are_blender_native_live_stacks():
         "gamma_deepen",
         "warm_balance",
         "cool_balance",
+        "saturation_boost",
+        "saturation_reduce",
+        "monochrome",
+        "faded_film",
+        "high_contrast_curve",
+        "medium_contrast_curve",
     ):
         tool = get_tool(tool_id)
         assert tool.is_blender_modifier
@@ -76,6 +82,18 @@ def test_every_native_blender_color_primitive_is_exposed():
     assert stack.count("COLOR_BALANCE") == 2
     assert stack.count("TONEMAP") == 2
     assert {"WHITE_BALANCE", "CURVES", "HUE_CORRECT", "MASK"}.issubset(set(stack))
+    for tool_id in (
+        "native_bright_contrast",
+        "native_lift_gamma_gain",
+        "native_asc_cdl",
+        "native_rd_tonemap",
+        "native_rh_tonemap",
+        "native_curves_editor",
+        "native_hue_correct_editor",
+        "native_white_balance_editor",
+        "native_mask_slot",
+    ):
+        assert get_tool(tool_id).is_blender_modifier
 
 
 def test_ffmpeg_tools_have_filters_or_stabilization():

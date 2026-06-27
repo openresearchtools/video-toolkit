@@ -52,10 +52,11 @@ FFmpeg must be installed and visible on `PATH`.
 
 - Live frame analysis: auto balance selected footage, or match the active movie strip to another selected reference strip.
 - Live Blender color room: Color Management, Sequencer input color space, exposure, gamma, white balance, strip transform/crop/opacity, and editable live modifier stack.
-- Live one-click Blender stacks: Pro Color Stack, Gamma Grade, Shadow Recovery, Contrast Pop, Warm Grade, Cool Grade.
+- Live one-click Blender stacks: Pro Color Stack, Gamma Grade, Shadow Recovery, Contrast Pop, Warm Grade, Cool Grade, saturation boost/reduce, monochrome, faded film, and contrast curves.
 - Native Blender primitives: Brightness/Contrast, Lift/Gamma/Gain, ASC CDL Offset/Power/Slope, R/D Photoreceptor Tone Map, Rh Simple Tone Map, Curves, Hue Correct, White Balance, Mask.
 - Blender VSE modifiers: Brightness/Contrast, Color Balance, Curves, Hue Correct, Mask, Tone Map, White Balance.
 - Blender-native color recipes: auto enhance, neutral grade, punchy color, soft contrast, exposure lift, gamma up/down, warm/cool balance.
+- FFmpeg-to-Blender translation: supported FFmpeg color intent (`eq`, `hue`, `huesaturation`, `colorchannelmixer`, `curves`) is converted into native live Blender VSE modifier stacks; non-native temporal filters stay in rendered restoration.
 - Restoration: deflicker, lighting normalizer, denoise, sharpen restoration, deinterlace, quick deshake, two-pass vidstab stabilization.
 - Motion and output: 2x Lanczos upscale, 1080p normalize scale, 60 fps interpolation, temporal smoothing.
 
