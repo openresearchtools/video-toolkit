@@ -23,6 +23,12 @@ PRESET_ITEMS = (
     ("slow", "Slow", "Slower encode, smaller file"),
 )
 
+APPLY_TARGET_ITEMS = (
+    ("ACTIVE", "Active Strip", "Apply live tools to the active strip"),
+    ("SELECTED", "Selected Strips", "Apply live tools to every selected strip that supports modifiers"),
+    ("ADJUSTMENT", "Adjustment Layer", "Create a native Blender adjustment strip over the selected range"),
+)
+
 
 def _tool_items(_self, _context):
     return enum_items()
@@ -35,6 +41,11 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     filter_id: bpy.props.EnumProperty(name="Filter", items=_tool_items)
+    target: bpy.props.EnumProperty(
+        name="Target",
+        items=(("SCENE", "Panel Target", "Use the panel target setting"),) + APPLY_TARGET_ITEMS,
+        default="SCENE",
+    )
 
     @classmethod
     def poll(cls, context):
@@ -47,8 +58,25 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
             tool = get_tool(self.filter_id)
             strip = context.scene.sequence_editor.active_strip
             if tool.is_blender_modifier:
-                modifiers = _add_blender_tool(strip, tool)
-                self.report({"INFO"}, f"Added {len(modifiers)} live Blender modifier(s) to {strip.name}")
+                target = self.target
+                if target == "SCENE":
+                    target = context.scene.video_toolkit_apply_target
+                if target == "ADJUSTMENT":
+                    adjustment = _create_adjustment_strip(context, tool.label)
+                    modifiers = _add_blender_tool(adjustment, tool)
+                    self.report(
+                        {"INFO"},
+                        f"Added {len(modifiers)} live Blender modifier(s) to adjustment layer {adjustment.name}",
+                    )
+                elif target == "SELECTED":
+                    strips = _selected_modifier_strips(context) or [strip]
+                    count = 0
+                    for selected_strip in strips:
+                        count += len(_add_blender_tool(selected_strip, tool))
+                    self.report({"INFO"}, f"Added {count} live Blender modifier(s) to {len(strips)} strip(s)")
+                else:
+                    modifiers = _add_blender_tool(strip, tool)
+                    self.report({"INFO"}, f"Added {len(modifiers)} live Blender modifier(s) to {strip.name}")
                 return {"FINISHED"}
             output_path = _render_ffmpeg_tool(context, strip, tool)
             self.report({"INFO"}, f"Rendered {tool.label}: {output_path}")
@@ -232,7 +260,7 @@ class VIDEO_TOOLKIT_PT_video_filters(Panel):
         layout.label(text=f"Active: {strip.name}", icon="SEQ_STRIP_META")
         _draw_live_analysis(layout, scene, strip, context)
         _draw_scene_color_management(layout, scene)
-        _draw_live_color_tools(layout)
+        _draw_live_color_tools(layout, scene)
         _draw_strip_editing_tools(layout, strip)
         _draw_live_modifier_editor(layout, strip)
         _draw_render_tools(layout, scene)
@@ -284,9 +312,10 @@ def _draw_scene_color_management(layout, scene) -> None:
             row.prop(view, "white_balance_tint", text="Tint")
 
 
-def _draw_live_color_tools(layout) -> None:
+def _draw_live_color_tools(layout, scene) -> None:
     box = layout.box()
     box.label(text="Live Blender Color Tools", icon="COLOR")
+    box.prop(scene, "video_toolkit_apply_target", text="Target")
     for category in ("Live Blender Color", "Native Blender Primitives", "Live Blender Modifiers"):
         section = box.box()
         section.label(text=category)
@@ -541,6 +570,45 @@ def _selected_movie_strips(context) -> list:
     return [strip for strip in editor.strips_all if strip.type == "MOVIE" and getattr(strip, "select", False)]
 
 
+def _selected_modifier_strips(context) -> list:
+    selected = []
+    for strip in getattr(context, "selected_sequences", []) or []:
+        if hasattr(strip, "modifiers"):
+            selected.append(strip)
+    if selected:
+        return selected
+    editor = context.scene.sequence_editor
+    return [strip for strip in editor.strips_all if hasattr(strip, "modifiers") and getattr(strip, "select", False)]
+
+
+def _create_adjustment_strip(context, label: str):
+    scene = context.scene
+    if scene.sequence_editor is None:
+        scene.sequence_editor_create()
+    editor = scene.sequence_editor
+    active = editor.active_strip
+    selected = _selected_modifier_strips(context) or ([active] if active else [])
+    if not selected:
+        raise RuntimeError("Select a strip or range before creating an adjustment layer")
+    start = min(strip.frame_final_start for strip in selected)
+    end = max(strip.frame_final_end for strip in selected)
+    length = max(1, end - start)
+    minimum_channel = max(strip.channel for strip in selected) + 1
+    channel = _find_free_channel(editor, start, end, minimum_channel)
+    adjustment = editor.strips.new_effect(
+        name=f"VTK {label} Adjustment",
+        type="ADJUSTMENT",
+        channel=channel,
+        frame_start=start,
+        length=length,
+    )
+    for strip in editor.strips_all:
+        strip.select = False
+    adjustment.select = True
+    editor.active_strip = adjustment
+    return adjustment
+
+
 def _output_dir(scene) -> Path:
     configured = scene.video_toolkit_output_dir or "//video_toolkit_outputs"
     return Path(bpy.path.abspath(configured)).expanduser()
@@ -646,6 +714,12 @@ def register() -> None:
         name="Last Analysis",
         default="",
     )
+    bpy.types.Scene.video_toolkit_apply_target = bpy.props.EnumProperty(
+        name="Target",
+        description="Where live Blender color tools are applied",
+        items=APPLY_TARGET_ITEMS,
+        default="ACTIVE",
+    )
     bpy.types.SEQUENCER_MT_editor_menus.append(_draw_header_menu)
 
 
@@ -663,6 +737,7 @@ def unregister() -> None:
         "video_toolkit_last_output",
         "video_toolkit_analysis_samples",
         "video_toolkit_last_analysis",
+        "video_toolkit_apply_target",
     ):
         if hasattr(bpy.types.Scene, attr):
             delattr(bpy.types.Scene, attr)

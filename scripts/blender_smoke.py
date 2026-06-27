@@ -81,7 +81,22 @@ strip = scene.sequence_editor.strips.new_movie(
     channel=1,
     frame_start=1,
 )
+second_strip = scene.sequence_editor.strips.new_movie(
+    name='smoke second selected',
+    filepath={str(fixture)!r},
+    channel=2,
+    frame_start=1,
+)
+for candidate in scene.sequence_editor.strips_all:
+    candidate.select = False
+strip.select = True
+second_strip.select = True
 scene.sequence_editor.active_strip = strip
+scene.video_toolkit_apply_target = 'SELECTED'
+bpy.ops.video_toolkit.apply_filter(filter_id='neutral_grade')
+assert any(m.name.startswith('VTK Neutral Grade') for m in strip.modifiers)
+assert any(m.name.startswith('VTK Neutral Grade') for m in second_strip.modifiers)
+scene.video_toolkit_apply_target = 'ACTIVE'
 bpy.ops.video_toolkit.analyze_color(mode='AUTO')
 assert len(strip.modifiers) >= 5
 for filter_id in (
@@ -120,6 +135,21 @@ saturation = next(m for m in strip.modifiers if m.name.startswith('VTK Saturatio
 assert saturation.curve_mapping.curves[1].points[0].location[1] > 0.5
 monochrome = next(m for m in strip.modifiers if m.name.startswith('VTK Monochrome') and m.type == 'HUE_CORRECT')
 assert monochrome.curve_mapping.curves[1].points[0].location[1] == 0.0
+scene.sequence_editor.active_strip = strip
+for candidate in scene.sequence_editor.strips_all:
+    candidate.select = False
+strip.select = True
+scene.video_toolkit_apply_target = 'ADJUSTMENT'
+bpy.ops.video_toolkit.apply_filter(filter_id='auto_enhance')
+adjustment = scene.sequence_editor.active_strip
+assert adjustment.type == 'ADJUSTMENT'
+assert adjustment.channel > strip.channel
+assert any(m.name.startswith('VTK Auto Enhance') for m in adjustment.modifiers)
+scene.sequence_editor.active_strip = strip
+for candidate in scene.sequence_editor.strips_all:
+    candidate.select = False
+strip.select = True
+scene.video_toolkit_apply_target = 'ACTIVE'
 bpy.ops.video_toolkit.apply_filter(filter_id='deflicker_normalize')
 assert scene.video_toolkit_last_output
 assert os.path.exists(scene.video_toolkit_last_output)
