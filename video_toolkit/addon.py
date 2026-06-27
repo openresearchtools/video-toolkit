@@ -939,6 +939,30 @@ class VIDEO_TOOLKIT_OT_create_tool_compositor_nodes(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes(Operator):
+    bl_idname = "video_toolkit.create_sidecar_compositor_nodes"
+    bl_label = "Create Selected Tool Nodes"
+    bl_description = "Create Blender compositor nodes for the selected Video Effects sidebar tool"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        tool = _selected_sidecar_tool(context.scene)
+        if tool is None:
+            self.report({"ERROR"}, "No Video Effects tool is selected")
+            return {"CANCELLED"}
+        if not _tool_has_compositor_stack(tool):
+            self.report({"ERROR"}, f"{tool.label} does not have a compositor node recipe")
+            return {"CANCELLED"}
+        return bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id=tool.id)
+
+
 class VIDEO_TOOLKIT_OT_apply_color_management_preset(Operator):
     bl_idname = "video_toolkit.apply_color_management_preset"
     bl_label = "Apply Blender Color Management Preset"
@@ -1360,11 +1384,19 @@ def _draw_sidecar_browser(layout, scene, strip) -> None:
     browser.prop(scene, "video_toolkit_sidecar_group", text="Group")
     browser.prop(scene, "video_toolkit_sidecar_tool", text="Tool")
     action = browser.row(align=True)
-    action.enabled = strip is not None and selected_tool is not None
-    action.operator(
+    apply_action = action.row(align=True)
+    apply_action.enabled = strip is not None and selected_tool is not None
+    apply_action.operator(
         VIDEO_TOOLKIT_OT_apply_sidecar_tool.bl_idname,
         text="Apply",
         icon=_sidecar_tool_icon(selected_tool),
+    )
+    node_action = action.row(align=True)
+    node_action.enabled = strip is not None and selected_tool is not None and _tool_has_compositor_stack(selected_tool)
+    node_action.operator(
+        VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes.bl_idname,
+        text="Nodes",
+        icon="NODETREE",
     )
     if selected_tool is not None:
         if selected_tool.is_blender_modifier:
@@ -2946,6 +2978,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_clear_live_modifiers,
     VIDEO_TOOLKIT_OT_create_compositor_nodes,
     VIDEO_TOOLKIT_OT_create_tool_compositor_nodes,
+    VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes,
     VIDEO_TOOLKIT_OT_apply_color_management_preset,
     VIDEO_TOOLKIT_OT_apply_sampled_color_management,
     VIDEO_TOOLKIT_OT_open_output_folder,

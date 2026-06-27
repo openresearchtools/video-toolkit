@@ -493,6 +493,28 @@ for required in [
 native_room_links = len([link for link in tree.links if link.from_node.name.startswith('VTK Native Color Room ')])
 assert native_room_links >= 16, native_room_links
 
+scene.video_toolkit_sidecar_group = 'LIVE_BLENDER_COLOR'
+scene.video_toolkit_sidecar_tool = 'live_gamma_grade'
+result = bpy.ops.video_toolkit.create_sidecar_compositor_nodes()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Live Gamma Grade')
+sidecar_recipe_summary = scene.video_toolkit_last_compositor_nodes
+sidecar_recipe_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Tool Live Gamma Grade ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in sidecar_recipe_node_types, required
+
 result = bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id='live_pro_color_stack')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Live Pro Color Stack')
@@ -855,6 +877,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'native_room_summary': native_room_summary,
     'native_room_node_types': native_room_node_types,
     'native_room_links': native_room_links,
+    'sidecar_recipe_summary': sidecar_recipe_summary,
+    'sidecar_recipe_node_types': sidecar_recipe_node_types,
     'tool_recipe_summary': tool_recipe_summary,
     'tool_recipe_node_types': tool_recipe_node_types,
     'tool_recipe_filter_ids': tool_recipe_filter_ids,

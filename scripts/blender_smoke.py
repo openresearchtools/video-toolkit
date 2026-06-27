@@ -208,6 +208,20 @@ scene.video_toolkit_sidecar_group = 'LIVE_BLENDER_COLOR'
 scene.video_toolkit_sidecar_tool = 'live_gamma_grade'
 bpy.ops.video_toolkit.apply_sidecar_tool()
 assert any(m.name.startswith('VTK Live Gamma Grade') for m in strip.modifiers)
+bpy.ops.video_toolkit.create_sidecar_compositor_nodes()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Live Gamma Grade')
+tree = scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree
+sidecar_recipe_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Tool Live Gamma Grade ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in sidecar_recipe_node_types, required
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',
