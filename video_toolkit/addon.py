@@ -50,6 +50,7 @@ COMPOSITOR_STACK_ITEMS = (
     ("IDENTITY_COLOR", "Palette Identity Node Stack", "Identify dominant colors and build a Blender compositor palette-aware graph"),
     ("MATCHED_COLOR", "Matched Color Node Stack", "Match the active movie strip to a selected reference strip with Blender compositor nodes"),
     ("TRANSLATED_COLOR", "Translated Color Node Stack", "Translate the FFmpeg-style color chain into a Blender compositor graph"),
+    ("LIGHTING_NORMALIZE", "Lighting Normalize Node Stack", "Sample luma over time and animate Blender compositor brightness correction"),
     ("RESTORATION", "Restoration Node Stack", "Build a Blender compositor restoration node graph from the active movie strip"),
     ("NODE_LIBRARY", "Native Node Library", "Create every tracked Blender compositor video-finishing node in organized groups"),
 )
@@ -676,6 +677,22 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
                 color_management = _apply_translation_color_management(context, translation)
                 label = "translated color"
                 summary = _translated_compositor_summary(translation, len(created), color_management)
+            elif self.stack_type == "LIGHTING_NORMALIZE":
+                samples = sample_video_luma_timeline(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
+                keyframes = build_lighting_normalization_keyframes(
+                    samples,
+                    smoothing=context.scene.video_toolkit_flicker_smoothing,
+                    strength=context.scene.video_toolkit_flicker_strength,
+                )
+                if not keyframes:
+                    raise RuntimeError("No lighting samples were available for compositor normalization")
+                created, inserted = _create_lighting_normalizer_compositor_stack(context.scene, strip, keyframes)
+                label = "lighting normalizer"
+                summary = (
+                    f"compositor lighting normalizer {inserted} keyframes, "
+                    f"luma {min(sample.luma for sample in samples):.1f}-{max(sample.luma for sample in samples):.1f}; "
+                    f"{_compositor_node_summary(created)}"
+                )
             else:
                 created = _create_compositor_color_stack(context.scene, strip)
                 label = "color"
@@ -816,6 +833,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
             icon="NODETREE",
         )
         op.stack_type = "TRANSLATED_COLOR"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Lighting Normalize Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "LIGHTING_NORMALIZE"
         op = layout.operator(
             VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
             text="Create Restoration Node Stack",
@@ -1034,9 +1057,12 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Translated", icon="MODIFIER")
     op.stack_type = "TRANSLATED_COLOR"
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Normalize", icon="IPO_EASE_IN_OUT")
+    op.stack_type = "LIGHTING_NORMALIZE"
+    row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
     op.stack_type = "RESTORATION"
-    op = box.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Native Node Library", icon="NODETREE")
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Node Library", icon="NODETREE")
     op.stack_type = "NODE_LIBRARY"
     if scene.video_toolkit_last_compositor_nodes:
         box.label(text=scene.video_toolkit_last_compositor_nodes, icon="INFO")
@@ -1455,6 +1481,25 @@ def _insert_color_balance_keyframes(strip, modifier, keyframes, property_name: s
     return inserted
 
 
+def _insert_node_socket_keyframes(strip, socket, keyframes) -> int:
+    start = int(getattr(strip, "frame_final_start", getattr(strip, "frame_start", 1)))
+    end = int(getattr(strip, "frame_final_end", start + getattr(strip, "frame_final_duration", 1))) - 1
+    duration = max(1, end - start)
+    max_index = max((index for index, _value in keyframes), default=1)
+    inserted = 0
+    seen_frames: set[int] = set()
+    for sample_index, value in keyframes:
+        frame = start + round((sample_index / max(max_index, 1)) * duration)
+        if frame in seen_frames:
+            continue
+        seen_frames.add(frame)
+        socket.default_value = value
+        socket.keyframe_insert(data_path="default_value", frame=frame)
+        inserted += 1
+    _set_keyframes_linear(socket)
+    return inserted
+
+
 def _timeline_rgb_summary(samples) -> str:
     if not samples:
         return "no samples"
@@ -1629,6 +1674,40 @@ def _create_identity_compositor_color_stack(scene, strip, stack):
 
 def _create_matched_compositor_color_stack(scene, strip, stack, reference_name: str):
     return _create_compositor_nodes_from_blender_stack(scene, strip, stack, f"Matched to {reference_name}")
+
+
+def _create_lighting_normalizer_compositor_stack(scene, strip, keyframes):
+    tree = _ensure_compositor_tree(scene)
+    origin = _next_node_origin(tree)
+    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", "VTK Lighting Normalizer Movie Clip", 0, origin=origin)
+    _assign_movie_clip(movie, _movie_path(strip))
+    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", "VTK Lighting Normalizer Color Space", 1, origin=origin)
+    bright = _new_compositor_node(tree, "CompositorNodeBrightContrast", "VTK Lighting Normalizer Brightness", 2, origin=origin)
+    brightness_socket = _socket_by_name(bright.inputs, "Brightness") or _socket_by_name(bright.inputs, "Bright")
+    if brightness_socket is None:
+        raise RuntimeError("Blender compositor Brightness/Contrast node does not expose a brightness socket")
+    _set_input_default_candidates(bright, ("Brightness", "Bright"), keyframes[0][1])
+    _set_input_default(bright, "Contrast", 0.0)
+    inserted = _insert_node_socket_keyframes(strip, brightness_socket, keyframes)
+    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Lighting Normalizer Tone Map", 3, origin=origin)
+    _set_input_default(tonemap, "Type", "RD_PHOTORECEPTOR")
+    _set_input_default(tonemap, "Intensity", 0.04)
+    _set_input_default(tonemap, "Contrast", 0.04)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Lighting Normalizer Levels", 4, y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Lighting Normalizer Viewer", 5, origin=origin)
+    output = _new_output_file_node(tree, scene, 5, y_offset=-160, origin=origin)
+    output.name = "VTK Lighting Normalizer Output File"
+    output.label = "VTK Lighting Normalizer Output File"
+
+    normalized_socket = _link_compositor_chain(tree, [movie, convert, bright, tonemap])
+    _link_socket(tree, normalized_socket, _image_input(levels))
+    leveled_socket = _image_output(levels)
+    _link_socket(tree, leveled_socket, _image_input(viewer))
+    _link_socket(tree, leveled_socket, _first_socket(output.inputs))
+    created = [movie, convert, bright, tonemap, levels, viewer, output]
+    for node in created:
+        node["video_toolkit_lighting_keyframes"] = inserted
+    return created, inserted
 
 
 def _create_compositor_nodes_from_blender_stack(scene, strip, stack, label_prefix: str):

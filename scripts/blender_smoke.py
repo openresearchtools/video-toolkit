@@ -330,6 +330,24 @@ for required in [
     assert required in identity_node_types, required
 identity_curve = next(node for node in tree.nodes if node.name == 'VTK Palette Identity Curves')
 assert len(identity_curve.mapping.curves[0].points) >= 5
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='LIGHTING_NORMALIZE')
+assert scene.video_toolkit_last_compositor_nodes.startswith('compositor lighting normalizer')
+lighting_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Lighting Normalizer ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in lighting_node_types, required
+lighting_bright = next(node for node in tree.nodes if node.name == 'VTK Lighting Normalizer Brightness')
+lighting_socket = next(socket for socket in lighting_bright.inputs if socket.name in ('Brightness', 'Bright'))
+assert tree.animation_data is not None
+assert tree.animation_data.action is not None
+assert action_keyframe_count(tree.animation_data.action, lighting_socket.path_from_id('default_value')) >= 2
 for candidate in scene.sequence_editor.strips_all:
     candidate.select = False
 strip.select = True

@@ -513,6 +513,37 @@ for required in [
 identity_curve_node = next(node for node in tree.nodes if node.name == 'VTK Palette Identity Curves')
 assert len(identity_curve_node.mapping.curves[0].points) >= 5
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='LIGHTING_NORMALIZE')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('compositor lighting normalizer')
+lighting_compositor_summary = scene.video_toolkit_last_compositor_nodes
+lighting_compositor_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Lighting Normalizer ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in lighting_compositor_node_types, required
+lighting_bright_node = next(node for node in tree.nodes if node.name == 'VTK Lighting Normalizer Brightness')
+lighting_brightness_socket = next(
+    socket for socket in lighting_bright_node.inputs if socket.name in ('Brightness', 'Bright')
+)
+assert tree.animation_data is not None
+assert tree.animation_data.action is not None
+lighting_compositor_keyframes = action_keyframe_count(
+    tree.animation_data.action,
+    lighting_brightness_socket.path_from_id('default_value'),
+)
+assert lighting_compositor_keyframes >= 2, lighting_compositor_keyframes
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='MATCHED_COLOR')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('matched compositor to')
@@ -672,6 +703,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_compositor_exposure': sampled_exposure_socket.default_value,
     'identity_compositor_summary': identity_compositor_summary,
     'identity_compositor_node_types': identity_compositor_node_types,
+    'lighting_compositor_summary': lighting_compositor_summary,
+    'lighting_compositor_node_types': lighting_compositor_node_types,
+    'lighting_compositor_keyframes': lighting_compositor_keyframes,
     'matched_compositor_summary': matched_compositor_summary,
     'matched_compositor_node_types': matched_compositor_node_types,
     'translated_compositor_summary': translated_compositor_summary,

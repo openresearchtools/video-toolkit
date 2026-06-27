@@ -82,6 +82,7 @@ def _setup_scene() -> None:
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="IDENTITY_COLOR")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="MATCHED_COLOR")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="TRANSLATED_COLOR")
+        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="LIGHTING_NORMALIZE")
     except Exception:
         traceback.print_exc()
 
