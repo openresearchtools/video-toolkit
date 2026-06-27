@@ -319,6 +319,25 @@ for required in [
 ]:
     assert required in native_room_node_types, required
 assert len([link for link in tree.links if link.from_node.name.startswith('VTK Native Color Room ')]) >= 16
+bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id='live_pro_color_stack')
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Live Pro Color Stack')
+tool_recipe_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Tool Live Pro Color Stack ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeTonemap',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in tool_recipe_node_types, required
+recipe_nodes = [node for node in tree.nodes if node.name.startswith('VTK Tool Live Pro Color Stack ')]
+recipe_filter_ids = [node['video_toolkit_filter_id'] for node in recipe_nodes]
+assert set(recipe_filter_ids) == {{'live_pro_color_stack'}}
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR_MANAGEMENT')
 assert scene.video_toolkit_last_compositor_nodes.startswith('sampled color management')
 sampled_cm_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Sampled Color Management ')]

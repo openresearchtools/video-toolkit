@@ -59,6 +59,17 @@ COMPOSITOR_STACK_ITEMS = (
     ("NODE_LIBRARY", "Native Node Library", "Create every tracked Blender compositor video-finishing node in organized groups"),
 )
 
+COMPOSITOR_MODIFIER_TYPES = frozenset(
+    {
+        "BRIGHT_CONTRAST",
+        "COLOR_BALANCE",
+        "CURVES",
+        "HUE_CORRECT",
+        "TONEMAP",
+        "WHITE_BALANCE",
+    }
+)
+
 COLOR_MANAGEMENT_PRESET_ITEMS = (
     ("AGX_BALANCED", "AgX Balanced", "AgX view transform with a moderate editorial contrast look"),
     ("AGX_PUNCH", "AgX Punch", "AgX with a stronger contrast look and tiny exposure lift"),
@@ -71,6 +82,28 @@ COLOR_MANAGEMENT_PRESET_ITEMS = (
 
 def _tool_items(_self, _context):
     return enum_items()
+
+
+def _tool_compositor_stack(tool):
+    if tool.blender_stack:
+        return tool.blender_stack
+    if tool.blender_modifier:
+        return ((tool.blender_modifier, tool.blender_settings),)
+    return ()
+
+
+def _tool_has_compositor_stack(tool) -> bool:
+    if not tool.is_blender_modifier:
+        return False
+    return any(modifier_type in COMPOSITOR_MODIFIER_TYPES for modifier_type, _settings in _tool_compositor_stack(tool))
+
+
+def _compositor_tool_items(_self, _context):
+    return tuple(
+        (tool.id, tool.label, f"Create a Blender compositor graph for {tool.label}")
+        for tool in all_tools()
+        if _tool_has_compositor_stack(tool)
+    )
 
 
 class VIDEO_TOOLKIT_OT_apply_filter(Operator):
@@ -774,6 +807,44 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_create_tool_compositor_nodes(Operator):
+    bl_idname = "video_toolkit.create_tool_compositor_nodes"
+    bl_label = "Create Tool Compositor Nodes"
+    bl_description = "Create a Blender compositor node graph from a catalog color tool"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filter_id: bpy.props.EnumProperty(name="Tool", items=_compositor_tool_items)
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            tool = get_tool(self.filter_id)
+            stack = _tool_compositor_stack(tool)
+            supported_count = sum(1 for modifier_type, _settings in stack if modifier_type in COMPOSITOR_MODIFIER_TYPES)
+            if not supported_count:
+                raise RuntimeError(f"{tool.label} does not have a compositor-compatible Blender color stack")
+            created = _create_tool_compositor_color_stack(scene, strip, tool, stack)
+            skipped = len(stack) - supported_count
+            summary = f"tool compositor {tool.label}: {_compositor_node_summary(created)}"
+            if skipped:
+                summary = f"{summary}; skipped {skipped} VSE-only modifier(s)"
+            scene.video_toolkit_last_compositor_nodes = summary
+            self.report({"INFO"}, f"Created {len(created)} Blender compositor {tool.label} recipe node(s)")
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_apply_color_management_preset(Operator):
     bl_idname = "video_toolkit.apply_color_management_preset"
     bl_label = "Apply Blender Color Management Preset"
@@ -874,6 +945,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         layout.menu("VIDEO_TOOLKIT_MT_live_blender_color", icon="COLOR")
         layout.menu("VIDEO_TOOLKIT_MT_native_blender_primitives", icon="NODETREE")
         layout.menu("VIDEO_TOOLKIT_MT_blender_vse_modifiers", icon="SEQ_STRIP_DUPLICATE")
+        layout.menu("VIDEO_TOOLKIT_MT_compositor_recipes", icon="NODETREE")
         op = layout.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Create Color Node Stack", icon="NODETREE")
         op.stack_type = "COLOR"
         op = layout.operator(
@@ -989,6 +1061,24 @@ class VIDEO_TOOLKIT_MT_blender_vse_modifiers(Menu):
 
     def draw(self, _context):
         _draw_category(self.layout, "Live Blender Modifiers")
+
+
+class VIDEO_TOOLKIT_MT_compositor_recipes(Menu):
+    bl_idname = "VIDEO_TOOLKIT_MT_compositor_recipes"
+    bl_label = "Compositor Color Recipes"
+
+    def draw(self, _context):
+        current_category = None
+        for tool in all_tools():
+            if not _tool_has_compositor_stack(tool):
+                continue
+            if tool.category != current_category:
+                if current_category is not None:
+                    self.layout.separator()
+                self.layout.label(text=tool.category, icon="COLOR")
+                current_category = tool.category
+            op = self.layout.operator(VIDEO_TOOLKIT_OT_create_tool_compositor_nodes.bl_idname, text=tool.label, icon="NODETREE")
+            op.filter_id = tool.id
 
 
 class VIDEO_TOOLKIT_MT_color_management(Menu):
@@ -1163,6 +1253,7 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
     op.stack_type = "RESTORATION"
+    box.menu("VIDEO_TOOLKIT_MT_compositor_recipes", text="Color Recipe Nodes", icon="NODETREE")
     op = box.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Native Node Library", icon="NODETREE")
     op.stack_type = "NODE_LIBRARY"
     if scene.video_toolkit_last_compositor_nodes:
@@ -2049,6 +2140,14 @@ def _create_compositor_nodes_from_blender_stack(scene, strip, stack, label_prefi
     return created
 
 
+def _create_tool_compositor_color_stack(scene, strip, tool, stack):
+    created = _create_compositor_nodes_from_blender_stack(scene, strip, stack, f"Tool {tool.label}")
+    for node in created:
+        node["video_toolkit_filter_id"] = tool.id
+        node["video_toolkit_tool_label"] = tool.label
+    return created
+
+
 def _translated_modifier_to_compositor_node(tree, modifier_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
     label = f"VTK {label_prefix} {_modifier_label(modifier_type)}"
     if modifier_type == "BRIGHT_CONTRAST":
@@ -2586,6 +2685,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_translate_ffmpeg_chain,
     VIDEO_TOOLKIT_OT_clear_live_modifiers,
     VIDEO_TOOLKIT_OT_create_compositor_nodes,
+    VIDEO_TOOLKIT_OT_create_tool_compositor_nodes,
     VIDEO_TOOLKIT_OT_apply_color_management_preset,
     VIDEO_TOOLKIT_OT_apply_sampled_color_management,
     VIDEO_TOOLKIT_OT_open_output_folder,
@@ -2594,6 +2694,7 @@ CLASSES = (
     VIDEO_TOOLKIT_MT_restoration,
     VIDEO_TOOLKIT_MT_resolution_motion,
     VIDEO_TOOLKIT_MT_blender_vse_modifiers,
+    VIDEO_TOOLKIT_MT_compositor_recipes,
     VIDEO_TOOLKIT_MT_color_management,
     VIDEO_TOOLKIT_MT_tools,
     VIDEO_TOOLKIT_PT_video_filters,

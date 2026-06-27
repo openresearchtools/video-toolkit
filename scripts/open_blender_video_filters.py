@@ -79,6 +79,7 @@ def _setup_scene() -> None:
         bpy.ops.video_toolkit.apply_sampled_pro_grade()
         bpy.ops.video_toolkit.apply_sampled_color_management()
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="NATIVE_COLOR_ROOM")
+        bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id="live_pro_color_stack")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="SAMPLED_COLOR_MANAGEMENT")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="SAMPLED_COLOR")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="IDENTITY_COLOR")

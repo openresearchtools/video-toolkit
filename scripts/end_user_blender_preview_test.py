@@ -493,6 +493,35 @@ for required in [
 native_room_links = len([link for link in tree.links if link.from_node.name.startswith('VTK Native Color Room ')])
 assert native_room_links >= 16, native_room_links
 
+result = bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id='live_pro_color_stack')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Live Pro Color Stack')
+tool_recipe_summary = scene.video_toolkit_last_compositor_nodes
+tool_recipe_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Tool Live Pro Color Stack ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeTonemap',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in tool_recipe_node_types, required
+tool_recipe_filter_ids = [
+    node['video_toolkit_filter_id']
+    for node in tree.nodes
+    if node.name.startswith('VTK Tool Live Pro Color Stack ')
+]
+assert set(tool_recipe_filter_ids) == {{'live_pro_color_stack'}}, tool_recipe_filter_ids
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR_MANAGEMENT')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('sampled color management')
@@ -826,6 +855,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'native_room_summary': native_room_summary,
     'native_room_node_types': native_room_node_types,
     'native_room_links': native_room_links,
+    'tool_recipe_summary': tool_recipe_summary,
+    'tool_recipe_node_types': tool_recipe_node_types,
+    'tool_recipe_filter_ids': tool_recipe_filter_ids,
     'sampled_cm_compositor_summary': sampled_cm_compositor_summary,
     'sampled_cm_compositor_node_types': sampled_cm_compositor_node_types,
     'sampled_cm_compositor_exposure': sampled_cm_exposure_socket.default_value,
