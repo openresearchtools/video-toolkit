@@ -412,6 +412,60 @@ class VIDEO_TOOLKIT_OT_recommend_catalog_recipes(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_apply_recommended_recipe_mix(Operator):
+    bl_idname = "video_toolkit.apply_recommended_recipe_mix"
+    bl_label = "Apply Recommended Recipe Mix"
+    bl_description = "Sample real frames and apply a blended stack from the top-ranked native Blender color recipes"
+    bl_options = {"REGISTER", "UNDO"}
+
+    target: bpy.props.EnumProperty(
+        name="Target",
+        items=(("SCENE", "Panel Target", "Use the panel target setting"),) + APPLY_TARGET_ITEMS,
+        default="SCENE",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            stats = sample_video_color(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            diagnosis = diagnose_color(stats)
+            recommendations = _rank_catalog_recipes(stats, diagnosis)
+            if not recommendations:
+                raise RuntimeError("No Blender-native color recipes were available for recommendation")
+            text = _write_recipe_recommendation_text(strip, stats, diagnosis, recommendations)
+            count = max(1, min(scene.video_toolkit_recommendation_mix_count, len(recommendations)))
+            stack, labels, recipe_ids = _recommended_recipe_mix_stack(recommendations, count)
+            if not stack:
+                raise RuntimeError("Recommended recipes did not contain any live Blender modifiers")
+            modifiers, targets = _add_blender_stack_for_target(context, stack, "Recommended Recipe Mix", self.target)
+            scene.video_toolkit_last_recipe_recommendations = text.name
+            scene.video_toolkit_last_recommended_recipe_mix = (
+                f"recommended recipe mix {len(modifiers)} modifier(s) on {len(targets)} target(s): "
+                f"{', '.join(labels)}"
+            )
+            scene["video_toolkit_last_recommended_recipe_ids"] = ",".join(
+                tool.id for _score, tool, _reasons in recommendations[:12]
+            )
+            scene["video_toolkit_last_recommended_recipe_mix_ids"] = ",".join(recipe_ids)
+            top_tool = recommendations[0][1]
+            scene.video_toolkit_sidecar_group = _enum_key(top_tool.category)
+            scene.video_toolkit_sidecar_tool = top_tool.id
+            self.report({"INFO"}, scene.video_toolkit_last_recommended_recipe_mix)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_apply_diagnostic_grade(Operator):
     bl_idname = "video_toolkit.apply_diagnostic_grade"
     bl_label = "Apply Diagnostic Grade"
@@ -1594,7 +1648,9 @@ def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
     row = quick.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Diagnostics", icon="TEXT")
     row.operator(VIDEO_TOOLKIT_OT_apply_diagnostic_grade.bl_idname, text="Fix Grade", icon="COLOR")
-    quick.operator(VIDEO_TOOLKIT_OT_recommend_catalog_recipes.bl_idname, text="Recommend Recipes", icon="SORT_ASC")
+    row = quick.row(align=True)
+    row.operator(VIDEO_TOOLKIT_OT_recommend_catalog_recipes.bl_idname, text="Recommend", icon="SORT_ASC")
+    row.operator(VIDEO_TOOLKIT_OT_apply_recommended_recipe_mix.bl_idname, text="Apply Mix", icon="MODIFIER")
     row = quick.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Deflicker", icon="IPO_EASE_IN_OUT")
     row.menu("VIDEO_TOOLKIT_MT_compositor_recipes", text="Recipe Nodes", icon="NODETREE")
@@ -1619,6 +1675,8 @@ def _draw_sidecar_status(layout, scene) -> None:
         layout.label(text=scene.video_toolkit_last_catalog_report, icon="TEXT")
     if scene.video_toolkit_last_recipe_recommendations:
         layout.label(text=scene.video_toolkit_last_recipe_recommendations, icon="SORT_ASC")
+    if scene.video_toolkit_last_recommended_recipe_mix:
+        layout.label(text=scene.video_toolkit_last_recommended_recipe_mix, icon="MODIFIER")
     if scene.video_toolkit_last_output:
         layout.label(text=scene.video_toolkit_last_output, icon="FILE_MOVIE")
 
@@ -1643,8 +1701,10 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     box.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color Timeline", icon="COLOR")
     box.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Color Diagnostics Report", icon="TEXT")
     box.operator(VIDEO_TOOLKIT_OT_recommend_catalog_recipes.bl_idname, text="Recommend Catalog Recipes", icon="SORT_ASC")
+    box.operator(VIDEO_TOOLKIT_OT_apply_recommended_recipe_mix.bl_idname, text="Apply Recommended Recipe Mix", icon="MODIFIER")
     box.operator(VIDEO_TOOLKIT_OT_apply_diagnostic_grade.bl_idname, text="Apply Diagnostic Grade", icon="COLOR")
     box.prop(scene, "video_toolkit_analysis_samples")
+    box.prop(scene, "video_toolkit_recommendation_mix_count", text="Mix Count")
     row = box.row(align=True)
     row.prop(scene, "video_toolkit_flicker_smoothing", text="Smooth")
     row.prop(scene, "video_toolkit_flicker_strength", text="Strength")
@@ -1662,6 +1722,8 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
             box.label(text=scene.video_toolkit_last_diagnostics_text, icon="TEXT")
     if scene.video_toolkit_last_recipe_recommendations:
         box.label(text=scene.video_toolkit_last_recipe_recommendations, icon="SORT_ASC")
+    if scene.video_toolkit_last_recommended_recipe_mix:
+        box.label(text=scene.video_toolkit_last_recommended_recipe_mix, icon="MODIFIER")
     if scene.video_toolkit_last_diagnostic_grade:
         box.label(text=scene.video_toolkit_last_diagnostic_grade, icon="MODIFIER")
     if scene.video_toolkit_last_sampled_white_balance:
@@ -3145,6 +3207,20 @@ def _rank_catalog_recipes(stats, diagnosis):
     return tuple(recommendations)
 
 
+def _recommended_recipe_mix_stack(recommendations, count: int):
+    stack = []
+    labels = []
+    recipe_ids = []
+    for _score, tool, _reasons in recommendations[:count]:
+        recipe_stack = _tool_compositor_stack(tool)
+        if not recipe_stack:
+            continue
+        labels.append(tool.label)
+        recipe_ids.append(tool.id)
+        stack.extend(recipe_stack)
+    return tuple(stack), tuple(labels), tuple(recipe_ids)
+
+
 def _is_color_recommendation_tool(tool) -> bool:
     if not tool.is_blender_modifier:
         return False
@@ -3507,6 +3583,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_color_diagnostics,
     VIDEO_TOOLKIT_OT_recommend_catalog_recipes,
+    VIDEO_TOOLKIT_OT_apply_recommended_recipe_mix,
     VIDEO_TOOLKIT_OT_apply_diagnostic_grade,
     VIDEO_TOOLKIT_OT_apply_sampled_white_balance,
     VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma,
@@ -3617,6 +3694,17 @@ def register() -> None:
     bpy.types.Scene.video_toolkit_last_recipe_recommendations = bpy.props.StringProperty(
         name="Last Recipe Recommendations",
         default="",
+    )
+    bpy.types.Scene.video_toolkit_last_recommended_recipe_mix = bpy.props.StringProperty(
+        name="Last Recommended Recipe Mix",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_recommendation_mix_count = bpy.props.IntProperty(
+        name="Recipe Mix Count",
+        description="How many top-ranked Blender-native recipes are combined by Apply Recommended Recipe Mix",
+        min=1,
+        max=8,
+        default=4,
     )
     bpy.types.Scene.video_toolkit_last_diagnostic_grade = bpy.props.StringProperty(
         name="Last Diagnostic Grade",
@@ -3731,6 +3819,8 @@ def unregister() -> None:
         "video_toolkit_last_diagnostics_text",
         "video_toolkit_last_catalog_report",
         "video_toolkit_last_recipe_recommendations",
+        "video_toolkit_last_recommended_recipe_mix",
+        "video_toolkit_recommendation_mix_count",
         "video_toolkit_last_diagnostic_grade",
         "video_toolkit_last_sampled_white_balance",
         "video_toolkit_last_sampled_levels_gamma",

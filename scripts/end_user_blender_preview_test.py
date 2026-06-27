@@ -134,6 +134,7 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     translated = output_dir / "after_native_color_chain.png"
     color_managed = output_dir / "after_color_management_preset.png"
     sampled_color_management = output_dir / "after_sampled_color_management.png"
+    recommended_recipe_mix = output_dir / "after_recommended_recipe_mix.png"
     diagnostic_grade = output_dir / "after_diagnostic_grade.png"
     sampled_white_balance = output_dir / "after_sampled_white_balance.png"
     sampled_levels_gamma = output_dir / "after_sampled_levels_gamma.png"
@@ -314,6 +315,21 @@ assert 'Frame stats:' in recipe_recommendations_report
 recommended_recipe_ids = scene.get('video_toolkit_last_recommended_recipe_ids', '').split(',')
 assert scene.video_toolkit_sidecar_tool in recommended_recipe_ids
 assert any(recipe_id in recommended_recipe_ids for recipe_id in ('exposure_protect', 'hdr_tone_compress', 'levels_expand', 'live_contrast_pop'))
+result = bpy.ops.video_toolkit.apply_recommended_recipe_mix()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_recommended_recipe_mix.startswith('recommended recipe mix')
+recipe_mix_ids = scene.get('video_toolkit_last_recommended_recipe_mix_ids', '').split(',')
+assert recipe_mix_ids
+assert recipe_mix_ids[0] in recommended_recipe_ids
+recipe_mix_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Recommended Recipe Mix')]
+assert recipe_mix_types, 'No recommended recipe mix modifiers were added'
+recommended_recipe_mix_stats = render_preview({str(recommended_recipe_mix)!r})
+recommended_recipe_mix_diff = (
+    abs(recommended_recipe_mix_stats['r'] - sampled_color_management_stats['r'])
+    + abs(recommended_recipe_mix_stats['g'] - sampled_color_management_stats['g'])
+    + abs(recommended_recipe_mix_stats['b'] - sampled_color_management_stats['b'])
+)
+assert recommended_recipe_mix_diff > 0.001, f'Recommended recipe mix did not visibly change preview pixels: {{recommended_recipe_mix_diff}}'
 result = bpy.ops.video_toolkit.apply_diagnostic_grade()
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_diagnostic_grade.startswith('diagnostic grade')
@@ -863,6 +879,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'translated_png': {str(translated)!r},
     'color_managed_png': {str(color_managed)!r},
     'sampled_color_management_png': {str(sampled_color_management)!r},
+    'recommended_recipe_mix_png': {str(recommended_recipe_mix)!r},
     'diagnostic_grade_png': {str(diagnostic_grade)!r},
     'sampled_white_balance_png': {str(sampled_white_balance)!r},
     'sampled_levels_gamma_png': {str(sampled_levels_gamma)!r},
@@ -874,6 +891,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'translated': translated_stats,
     'color_managed': color_managed_stats,
     'sampled_color_management': sampled_color_management_stats,
+    'recommended_recipe_mix': recommended_recipe_mix_stats,
     'diagnostic_grade': diagnostic_grade_stats,
     'sampled_white_balance': sampled_white_balance_stats,
     'sampled_levels_gamma': sampled_levels_gamma_stats,
@@ -884,6 +902,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'translated_rgb_abs_diff': translated_diff,
     'color_management_rgb_abs_diff': color_management_diff,
     'sampled_color_management_rgb_abs_diff': sampled_color_management_diff,
+    'recommended_recipe_mix_rgb_abs_diff': recommended_recipe_mix_diff,
     'diagnostic_grade_rgb_abs_diff': diagnostic_grade_diff,
     'sampled_white_balance_rgb_abs_diff': sampled_white_balance_diff,
     'sampled_levels_gamma_rgb_abs_diff': sampled_levels_gamma_diff,
@@ -903,6 +922,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'recipe_recommendations_text': recipe_recommendations_name,
     'recipe_recommendations_ids': recommended_recipe_ids,
     'recipe_recommendations_excerpt': recipe_recommendations_report.splitlines()[:24],
+    'recommended_recipe_mix_summary': scene.video_toolkit_last_recommended_recipe_mix,
+    'recommended_recipe_mix_ids': recipe_mix_ids,
+    'recommended_recipe_mix_modifier_types': recipe_mix_types,
     'diagnostic_grade_summary': scene.video_toolkit_last_diagnostic_grade,
     'diagnostic_grade_modifier_types': diagnostic_grade_types,
     'sampled_white_balance_summary': scene.video_toolkit_last_sampled_white_balance,

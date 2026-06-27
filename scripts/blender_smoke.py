@@ -137,6 +137,14 @@ assert 'Gamma Brighten' in recipe_report
 recommended_recipe_ids = scene.get('video_toolkit_last_recommended_recipe_ids', '').split(',')
 assert scene.video_toolkit_sidecar_tool in recommended_recipe_ids
 assert any(recipe_id in recommended_recipe_ids for recipe_id in ('exposure_lift', 'gamma_brighten', 'saturation_reduce'))
+bpy.ops.video_toolkit.apply_recommended_recipe_mix()
+assert scene.video_toolkit_last_recommended_recipe_mix.startswith('recommended recipe mix')
+recipe_mix_ids = scene.get('video_toolkit_last_recommended_recipe_mix_ids', '').split(',')
+assert 1 <= len(recipe_mix_ids) <= scene.video_toolkit_recommendation_mix_count
+assert recipe_mix_ids[0] in recommended_recipe_ids
+recipe_mix_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Recommended Recipe Mix')]
+assert recipe_mix_types, 'No recommended recipe mix modifiers were added'
+assert any(modifier_type in recipe_mix_types for modifier_type in ('BRIGHT_CONTRAST', 'COLOR_BALANCE', 'CURVES', 'HUE_CORRECT'))
 scene.video_toolkit_apply_target = 'SELECTED'
 bpy.ops.video_toolkit.apply_diagnostic_grade()
 assert scene.video_toolkit_last_diagnostic_grade.startswith('diagnostic grade')
