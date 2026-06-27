@@ -72,6 +72,7 @@ def _setup_scene() -> None:
     scene.video_toolkit_ffmpeg_chain = "eq=contrast=1.08:saturation=1.05:gamma=1.02,colorbalance=rs=0.05:bh=-0.04"
     try:
         bpy.ops.video_toolkit.color_diagnostics()
+        bpy.ops.video_toolkit.recommend_catalog_recipes()
         bpy.ops.video_toolkit.apply_diagnostic_grade()
         bpy.ops.video_toolkit.apply_sampled_white_balance()
         bpy.ops.video_toolkit.apply_sampled_levels_gamma()
