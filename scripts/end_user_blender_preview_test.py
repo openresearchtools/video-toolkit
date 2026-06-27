@@ -137,6 +137,8 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     sampled_white_balance = output_dir / "after_sampled_white_balance.png"
     sampled_levels_gamma = output_dir / "after_sampled_levels_gamma.png"
     sampled_hue_chroma = output_dir / "after_sampled_hue_chroma.png"
+    sampled_pro_grade_base = output_dir / "before_sampled_pro_grade.png"
+    sampled_pro_grade = output_dir / "after_sampled_pro_grade.png"
     blend = output_dir / "end_user_preview.blend"
     report = output_dir / "report.json"
     return f"""
@@ -343,6 +345,40 @@ sampled_hue_chroma_diff = (
 )
 assert sampled_hue_chroma_diff > 0.001, f'Sampled hue/chroma did not visibly change preview pixels: {{sampled_hue_chroma_diff}}'
 
+pro_grade_strip = editor.strips.new_movie(
+    name='END USER SAMPLED PRO GRADE REAL VIDEO',
+    filepath={str(video)!r},
+    channel=5,
+    frame_start=1,
+)
+for candidate in editor.strips_all:
+    candidate.select = False
+pro_grade_strip.select = True
+editor.active_strip = pro_grade_strip
+sampled_pro_grade_base_stats = render_preview({str(sampled_pro_grade_base)!r})
+
+result = bpy.ops.video_toolkit.apply_sampled_pro_grade()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_sampled_pro_grade.startswith('sampled pro grade')
+sampled_pro_grade_types = [
+    modifier.type for modifier in pro_grade_strip.modifiers if modifier.name.startswith('VTK Sampled Pro Grade')
+]
+assert sampled_pro_grade_types == [
+    'WHITE_BALANCE', 'COLOR_BALANCE', 'CURVES', 'COLOR_BALANCE', 'BRIGHT_CONTRAST',
+    'TONEMAP', 'HUE_CORRECT', 'COLOR_BALANCE', 'CURVES', 'HUE_CORRECT'
+], sampled_pro_grade_types
+sampled_pro_grade_stats = render_preview({str(sampled_pro_grade)!r})
+sampled_pro_grade_diff = (
+    abs(sampled_pro_grade_stats['r'] - sampled_pro_grade_base_stats['r'])
+    + abs(sampled_pro_grade_stats['g'] - sampled_pro_grade_base_stats['g'])
+    + abs(sampled_pro_grade_stats['b'] - sampled_pro_grade_base_stats['b'])
+)
+assert sampled_pro_grade_diff > 0.001, f'Sampled pro grade did not visibly change preview pixels: {{sampled_pro_grade_diff}}'
+for candidate in editor.strips_all:
+    candidate.select = False
+strip.select = True
+editor.active_strip = strip
+
 result = bpy.ops.video_toolkit.normalize_lighting()
 assert result == {{'FINISHED'}}, result
 normalizer = next(modifier for modifier in strip.modifiers if modifier.name.startswith('VTK Live Flicker Normalizer'))
@@ -460,6 +496,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_white_balance_png': {str(sampled_white_balance)!r},
     'sampled_levels_gamma_png': {str(sampled_levels_gamma)!r},
     'sampled_hue_chroma_png': {str(sampled_hue_chroma)!r},
+    'sampled_pro_grade_base_png': {str(sampled_pro_grade_base)!r},
+    'sampled_pro_grade_png': {str(sampled_pro_grade)!r},
     'before': before_stats,
     'after': after_stats,
     'translated': translated_stats,
@@ -468,6 +506,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_white_balance': sampled_white_balance_stats,
     'sampled_levels_gamma': sampled_levels_gamma_stats,
     'sampled_hue_chroma': sampled_hue_chroma_stats,
+    'sampled_pro_grade_base': sampled_pro_grade_base_stats,
+    'sampled_pro_grade': sampled_pro_grade_stats,
     'rgb_abs_diff': diff,
     'translated_rgb_abs_diff': translated_diff,
     'color_management_rgb_abs_diff': color_management_diff,
@@ -475,6 +515,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_white_balance_rgb_abs_diff': sampled_white_balance_diff,
     'sampled_levels_gamma_rgb_abs_diff': sampled_levels_gamma_diff,
     'sampled_hue_chroma_rgb_abs_diff': sampled_hue_chroma_diff,
+    'sampled_pro_grade_rgb_abs_diff': sampled_pro_grade_diff,
     'edited_modifiers': edited,
     'native_modifier_types': types,
     'translated_chain_summary': scene.video_toolkit_last_translation,
@@ -493,6 +534,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_levels_gamma_modifier_types': sampled_levels_gamma_types,
     'sampled_hue_chroma_summary': scene.video_toolkit_last_sampled_hue_chroma,
     'sampled_hue_chroma_modifier_types': sampled_hue_chroma_types,
+    'sampled_pro_grade_summary': scene.video_toolkit_last_sampled_pro_grade,
+    'sampled_pro_grade_modifier_types': sampled_pro_grade_types,
     'primary_correction_modifier_types': primary_correction_types,
     'normalizer_keyframes': normalizer_keyframes,
     'timeline_match_reference': {str(reference_video)!r},

@@ -13,6 +13,7 @@ from .color_analysis import (
     build_color_match_stack,
     build_sampled_hue_chroma_stack,
     build_sampled_levels_gamma_stack,
+    build_sampled_pro_grade_stack,
     build_sampled_white_balance_stack,
     build_color_timeline_match_keyframes,
     build_lighting_match_keyframes,
@@ -340,6 +341,39 @@ class VIDEO_TOOLKIT_OT_apply_sampled_hue_chroma(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_apply_sampled_pro_grade(Operator):
+    bl_idname = "video_toolkit.apply_sampled_pro_grade"
+    bl_label = "Sampled Pro Grade"
+    bl_description = "Sample real frames and apply a complete editable Blender-native finishing stack"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            stats = sample_video_color(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            stack = build_sampled_pro_grade_stack(stats)
+            modifiers, targets = _add_blender_stack_for_target(context, stack, "Sampled Pro Grade")
+            scene.video_toolkit_last_sampled_pro_grade = (
+                f"sampled pro grade {len(modifiers)} modifier(s) on {len(targets)} target(s), "
+                f"RGB {stats.mean_r:.1f}/{stats.mean_g:.1f}/{stats.mean_b:.1f}, "
+                f"luma {stats.luma_p05:.1f}/{stats.mean_luma:.1f}/{stats.luma_p95:.1f}"
+            )
+            self.report({"INFO"}, scene.video_toolkit_last_sampled_pro_grade)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_normalize_lighting(Operator):
     bl_idname = "video_toolkit.normalize_lighting"
     bl_label = "Normalize Lighting Flicker"
@@ -651,6 +685,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         op.mode = "MATCH"
         op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Identify Colors", icon="COLOR")
         op.mode = "PALETTE"
+        layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Apply: Sampled Pro Grade", icon="MODIFIER")
         layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="Analyze: Neutralize Color Cast", icon="EYEDROPPER")
         layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma.bl_idname, text="Analyze: Normalize Levels/Gamma", icon="IPO_EASE_IN_OUT")
         layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_hue_chroma.bl_idname, text="Analyze: Balance Hue/Chroma", icon="COLOR")
@@ -795,6 +830,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     op.mode = "MATCH"
     op = row.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Identify", icon="COLOR")
     op.mode = "PALETTE"
+    box.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Sampled Pro Grade", icon="MODIFIER")
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="Sampled White Balance / Cast Fix", icon="EYEDROPPER")
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma.bl_idname, text="Sampled Levels / Gamma Normalize", icon="IPO_EASE_IN_OUT")
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_hue_chroma.bl_idname, text="Sampled Hue / Chroma Balance", icon="COLOR")
@@ -827,6 +863,8 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
         box.label(text=scene.video_toolkit_last_sampled_levels_gamma, icon="IPO_EASE_IN_OUT")
     if scene.video_toolkit_last_sampled_hue_chroma:
         box.label(text=scene.video_toolkit_last_sampled_hue_chroma, icon="COLOR")
+    if scene.video_toolkit_last_sampled_pro_grade:
+        box.label(text=scene.video_toolkit_last_sampled_pro_grade, icon="MODIFIER")
 
 
 def _draw_scene_color_management(layout, scene) -> None:
@@ -1761,6 +1799,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_apply_sampled_white_balance,
     VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma,
     VIDEO_TOOLKIT_OT_apply_sampled_hue_chroma,
+    VIDEO_TOOLKIT_OT_apply_sampled_pro_grade,
     VIDEO_TOOLKIT_OT_normalize_lighting,
     VIDEO_TOOLKIT_OT_match_lighting_timeline,
     VIDEO_TOOLKIT_OT_match_color_timeline,
@@ -1851,6 +1890,10 @@ def register() -> None:
         name="Last Sampled Hue Chroma",
         default="",
     )
+    bpy.types.Scene.video_toolkit_last_sampled_pro_grade = bpy.props.StringProperty(
+        name="Last Sampled Pro Grade",
+        default="",
+    )
     bpy.types.Scene.video_toolkit_apply_target = bpy.props.EnumProperty(
         name="Target",
         description="Where live Blender color tools are applied",
@@ -1939,6 +1982,7 @@ def unregister() -> None:
         "video_toolkit_last_sampled_white_balance",
         "video_toolkit_last_sampled_levels_gamma",
         "video_toolkit_last_sampled_hue_chroma",
+        "video_toolkit_last_sampled_pro_grade",
         "video_toolkit_apply_target",
         "video_toolkit_ffmpeg_chain",
         "video_toolkit_last_translation",

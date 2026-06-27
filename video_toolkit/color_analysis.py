@@ -555,6 +555,26 @@ def build_sampled_hue_chroma_stack(stats: ColorStats) -> tuple[tuple[str, dict[s
     )
 
 
+def build_sampled_pro_grade_stack(stats: ColorStats) -> tuple[tuple[str, dict[str, object]], ...]:
+    """Build a combined sampled finishing grade from native Blender live tools."""
+
+    white_balance = build_sampled_white_balance_stack(stats)
+    levels_gamma = build_sampled_levels_gamma_stack(stats)
+    hue_chroma = build_sampled_hue_chroma_stack(stats)
+    return (
+        white_balance[0],
+        white_balance[1],
+        levels_gamma[0],
+        levels_gamma[1],
+        levels_gamma[2],
+        levels_gamma[3],
+        hue_chroma[0],
+        hue_chroma[1],
+        hue_chroma[2],
+        levels_gamma[4],
+    )
+
+
 def build_color_match_stack(
     target: ColorStats,
     reference: ColorStats,

@@ -13,6 +13,7 @@ from video_toolkit.color_analysis import (
     build_color_match_stack,
     build_sampled_hue_chroma_stack,
     build_sampled_levels_gamma_stack,
+    build_sampled_pro_grade_stack,
     build_sampled_white_balance_stack,
     build_color_timeline_match_keyframes,
     build_lighting_match_keyframes,
@@ -202,6 +203,46 @@ def test_sampled_hue_chroma_stack_builds_hue_zone_curves():
     assert hue_points[1][0][1] < 0.5
     color_balance = stack[1][1]
     assert color_balance["color_balance.gamma"][2] > color_balance["color_balance.gamma"][0]
+
+
+def test_sampled_pro_grade_combines_sampled_native_stacks():
+    stats = ColorStats(
+        samples=24,
+        mean_r=148.0,
+        mean_g=122.0,
+        mean_b=96.0,
+        mean_luma=126.0,
+        luma_std=31.0,
+        luma_p05=42.0,
+        luma_p95=204.0,
+        shadow_rgb=(38.0, 34.0, 30.0),
+        midtone_rgb=(126.0, 116.0, 100.0),
+        highlight_rgb=(206.0, 188.0, 160.0),
+        shadow_luma=35.0,
+        midtone_luma=116.0,
+        highlight_luma=188.0,
+        dominant_rgb=((190.0, 96.0, 42.0), (42.0, 88.0, 170.0)),
+        warm_ratio=0.36,
+        cool_ratio=0.18,
+        skin_ratio=0.09,
+        mean_saturation=0.44,
+        mean_chroma=72.0,
+    )
+    stack = build_sampled_pro_grade_stack(stats)
+    assert [modifier_type for modifier_type, _settings in stack] == [
+        "WHITE_BALANCE",
+        "COLOR_BALANCE",
+        "CURVES",
+        "COLOR_BALANCE",
+        "BRIGHT_CONTRAST",
+        "TONEMAP",
+        "HUE_CORRECT",
+        "COLOR_BALANCE",
+        "CURVES",
+        "HUE_CORRECT",
+    ]
+    assert stack[0][1]["white_value"][2] > stack[0][1]["white_value"][0]
+    assert "__curve_points__" in stack[6][1]
 
 
 def test_color_diagnosis_reports_palette_and_suggested_tools(tmp_path):

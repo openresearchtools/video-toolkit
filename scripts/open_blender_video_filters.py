@@ -67,6 +67,7 @@ def _setup_scene() -> None:
         bpy.ops.video_toolkit.apply_sampled_white_balance()
         bpy.ops.video_toolkit.apply_sampled_levels_gamma()
         bpy.ops.video_toolkit.apply_sampled_hue_chroma()
+        bpy.ops.video_toolkit.apply_sampled_pro_grade()
     except Exception:
         traceback.print_exc()
 
