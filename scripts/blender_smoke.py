@@ -149,14 +149,20 @@ color_gain_path = color_timeline_match.color_balance.path_from_id('gain')
 assert action_keyframe_count(scene.animation_data.action, color_gamma_path) >= 6
 assert action_keyframe_count(scene.animation_data.action, color_gain_path) >= 6
 scene.video_toolkit_ffmpeg_chain = (
+    'normalize=smoothing=18:independence=0.65:strength=0.55,'
     'colorlevels=rimin=0.02:rimax=0.98,'
+    'colorcorrect=rl=0.05:bl=-0.04:rh=0.03:bh=-0.02:saturation=1.06,'
+    'colorcontrast=rc=0.12:gm=-0.05:by=0.08:rcw=0.5:gmw=0.4:byw=0.5:pl=1,'
+    'monochrome=cb=0.05:cr=-0.04:high=0.1,'
+    'colorize=hue=35:saturation=0.25:lightness=0.55:mix=0.85,'
     'vibrance=intensity=0.4,'
-    'exposure=exposure=0.25:black=0.02'
+    'exposure=exposure=0.25:black=0.02,'
+    'histeq=strength=0.25:intensity=0.22:antibanding=1'
 )
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
-assert 'translated colorlevels, vibrance, exposure' in scene.video_toolkit_last_translation
+assert 'translated normalize, colorlevels, colorcorrect, colorcontrast, monochrome, colorize, vibrance, exposure, histeq' in scene.video_toolkit_last_translation
 translated_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Chain')]
-assert {{'CURVES', 'HUE_CORRECT', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'TONEMAP'}}.issubset(set(translated_types))
+assert {{'CURVES', 'HUE_CORRECT', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'TONEMAP', 'WHITE_BALANCE'}}.issubset(set(translated_types))
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',

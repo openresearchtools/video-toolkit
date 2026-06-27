@@ -70,7 +70,30 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
         elif name == "tonemap":
             stack.extend(tonemap_to_blender_stack(**args))
             supported.append(name)
-        elif name in {"normalize", "unsharp"}:
+        elif name == "normalize":
+            stack.extend(normalize_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Normalize is approximated as a live Blender curves/tone-map stack; temporal smoothing is not native VSE.")
+        elif name == "colorcorrect":
+            stack.extend(colorcorrect_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Colorcorrect is approximated with Blender Lift/Gamma/Gain plus Hue Correct saturation.")
+        elif name == "colorcontrast":
+            stack.extend(colorcontrast_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Colorcontrast is approximated with Blender opponent-channel Color Balance controls.")
+        elif name == "monochrome":
+            stack.extend(monochrome_to_blender_stack(**args))
+            supported.append(name)
+        elif name == "colorize":
+            stack.extend(colorize_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Colorize is approximated with Blender Hue Correct and Color Balance tinting.")
+        elif name == "histeq":
+            stack.extend(histeq_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Histogram equalization is approximated with live Blender curves and tone mapping.")
+        elif name in {"unsharp"}:
             unsupported.append(name)
             notes.append(f"{name} is not a native live VSE color primitive and is omitted from the live stack.")
         else:
@@ -442,6 +465,215 @@ def tonemap_to_blender_stack(
     return tuple(stack)
 
 
+def normalize_to_blender_stack(
+    *,
+    blackpt: str = "black",
+    whitept: str = "white",
+    smoothing: str | float = 0,
+    independence: str | float = 1.0,
+    strength: str | float = 1.0,
+    **_unused: str,
+) -> BlenderStack:
+    strength_value = _clamp(_float(strength, 1.0), 0.0, 1.0)
+    independence_value = _clamp(_float(independence, 1.0), 0.0, 1.0)
+    black = _parse_color(blackpt, (0.0, 0.0, 0.0))
+    white = _parse_color(whitept, (1.0, 1.0, 1.0))
+    in_min = 0.035 * strength_value
+    in_max = 1.0 - 0.035 * strength_value
+    linked_points = _range_curve_points(in_min, in_max, sum(black) / 3.0, sum(white) / 3.0)
+    points: dict[int, list[tuple[float, float]]] = {0: linked_points}
+    if independence_value > 0.0:
+        for index, black_channel, white_channel in ((1, black[0], white[0]), (2, black[1], white[1]), (3, black[2], white[2])):
+            channel_black = _mix(sum(black) / 3.0, black_channel, independence_value)
+            channel_white = _mix(sum(white) / 3.0, white_channel, independence_value)
+            points[index] = _range_curve_points(in_min, in_max, channel_black, channel_white)
+    return (
+        ("CURVES", {"__curve_points__": points}),
+        (
+            "TONEMAP",
+            {
+                "tonemap_type": "RD_PHOTORECEPTOR",
+                "intensity": _clamp(0.06 + strength_value * 0.10 + min(_float(smoothing, 0.0), 120.0) / 2400.0, 0.0, 0.22),
+                "contrast": _clamp(strength_value * 0.14, 0.0, 0.30),
+                "gamma": _clamp(1.0 + (strength_value - 0.5) * 0.06, 0.85, 1.15),
+            },
+        ),
+    )
+
+
+def colorcorrect_to_blender_stack(
+    *,
+    rl: str | float = 0.0,
+    bl: str | float = 0.0,
+    rh: str | float = 0.0,
+    bh: str | float = 0.0,
+    saturation: str | float = 1.0,
+    analyze: str | int = 0,
+    **_unused: str,
+) -> BlenderStack:
+    analyze_strength = 1.0 + (0.10 if str(analyze).lower() not in {"0", "manual"} else 0.0)
+    lift = (
+        _clamp(1.0 + _float(rl, 0.0) * 0.30 * analyze_strength, 0.45, 1.65),
+        1.0,
+        _clamp(1.0 + _float(bl, 0.0) * 0.30 * analyze_strength, 0.45, 1.65),
+    )
+    gain = (
+        _clamp(1.0 + _float(rh, 0.0) * 0.38 * analyze_strength, 0.45, 1.75),
+        1.0,
+        _clamp(1.0 + _float(bh, 0.0) * 0.38 * analyze_strength, 0.45, 1.75),
+    )
+    return (
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.lift": lift,
+                "color_balance.gamma": _preserve_average(((lift[0] + gain[0]) * 0.5, 1.0, (lift[2] + gain[2]) * 0.5)),
+                "color_balance.gain": gain,
+            },
+        ),
+        ("HUE_CORRECT", {"__hue_correct__": {"saturation": _saturation_to_curve_y(_float(saturation, 1.0))}}),
+    )
+
+
+def colorcontrast_to_blender_stack(
+    *,
+    rc: str | float = 0.0,
+    gm: str | float = 0.0,
+    by: str | float = 0.0,
+    rcw: str | float = 0.0,
+    gmw: str | float = 0.0,
+    byw: str | float = 0.0,
+    pl: str | float = 0.0,
+    **_unused: str,
+) -> BlenderStack:
+    red = 1.0 + _float(rc, 0.0) * _opponent_weight(rcw)
+    green = 1.0 + _float(gm, 0.0) * _opponent_weight(gmw)
+    blue = 1.0 + _float(by, 0.0) * _opponent_weight(byw)
+    gamma = (_clamp(red, 0.45, 1.65), _clamp(green, 0.45, 1.65), _clamp(blue, 0.45, 1.65))
+    if _float(pl, 0.0) > 0.0:
+        gamma = _preserve_average(gamma)
+    gain = tuple(_clamp(1.0 + (value - 1.0) * 0.55, 0.55, 1.45) for value in gamma)
+    return (
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.gamma": gamma,
+                "color_balance.gain": gain,
+                "color_multiply": _clamp(1.0 + (abs(_float(rc, 0.0)) + abs(_float(gm, 0.0)) + abs(_float(by, 0.0))) * 0.035, 0.8, 1.2),
+            },
+        ),
+        ("WHITE_BALANCE", {"white_value": gain}),
+    )
+
+
+def monochrome_to_blender_stack(
+    *,
+    cb: str | float = 0.0,
+    cr: str | float = 0.0,
+    size: str | float = 1.0,
+    high: str | float = 0.0,
+    **_unused: str,
+) -> BlenderStack:
+    high_value = _clamp(_float(high, 0.0), 0.0, 1.0)
+    return (
+        ("HUE_CORRECT", {"__hue_correct__": {"saturation": 0.0, "value": _value_to_curve_y(1.0 + high_value * 0.12)}}),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.gamma": _preserve_average(
+                    (
+                        _clamp(1.0 + _float(cr, 0.0) * 0.08, 0.75, 1.25),
+                        1.0,
+                        _clamp(1.0 + _float(cb, 0.0) * 0.08, 0.75, 1.25),
+                    )
+                ),
+                "color_multiply": _clamp(1.0 + (_float(size, 1.0) - 1.0) * 0.025, 0.8, 1.2),
+            },
+        ),
+    )
+
+
+def colorize_to_blender_stack(
+    *,
+    hue: str | float = 0.0,
+    saturation: str | float = 0.5,
+    lightness: str | float = 0.5,
+    mix: str | float = 1.0,
+    **_unused: str,
+) -> BlenderStack:
+    hue_value = _float(hue, 0.0)
+    saturation_value = _clamp(_float(saturation, 0.5), 0.0, 1.0)
+    lightness_value = _clamp(_float(lightness, 0.5), 0.0, 1.0)
+    mix_value = _clamp(_float(mix, 1.0), 0.0, 1.0)
+    tint = _hsl_to_rgb(hue_value, saturation_value, lightness_value)
+    strength = 1.0 - mix_value
+    white_value = tuple(_clamp(_mix(1.0, channel, strength * 0.65), 0.45, 1.55) for channel in tint)
+    return (
+        (
+            "HUE_CORRECT",
+            {
+                "__hue_correct__": {
+                    "hue": _hue_shift_to_curve_y(hue_value * strength),
+                    "saturation": _saturation_to_curve_y(1.0 + saturation_value * strength),
+                    "value": _value_to_curve_y(1.0 + (lightness_value - 0.5) * strength),
+                }
+            },
+        ),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.gamma": white_value,
+                "color_balance.gain": white_value,
+                "color_multiply": _clamp(1.0 + saturation_value * strength * 0.08, 0.8, 1.25),
+            },
+        ),
+        ("WHITE_BALANCE", {"white_value": white_value}),
+    )
+
+
+def histeq_to_blender_stack(
+    *,
+    strength: str | float = 0.2,
+    intensity: str | float = 0.21,
+    antibanding: str | int = 0,
+    **_unused: str,
+) -> BlenderStack:
+    strength_value = _clamp(_float(strength, 0.2), 0.0, 1.0)
+    intensity_value = _clamp(_float(intensity, 0.21), 0.0, 1.0)
+    band_soften = _clamp(_float(antibanding, 0.0), 0.0, 2.0) * 0.015
+    low = _clamp(0.25 - strength_value * 0.12 + band_soften, 0.05, 0.40)
+    high = _clamp(0.75 + strength_value * 0.12 - band_soften, 0.60, 0.95)
+    return (
+        (
+            "CURVES",
+            {
+                "__curve_points__": {
+                    0: [
+                        (0.0, 0.0),
+                        (low, _clamp(low - intensity_value * 0.12, 0.0, 1.0)),
+                        (0.50, _clamp(0.50 + (intensity_value - 0.21) * 0.10, 0.35, 0.65)),
+                        (high, _clamp(high + intensity_value * 0.12, 0.0, 1.0)),
+                        (1.0, 1.0),
+                    ]
+                }
+            },
+        ),
+        (
+            "TONEMAP",
+            {
+                "tonemap_type": "RD_PHOTORECEPTOR",
+                "intensity": _clamp(strength_value * 0.12, 0.0, 0.20),
+                "contrast": _clamp(intensity_value * 0.18, 0.0, 0.24),
+                "gamma": _clamp(1.0 + (intensity_value - 0.21) * 0.08, 0.90, 1.12),
+            },
+        ),
+    )
+
+
 def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
     filters: list[tuple[str, dict[str, str]]] = []
     for item in chain.split(","):
@@ -544,6 +776,75 @@ def _normalize_limiter_value(value: float) -> float:
     if value > 1.0:
         return _clamp(value / 255.0, 0.0, 1.0)
     return _clamp(value, 0.0, 1.0)
+
+
+def _parse_color(value: str, default: tuple[float, float, float]) -> tuple[float, float, float]:
+    if not value:
+        return default
+    key = str(value).strip().lower()
+    named = {
+        "black": (0.0, 0.0, 0.0),
+        "white": (1.0, 1.0, 1.0),
+        "gray": (0.5, 0.5, 0.5),
+        "grey": (0.5, 0.5, 0.5),
+        "red": (1.0, 0.0, 0.0),
+        "green": (0.0, 1.0, 0.0),
+        "blue": (0.0, 0.0, 1.0),
+    }
+    if key in named:
+        return named[key]
+    if key.startswith("0x"):
+        key = key[2:]
+    if key.startswith("#"):
+        key = key[1:]
+    if len(key) == 6:
+        try:
+            return (
+                int(key[0:2], 16) / 255.0,
+                int(key[2:4], 16) / 255.0,
+                int(key[4:6], 16) / 255.0,
+            )
+        except ValueError:
+            return default
+    return default
+
+
+def _opponent_weight(value: str | float) -> float:
+    return 0.22 + _clamp(_float(value, 0.0), 0.0, 1.0) * 0.38
+
+
+def _mix(a: float, b: float, factor: float) -> float:
+    factor = _clamp(factor, 0.0, 1.0)
+    return a * (1.0 - factor) + b * factor
+
+
+def _hsl_to_rgb(hue: float, saturation: float, lightness: float) -> tuple[float, float, float]:
+    hue = (hue % 360.0) / 360.0
+    saturation = _clamp(saturation, 0.0, 1.0)
+    lightness = _clamp(lightness, 0.0, 1.0)
+    if saturation == 0.0:
+        return (lightness, lightness, lightness)
+    q = lightness * (1.0 + saturation) if lightness < 0.5 else lightness + saturation - lightness * saturation
+    p = 2.0 * lightness - q
+    return (
+        _hue_to_rgb_channel(p, q, hue + 1.0 / 3.0),
+        _hue_to_rgb_channel(p, q, hue),
+        _hue_to_rgb_channel(p, q, hue - 1.0 / 3.0),
+    )
+
+
+def _hue_to_rgb_channel(p: float, q: float, t: float) -> float:
+    if t < 0.0:
+        t += 1.0
+    if t > 1.0:
+        t -= 1.0
+    if t < 1.0 / 6.0:
+        return p + (q - p) * 6.0 * t
+    if t < 1.0 / 2.0:
+        return q
+    if t < 2.0 / 3.0:
+        return p + (q - p) * (2.0 / 3.0 - t) * 6.0
+    return p
 
 
 def _saturation_to_curve_y(value: float) -> float:

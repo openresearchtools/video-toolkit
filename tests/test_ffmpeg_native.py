@@ -5,6 +5,7 @@ from video_toolkit.ffmpeg_native import (
     curves_to_blender_stack,
     eq_to_blender_stack,
     exposure_to_blender_stack,
+    normalize_to_blender_stack,
     translate_filter_chain,
     vibrance_to_blender_stack,
 )
@@ -58,13 +59,25 @@ def test_vibrance_and_exposure_are_live_blender_stacks():
     assert [modifier_type for modifier_type, _settings in exposure] == ["BRIGHT_CONTRAST", "CURVES", "TONEMAP"]
 
 
+def test_normalize_translates_to_live_curves_and_tonemap():
+    stack = normalize_to_blender_stack(blackpt="#101020", whitept="#f0f4ff", smoothing=30, independence=0.8, strength=0.7)
+    assert [modifier_type for modifier_type, _settings in stack] == ["CURVES", "TONEMAP"]
+    points = stack[0][1]["__curve_points__"]
+    assert {0, 1, 2, 3}.issubset(points)
+    assert points[1][0][1] > 0.0
+    assert stack[1][1]["intensity"] > 0.0
+
+
 def test_filter_chain_reports_non_native_filters():
     result = translate_filter_chain(
         "normalize=smoothing=30,eq=contrast=1.08:saturation=1.1:gamma=1.02,unsharp=5:5:0.45"
     )
+    assert "normalize" in result.supported_filters
     assert "eq" in result.supported_filters
-    assert result.unsupported_filters == ("normalize", "unsharp")
-    assert [modifier_type for modifier_type, _settings in result.stack][:3] == [
+    assert result.unsupported_filters == ("unsharp",)
+    assert [modifier_type for modifier_type, _settings in result.stack][:5] == [
+        "CURVES",
+        "TONEMAP",
         "BRIGHT_CONTRAST",
         "COLOR_BALANCE",
         "HUE_CORRECT",
@@ -79,7 +92,12 @@ def test_filter_chain_supports_more_color_grading_filters():
         "exposure=exposure=0.3:black=0.02,"
         "colortemperature=temperature=5200:mix=0.7,"
         "limiter=min=16:max=235,"
-        "tonemap=tonemap=mobius:param=0.35:desat=0.4"
+        "tonemap=tonemap=mobius:param=0.35:desat=0.4,"
+        "colorcorrect=rl=0.1:bl=-0.05:rh=0.03:bh=-0.02:saturation=1.08,"
+        "colorcontrast=rc=0.2:gm=-0.1:by=0.15:rcw=0.6:gmw=0.4:byw=0.5:pl=1,"
+        "monochrome=cb=0.1:cr=-0.1:high=0.2,"
+        "colorize=hue=210:saturation=0.45:lightness=0.55:mix=0.65,"
+        "histeq=strength=0.35:intensity=0.25:antibanding=1"
     )
     assert result.unsupported_filters == ()
     assert result.supported_filters == (
@@ -90,6 +108,11 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colortemperature",
         "limiter",
         "tonemap",
+        "colorcorrect",
+        "colorcontrast",
+        "monochrome",
+        "colorize",
+        "histeq",
     )
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
