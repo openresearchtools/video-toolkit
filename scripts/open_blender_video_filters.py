@@ -68,7 +68,7 @@ def _setup_scene() -> None:
     scene.frame_current = min(scene.frame_start + 24, scene.frame_end - 1)
     scene.video_toolkit_analysis_samples = 24
     scene.video_toolkit_apply_target = "ACTIVE"
-    scene.video_toolkit_sidecar_section = "BROWSER"
+    scene.video_toolkit_sidecar_section = "ENHANCE"
     scene.video_toolkit_ffmpeg_chain = "eq=contrast=1.08:saturation=1.05:gamma=1.02,colorbalance=rs=0.05:bh=-0.04"
     try:
         bpy.ops.video_toolkit.color_diagnostics()

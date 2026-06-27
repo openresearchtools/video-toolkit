@@ -93,14 +93,15 @@ SIDECAR_GROUP_ICONS = {
 }
 
 SIDECAR_SECTION_ITEMS = (
-    ("BROWSER", "Tools", "One-click video effect browser", "TOOL_SETTINGS", 0),
-    ("ANALYSIS", "Analyze", "Sample frames, diagnose color, and match lighting or color", "EYEDROPPER", 1),
-    ("COLOR", "Color Mgmt", "Blender scene and view color-management controls", "WORLD", 2),
-    ("COMPOSITOR", "Nodes", "Native Blender compositor node stacks and recipe graphs", "NODETREE", 3),
-    ("LIVE", "Live", "Live Blender color tools and FFmpeg-style native color translation", "COLOR", 4),
-    ("STRIP", "Strip", "Selected strip transform, crop, opacity, and lock controls", "SEQ_STRIP_META", 5),
-    ("MODIFIERS", "Modifiers", "Editable VSE live modifier stack for the selected strip", "MODIFIER", 6),
-    ("RENDER", "Render", "Rendered restoration, scaling, motion, and output settings", "RENDER_ANIMATION", 7),
+    ("BROWSER", "Tools", "Video effect browser", "TOOL_SETTINGS", 0),
+    ("ENHANCE", "Enhance", "One-click sampled and recommended video enhancements", "COLOR", 1),
+    ("ANALYSIS", "Analyze", "Sample frames, diagnose color, and match lighting or color", "EYEDROPPER", 2),
+    ("COLOR", "Color Mgmt", "Blender scene and view color-management controls", "WORLD", 3),
+    ("COMPOSITOR", "Nodes", "Native Blender compositor node stacks and recipe graphs", "NODETREE", 4),
+    ("LIVE", "Live", "Live Blender color tools and FFmpeg-style native color translation", "COLOR", 5),
+    ("STRIP", "Strip", "Selected strip transform, crop, opacity, and lock controls", "SEQ_STRIP_META", 6),
+    ("MODIFIERS", "Modifiers", "Editable VSE live modifier stack for the selected strip", "MODIFIER", 7),
+    ("RENDER", "Render", "Rendered restoration, scaling, motion, and output settings", "RENDER_ANIMATION", 8),
 )
 
 
@@ -1204,7 +1205,7 @@ class VIDEO_TOOLKIT_OT_open_output_folder(Operator):
 
 class VIDEO_TOOLKIT_MT_tools(Menu):
     bl_idname = "VIDEO_TOOLKIT_MT_tools"
-    bl_label = "Tools"
+    bl_label = "Video Effects"
 
     def draw(self, context):
         layout = self.layout
@@ -1532,8 +1533,31 @@ def _draw_operator(layout, tool_id: str, icon: str = "NONE") -> None:
     op.filter_id = tool.id
 
 
-def _draw_header_menu(self, _context) -> None:
-    self.layout.menu(VIDEO_TOOLKIT_MT_tools.bl_idname, text="Tools", icon="TOOL_SETTINGS")
+def _append_menu(menu_name: str, drawer) -> None:
+    menu = getattr(bpy.types, menu_name, None)
+    if menu is not None:
+        menu.append(drawer)
+
+
+def _remove_menu(menu_name: str, drawer) -> None:
+    menu = getattr(bpy.types, menu_name, None)
+    if menu is not None:
+        try:
+            menu.remove(drawer)
+        except Exception:
+            pass
+
+
+def _draw_video_toolkit_menu(self, _context) -> None:
+    self.layout.separator()
+    self.layout.menu(VIDEO_TOOLKIT_MT_tools.bl_idname, icon="SEQ_SEQUENCER")
+
+
+def _draw_video_toolkit_header(self, context) -> None:
+    space = getattr(context, "space_data", None)
+    if space is not None and getattr(space, "view_type", "") in {"SEQUENCER", "SEQUENCER_PREVIEW"}:
+        row = self.layout.row(align=True)
+        row.menu(VIDEO_TOOLKIT_MT_tools.bl_idname, text="Video Effects", icon="SEQ_SEQUENCER")
 
 
 def _draw_sidecar_browser(layout, scene, strip, context) -> None:
@@ -1577,6 +1601,8 @@ def _draw_sidecar_section_body(layout, scene, strip, context) -> None:
     section = getattr(scene, "video_toolkit_sidecar_section", "BROWSER")
     if section == "BROWSER":
         _draw_sidecar_tool_browser(layout, scene, strip)
+    elif section == "ENHANCE":
+        _draw_one_click_video_effects(layout, scene, strip)
     elif section == "ANALYSIS":
         if strip is None or getattr(strip, "type", None) != "MOVIE":
             layout.label(text="Select a movie strip for frame analysis.", icon="INFO")
@@ -1640,30 +1666,45 @@ def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
         elif selected_tool.is_ffmpeg:
             browser.label(text="Rendered video effect", icon="RENDER_ANIMATION")
 
+
+def _draw_one_click_video_effects(layout, scene, strip) -> None:
     quick = layout.box()
     quick.label(text="One-Click Video Effects", icon="COLOR")
-    row = quick.row(align=True)
+    controls = quick.column(align=True)
+    controls.enabled = strip is not None
+    row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Pro Grade", icon="MODIFIER")
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname, text="Color Mgmt", icon="WORLD")
-    row = quick.row(align=True)
-    row.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Diagnostics", icon="TEXT")
+    row = controls.row(align=True)
+    row.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="White Balance", icon="EYEDROPPER")
+    row.operator(VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma.bl_idname, text="Levels/Gamma", icon="IPO_EASE_IN_OUT")
+    row = controls.row(align=True)
+    row.operator(VIDEO_TOOLKIT_OT_apply_sampled_hue_chroma.bl_idname, text="Hue/Chroma", icon="COLOR")
     row.operator(VIDEO_TOOLKIT_OT_apply_diagnostic_grade.bl_idname, text="Fix Grade", icon="COLOR")
-    row = quick.row(align=True)
+    row = controls.row(align=True)
+    row.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Diagnostics", icon="TEXT")
     row.operator(VIDEO_TOOLKIT_OT_recommend_catalog_recipes.bl_idname, text="Recommend", icon="SORT_ASC")
+    row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_recommended_recipe_mix.bl_idname, text="Apply Mix", icon="MODIFIER")
-    row = quick.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Deflicker", icon="IPO_EASE_IN_OUT")
+    row = controls.row(align=True)
+    row.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Light", icon="GRAPH")
+    row.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color", icon="COLOR")
+    row = controls.row(align=True)
     row.menu("VIDEO_TOOLKIT_MT_compositor_recipes", text="Recipe Nodes", icon="NODETREE")
-    quick.operator(
+    controls.operator(
         VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes.bl_idname,
         text="All Recipe Nodes",
         icon="NODETREE",
     )
-    quick.operator(
+    controls.operator(
         VIDEO_TOOLKIT_OT_write_catalog_coverage_report.bl_idname,
         text="Catalog Coverage Report",
         icon="TEXT",
     )
+    quick.prop(scene, "video_toolkit_recommendation_mix_count", text="Mix Count")
+    if strip is None:
+        quick.label(text="Select a movie or video strip", icon="INFO")
 
 
 def _draw_sidecar_status(layout, scene) -> None:
@@ -3795,14 +3836,17 @@ def register() -> None:
         name="Last Compositor Nodes",
         default="",
     )
-    bpy.types.SEQUENCER_MT_editor_menus.append(_draw_header_menu)
+    _append_menu("SEQUENCER_HT_header", _draw_video_toolkit_header)
+    _append_menu("SEQUENCER_MT_editor_menus", _draw_video_toolkit_menu)
+    _append_menu("SEQUENCER_MT_context_menu", _draw_video_toolkit_menu)
+    _append_menu("SEQUENCER_MT_strip", _draw_video_toolkit_menu)
 
 
 def unregister() -> None:
-    try:
-        bpy.types.SEQUENCER_MT_editor_menus.remove(_draw_header_menu)
-    except Exception:
-        pass
+    _remove_menu("SEQUENCER_MT_strip", _draw_video_toolkit_menu)
+    _remove_menu("SEQUENCER_MT_context_menu", _draw_video_toolkit_menu)
+    _remove_menu("SEQUENCER_MT_editor_menus", _draw_video_toolkit_menu)
+    _remove_menu("SEQUENCER_HT_header", _draw_video_toolkit_header)
     for attr in (
         "video_toolkit_output_dir",
         "video_toolkit_crf",

@@ -55,7 +55,7 @@ def _ensure_selected_movie_strip() -> None:
     scene.frame_current = min(scene.frame_start + 24, scene.frame_end - 1)
     scene.video_toolkit_analysis_samples = 24
     scene.video_toolkit_apply_target = "ACTIVE"
-    scene.video_toolkit_sidecar_section = "BROWSER"
+    scene.video_toolkit_sidecar_section = "ENHANCE"
     scene.video_toolkit_ffmpeg_chain = "eq=contrast=1.08:saturation=1.05:gamma=1.02,colorbalance=rs=0.05:bh=-0.04"
     if hasattr(scene.view_settings, "use_curve_mapping"):
         scene.view_settings.use_curve_mapping = True
@@ -91,6 +91,5 @@ def _screenshot_and_quit():
     bpy.ops.screen.screenshot(filepath=str(OUTPUT / "video_filters_panel_open.png"))
     bpy.ops.wm.quit_blender()
     return None
-
 
 main()

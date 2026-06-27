@@ -41,10 +41,11 @@ In Blender:
 The tools operate on the active Video Sequencer strip. Add or open a movie in the
 Video Sequencer, click the strip so it is selected, then open the sidebar with
 **N** and use the **Video Effects** tab. The sidecar contains mini tabs for the
-tool browser, frame analysis, Color Management, compositor nodes, live tools,
-strip controls, modifiers, and rendered restoration.
+tool browser, one-click enhancement buttons, frame analysis, Color Management,
+compositor nodes, live tools, strip controls, modifiers, and rendered restoration.
 
-The Sequencer header menu also exposes the same tools as a secondary shortcut.
+The Sequencer header menu exposes **Video Effects** as a secondary shortcut,
+while the buttons themselves stay inside the docked sidecar.
 
 Live Blender color tools update the selected strip immediately in the Sequencer
 preview. The **Native Color Chain Translation** field accepts supported
