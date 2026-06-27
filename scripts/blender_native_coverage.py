@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify Video Toolkit covers Blender's native VSE color modifier surface."""
+"""Verify Video Toolkit covers Blender's native VSE and compositor video surface."""
 
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ import os
 import sys
 sys.path.insert(0, {str(ROOT)!r})
 from video_toolkit.catalog import blender_modifier_tools
+from video_toolkit.compositor import compositor_node_types
 import bpy
 
 scene = bpy.context.scene
@@ -65,9 +66,30 @@ if hasattr(scene, 'sequencer_colorspace_settings'):
         prop.identifier for prop in scene.sequencer_colorspace_settings.bl_rna.properties
         if prop.identifier != 'rna_type'
     )
+if hasattr(scene, 'compositing_node_group'):
+    tree = scene.compositing_node_group
+    if tree is None:
+        tree = bpy.data.node_groups.new('VTK Coverage Compositor', 'CompositorNodeTree')
+        scene.compositing_node_group = tree
+else:
+    scene.use_nodes = True
+    tree = scene.node_tree
+available_compositor_nodes = {{}}
+for node_type in compositor_node_types():
+    try:
+        node = tree.nodes.new(node_type)
+        available_compositor_nodes[node_type] = {{
+            'inputs': [socket.name for socket in node.inputs],
+            'outputs': [socket.name for socket in node.outputs],
+        }}
+        tree.nodes.remove(node)
+    except Exception as exc:
+        available_compositor_nodes[node_type] = {{'error': str(exc)}}
 print(json.dumps({{
     'available': available,
     'covered': covered,
+    'available_compositor_nodes': available_compositor_nodes,
+    'covered_compositor_nodes': list(compositor_node_types()),
     'scene_view_settings': scene_props,
     'sequencer_colorspace_settings': sequencer_color_props,
 }}, indent=2))
@@ -93,6 +115,13 @@ print(json.dumps({{
         raise SystemExit("Blender Color Management exposure/gamma controls were not visible")
     if "name" not in payload["sequencer_colorspace_settings"]:
         raise SystemExit("Blender Sequencer input color-space control was not visible")
+    failed_nodes = {
+        node_type: node_info["error"]
+        for node_type, node_info in payload["available_compositor_nodes"].items()
+        if "error" in node_info
+    }
+    if failed_nodes:
+        raise SystemExit(f"Missing Blender compositor video nodes: {json.dumps(failed_nodes, indent=2)}")
     print(json.dumps(payload, indent=2))
     return 0
 
@@ -107,4 +136,3 @@ def _extract_json(stdout: str) -> dict:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

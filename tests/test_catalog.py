@@ -5,6 +5,11 @@ from video_toolkit.catalog import (
     get_tool,
     all_tools,
 )
+from video_toolkit.compositor import (
+    COLOR_WORKSPACE_STACK_NODE_TYPES,
+    RESTORATION_WORKSPACE_STACK_NODE_TYPES,
+    compositor_node_types,
+)
 
 
 def test_tool_ids_are_unique():
@@ -94,6 +99,28 @@ def test_every_native_blender_color_primitive_is_exposed():
         "native_mask_slot",
     ):
         assert get_tool(tool_id).is_blender_modifier
+
+
+def test_native_compositor_video_nodes_are_tracked():
+    nodes = set(compositor_node_types())
+    assert {
+        "CompositorNodeExposure",
+        "CompositorNodeBrightContrast",
+        "CompositorNodeColorBalance",
+        "CompositorNodeColorCorrection",
+        "CompositorNodeCurveRGB",
+        "CompositorNodeHueSat",
+        "CompositorNodeHueCorrect",
+        "CompositorNodeTonemap",
+        "CompositorNodeDenoise",
+        "CompositorNodeStabilize",
+        "CompositorNodeMovieDistortion",
+        "CompositorNodeOutputFile",
+        "CompositorNodeViewer",
+    }.issubset(nodes)
+    assert len(compositor_node_types()) == len(nodes)
+    assert set(COLOR_WORKSPACE_STACK_NODE_TYPES).issubset(nodes)
+    assert set(RESTORATION_WORKSPACE_STACK_NODE_TYPES).issubset(nodes)
 
 
 def test_ffmpeg_tools_have_filters_or_stabilization():

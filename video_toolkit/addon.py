@@ -29,6 +29,11 @@ APPLY_TARGET_ITEMS = (
     ("ADJUSTMENT", "Adjustment Layer", "Create a native Blender adjustment strip over the selected range"),
 )
 
+COMPOSITOR_STACK_ITEMS = (
+    ("COLOR", "Color Node Stack", "Build a Blender compositor color node graph from the active movie strip"),
+    ("RESTORATION", "Restoration Node Stack", "Build a Blender compositor restoration node graph from the active movie strip"),
+)
+
 
 def _tool_items(_self, _context):
     return enum_items()
@@ -164,6 +169,39 @@ class VIDEO_TOOLKIT_OT_clear_live_modifiers(Operator):
         return {"FINISHED"}
 
 
+class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
+    bl_idname = "video_toolkit.create_compositor_nodes"
+    bl_label = "Create Compositor Nodes"
+    bl_description = "Create a Blender-native compositor node stack from the active movie strip"
+    bl_options = {"REGISTER", "UNDO"}
+
+    stack_type: bpy.props.EnumProperty(name="Stack", items=COMPOSITOR_STACK_ITEMS, default="COLOR")
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        try:
+            strip = context.scene.sequence_editor.active_strip
+            if self.stack_type == "RESTORATION":
+                created = _create_compositor_restoration_stack(context.scene, strip)
+                label = "restoration"
+            else:
+                created = _create_compositor_color_stack(context.scene, strip)
+                label = "color"
+            context.scene.video_toolkit_last_compositor_nodes = ", ".join(node.label or node.bl_idname for node in created)
+            self.report({"INFO"}, f"Created {len(created)} Blender compositor {label} node(s)")
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_open_output_folder(Operator):
     bl_idname = "video_toolkit.open_output_folder"
     bl_label = "Open Output Folder"
@@ -192,6 +230,14 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         layout.menu("VIDEO_TOOLKIT_MT_live_blender_color", icon="COLOR")
         layout.menu("VIDEO_TOOLKIT_MT_native_blender_primitives", icon="NODETREE")
         layout.menu("VIDEO_TOOLKIT_MT_blender_vse_modifiers", icon="SEQ_STRIP_DUPLICATE")
+        op = layout.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Create Color Node Stack", icon="NODETREE")
+        op.stack_type = "COLOR"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Restoration Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "RESTORATION"
         layout.separator()
         _draw_operator(layout, "deflicker_normalize", icon="LIGHT")
         _draw_operator(layout, "stabilize", icon="TRACKING")
@@ -260,6 +306,7 @@ class VIDEO_TOOLKIT_PT_video_filters(Panel):
         layout.label(text=f"Active: {strip.name}", icon="SEQ_STRIP_META")
         _draw_live_analysis(layout, scene, strip, context)
         _draw_scene_color_management(layout, scene)
+        _draw_compositor_nodes(layout, scene, strip)
         _draw_live_color_tools(layout, scene)
         _draw_strip_editing_tools(layout, strip)
         _draw_live_modifier_editor(layout, strip)
@@ -310,6 +357,20 @@ def _draw_scene_color_management(layout, scene) -> None:
             row = box.row(align=True)
             row.prop(view, "white_balance_temperature", text="Temp")
             row.prop(view, "white_balance_tint", text="Tint")
+
+
+def _draw_compositor_nodes(layout, scene, strip) -> None:
+    if strip.type != "MOVIE":
+        return
+    box = layout.box()
+    box.label(text="Native Compositor Nodes", icon="NODE_COMPOSITING")
+    row = box.row(align=True)
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Color Stack", icon="COLOR")
+    op.stack_type = "COLOR"
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
+    op.stack_type = "RESTORATION"
+    if scene.video_toolkit_last_compositor_nodes:
+        box.label(text=scene.video_toolkit_last_compositor_nodes, icon="INFO")
 
 
 def _draw_live_color_tools(layout, scene) -> None:
@@ -459,6 +520,185 @@ def _add_blender_modifier(strip, modifier_type, settings, label):
     for path, value in settings.items():
         _set_nested_attr(modifier, path, value)
     return modifier
+
+
+def _create_compositor_color_stack(scene, strip):
+    tree = _ensure_compositor_tree(scene)
+    origin = _next_node_origin(tree)
+    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", "VTK Movie Clip", 0, origin=origin)
+    _assign_movie_clip(movie, _movie_path(strip))
+    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", "VTK Color Space", 1, origin=origin)
+    exposure = _new_compositor_node(tree, "CompositorNodeExposure", "VTK Exposure", 2, origin=origin)
+    _set_input_default(exposure, "Exposure", 0.10)
+    bright = _new_compositor_node(tree, "CompositorNodeBrightContrast", "VTK Brightness/Contrast", 3, origin=origin)
+    _set_input_default(bright, "Bright", 0.015)
+    _set_input_default(bright, "Contrast", 8.0)
+    balance = _new_compositor_node(tree, "CompositorNodeColorBalance", "VTK Color Balance", 4, origin=origin)
+    _set_input_default(balance, "Fac", 1.0)
+    _set_input_default(balance, "Color Gamma", (1.04, 1.03, 1.02, 1.0))
+    _set_input_default(balance, "Color Gain", (1.05, 1.04, 1.03, 1.0))
+    correction = _new_compositor_node(tree, "CompositorNodeColorCorrection", "VTK Zone Correction", 5, origin=origin)
+    _set_input_default(correction, "Master Saturation", 1.06)
+    _set_input_default(correction, "Master Contrast", 1.05)
+    _set_input_default(correction, "Master Gamma", 1.0)
+    _set_input_default(correction, "Master Gain", 1.02)
+    _set_input_default(correction, "Midtones Start", 0.20)
+    _set_input_default(correction, "Midtones End", 0.78)
+    curves = _new_compositor_node(tree, "CompositorNodeCurveRGB", "VTK RGB Curves", 6, origin=origin)
+    _apply_curve_points(curves.mapping, {0: ((0.0, 0.0), (0.25, 0.21), (0.75, 0.80), (1.0, 1.0))})
+    hue_sat = _new_compositor_node(tree, "CompositorNodeHueSat", "VTK Hue/Saturation", 7, origin=origin)
+    _set_input_default(hue_sat, "Saturation", 1.04)
+    _set_input_default(hue_sat, "Value", 1.01)
+    hue_correct = _new_compositor_node(tree, "CompositorNodeHueCorrect", "VTK Hue Correct", 8, origin=origin)
+    _apply_hue_correct(hue_correct.mapping, {"saturation": 0.56})
+    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Tone Map", 9, origin=origin)
+    _set_input_default(tonemap, "Type", "RD_PHOTORECEPTOR")
+    _set_input_default(tonemap, "Intensity", 0.10)
+    _set_input_default(tonemap, "Contrast", 0.12)
+    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", "VTK Separate Color", 10, y_offset=-120, origin=origin)
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", "VTK Combine Color", 11, y_offset=-120, origin=origin)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Levels", 12, y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Viewer", 13, origin=origin)
+    output = _new_output_file_node(tree, scene, 13, y_offset=-160, origin=origin)
+
+    final_socket = _link_compositor_chain(
+        tree,
+        [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap],
+    )
+    _link_socket(tree, final_socket, _image_input(separate))
+    for socket_name in ("Red", "Green", "Blue", "Alpha"):
+        _link_socket(tree, _socket_by_name(separate.outputs, socket_name), _socket_by_name(combine.inputs, socket_name))
+    combined_socket = _image_output(combine)
+    _link_socket(tree, combined_socket, _image_input(levels))
+    _link_socket(tree, combined_socket, _image_input(viewer))
+    _link_socket(tree, combined_socket, _first_socket(output.inputs))
+    return [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap, separate, combine, levels, viewer, output]
+
+
+def _create_compositor_restoration_stack(scene, strip):
+    tree = _ensure_compositor_tree(scene)
+    origin = _next_node_origin(tree)
+    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", "VTK Restore Source", 0, origin=origin)
+    clip = _assign_movie_clip(movie, _movie_path(strip))
+    stabilize = _new_compositor_node(tree, "CompositorNodeStabilize", "VTK Stabilize", 1, origin=origin)
+    _assign_node_clip(stabilize, clip)
+    distortion = _new_compositor_node(tree, "CompositorNodeMovieDistortion", "VTK Movie Distortion", 2, origin=origin)
+    _assign_node_clip(distortion, clip)
+    denoise = _new_compositor_node(tree, "CompositorNodeDenoise", "VTK Denoise", 3, origin=origin)
+    _set_input_default(denoise, "HDR", False)
+    despeckle = _new_compositor_node(tree, "CompositorNodeDespeckle", "VTK Despeckle", 4, origin=origin)
+    _set_input_default(despeckle, "Factor", 0.35)
+    _set_input_default(despeckle, "Color Threshold", 0.35)
+    _set_input_default(despeckle, "Neighbor Threshold", 0.35)
+    bilateral = _new_compositor_node(tree, "CompositorNodeBilateralblur", "VTK Bilateral Blur", 5, origin=origin)
+    _set_input_default(bilateral, "Size", 3.0)
+    _set_input_default(bilateral, "Threshold", 0.08)
+    antialias = _new_compositor_node(tree, "CompositorNodeAntiAliasing", "VTK Anti-Aliasing", 6, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Restore Viewer", 7, origin=origin)
+    output = _new_output_file_node(tree, scene, 7, y_offset=-160, origin=origin)
+    final_socket = _link_compositor_chain(tree, [movie, stabilize, distortion, denoise, despeckle, bilateral, antialias])
+    _link_socket(tree, final_socket, _image_input(viewer))
+    _link_socket(tree, final_socket, _first_socket(output.inputs))
+    return [movie, stabilize, distortion, denoise, despeckle, bilateral, antialias, viewer, output]
+
+
+def _ensure_compositor_tree(scene):
+    if hasattr(scene.render, "use_compositing"):
+        scene.render.use_compositing = True
+    if hasattr(scene, "compositing_node_group"):
+        tree = scene.compositing_node_group
+        if tree is None:
+            tree = bpy.data.node_groups.new("Video Toolkit Compositor", "CompositorNodeTree")
+            scene.compositing_node_group = tree
+        return tree
+    if hasattr(scene, "use_nodes"):
+        scene.use_nodes = True
+    tree = getattr(scene, "node_tree", None)
+    if tree is None:
+        raise RuntimeError("This Blender build does not expose a compositor node tree")
+    return tree
+
+
+def _new_compositor_node(tree, node_type: str, label: str, index: int, y_offset: int = 0, origin=(0, 0)):
+    node = tree.nodes.new(node_type)
+    node.label = label
+    node.name = label
+    node.location = (origin[0] + (index * 240), origin[1] + y_offset)
+    node["video_toolkit"] = True
+    return node
+
+
+def _new_output_file_node(tree, scene, index: int, y_offset: int = 0, origin=(0, 0)):
+    node = _new_compositor_node(tree, "CompositorNodeOutputFile", "VTK Output File", index, y_offset=y_offset, origin=origin)
+    if hasattr(node, "base_path"):
+        node.base_path = str(_output_dir(scene))
+    return node
+
+
+def _next_node_origin(tree) -> tuple[int, int]:
+    toolkit_nodes = [node for node in tree.nodes if getattr(node, "name", "").startswith("VTK ")]
+    if not toolkit_nodes:
+        return (0, 0)
+    return (int(max(node.location.x for node in toolkit_nodes) + 320), int(min(node.location.y for node in toolkit_nodes) - 260))
+
+
+def _assign_movie_clip(node, path: Path):
+    clip = bpy.data.movieclips.load(str(path), check_existing=True)
+    node.clip = clip
+    return clip
+
+
+def _assign_node_clip(node, clip) -> None:
+    if hasattr(node, "clip"):
+        node.clip = clip
+
+
+def _link_compositor_chain(tree, nodes):
+    current = _image_output(nodes[0])
+    for node in nodes[1:]:
+        _link_socket(tree, current, _image_input(node))
+        current = _image_output(node)
+    return current
+
+
+def _link_socket(tree, output_socket, input_socket) -> None:
+    if output_socket is None or input_socket is None:
+        raise RuntimeError("Could not link compositor node sockets")
+    tree.links.new(output_socket, input_socket)
+
+
+def _image_input(node):
+    return _socket_by_name(node.inputs, "Image") or _first_socket(node.inputs)
+
+
+def _image_output(node):
+    return _socket_by_name(node.outputs, "Image") or _first_socket(node.outputs)
+
+
+def _socket_by_name(sockets, name: str):
+    for socket in sockets:
+        if socket.name == name or getattr(socket, "identifier", "") == name:
+            return socket
+    return None
+
+
+def _first_socket(sockets):
+    return next(iter(sockets), None)
+
+
+def _set_input_default(node, socket_name: str, value) -> None:
+    socket = _socket_by_name(node.inputs, socket_name)
+    if socket is None or not hasattr(socket, "default_value"):
+        return
+    current = socket.default_value
+    try:
+        if hasattr(current, "__setitem__") and isinstance(value, (tuple, list)):
+            for index, item in enumerate(value[: len(current)]):
+                current[index] = item
+        else:
+            socket.default_value = value
+    except Exception:
+        return
 
 
 def _modifier_label(modifier_type: str) -> str:
@@ -656,6 +896,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_apply_filter,
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_clear_live_modifiers,
+    VIDEO_TOOLKIT_OT_create_compositor_nodes,
     VIDEO_TOOLKIT_OT_open_output_folder,
     VIDEO_TOOLKIT_MT_live_blender_color,
     VIDEO_TOOLKIT_MT_native_blender_primitives,
@@ -720,6 +961,10 @@ def register() -> None:
         items=APPLY_TARGET_ITEMS,
         default="ACTIVE",
     )
+    bpy.types.Scene.video_toolkit_last_compositor_nodes = bpy.props.StringProperty(
+        name="Last Compositor Nodes",
+        default="",
+    )
     bpy.types.SEQUENCER_MT_editor_menus.append(_draw_header_menu)
 
 
@@ -738,6 +983,7 @@ def unregister() -> None:
         "video_toolkit_analysis_samples",
         "video_toolkit_last_analysis",
         "video_toolkit_apply_target",
+        "video_toolkit_last_compositor_nodes",
     ):
         if hasattr(bpy.types.Scene, attr):
             delattr(bpy.types.Scene, attr)

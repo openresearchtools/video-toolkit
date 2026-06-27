@@ -184,6 +184,43 @@ types = [modifier.type for modifier in strip.modifiers if modifier.name.startswi
 for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'TONEMAP', 'WHITE_BALANCE', 'CURVES', 'HUE_CORRECT', 'MASK']:
     assert required in types, required
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='COLOR')
+assert result == {{'FINISHED'}}, result
+if hasattr(scene, 'compositing_node_group'):
+    tree = scene.compositing_node_group
+else:
+    tree = scene.node_tree
+assert tree is not None, 'No compositor node tree was created'
+color_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeExposure',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeColorCorrection',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueSat',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in color_node_types, required
+assert len(tree.links) >= 12, f'Expected linked compositor color graph, got {{len(tree.links)}} links'
+
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='RESTORATION')
+assert result == {{'FINISHED'}}, result
+all_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK ')]
+for required in [
+    'CompositorNodeStabilize',
+    'CompositorNodeMovieDistortion',
+    'CompositorNodeDenoise',
+    'CompositorNodeDespeckle',
+    'CompositorNodeBilateralblur',
+    'CompositorNodeAntiAliasing',
+]:
+    assert required in all_node_types, required
+
 bpy.ops.wm.save_as_mainfile(filepath={str(blend)!r})
 Path({str(report)!r}).write_text(json.dumps({{
     'video': {str(video)!r},
@@ -195,6 +232,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'rgb_abs_diff': diff,
     'edited_modifiers': edited,
     'native_modifier_types': types,
+    'compositor_color_node_types': color_node_types,
+    'compositor_all_node_types': all_node_types,
+    'compositor_links': len(tree.links),
     'blend': {str(blend)!r},
 }}, indent=2), encoding='utf-8')
 video_toolkit.unregister()
@@ -203,4 +243,3 @@ video_toolkit.unregister()
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

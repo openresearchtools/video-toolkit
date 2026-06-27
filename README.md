@@ -5,6 +5,7 @@ Blender Video Sequencer add-on for one-click video enhancement, live color tools
 The add-on has two tool classes:
 
 - **Live Blender tools**: frame analysis, color matching, color management, transform/crop/opacity, and Blender VSE modifiers. These update the selected strip and preview live in the Sequencer.
+- **Native compositor node stacks**: one-click color and restoration graphs created from the active movie strip using Blender's compositor nodes.
 - **Rendered restoration tools**: FFmpeg-backed jobs for deflicker, lighting normalization, denoise, stabilization, deinterlace, upscale, and motion interpolation. These render a new MP4 and add it above the source strip.
 
 ## Quick Start
@@ -58,6 +59,8 @@ FFmpeg must be installed and visible on `PATH`.
 - Live one-click Blender stacks: Pro Color Stack, Gamma Grade, Shadow Recovery, Contrast Pop, Warm Grade, Cool Grade, saturation boost/reduce, monochrome, faded film, and contrast curves.
 - Native Blender primitives: Brightness/Contrast, Lift/Gamma/Gain, ASC CDL Offset/Power/Slope, R/D Photoreceptor Tone Map, Rh Simple Tone Map, Curves, Hue Correct, White Balance, Mask.
 - Blender VSE modifiers: Brightness/Contrast, Color Balance, Curves, Hue Correct, Mask, Tone Map, White Balance.
+- Blender compositor nodes: active-strip Movie Clip source, Color Space, Exposure, Brightness/Contrast, Color Balance, Color Correction, RGB Curves, Hue/Saturation/Value, Hue Correct, Tone Map, channel split/combine, Levels, Viewer, and Output File.
+- Native restoration nodes: Stabilize, Movie Distortion, Denoise, Despeckle, Bilateral Blur, Anti-Aliasing, plus broader coverage for Blender matte, transform, alpha, and utility compositor nodes where they are applicable to video finishing.
 - Blender-native color recipes: auto enhance, neutral grade, punchy color, soft contrast, exposure lift, gamma up/down, warm/cool balance.
 - FFmpeg-to-Blender translation: supported FFmpeg color intent (`eq`, `hue`, `huesaturation`, `colorchannelmixer`, `curves`) is converted into native live Blender VSE modifier stacks; non-native temporal filters stay in rendered restoration.
 - Restoration: deflicker, lighting normalizer, denoise, sharpen restoration, deinterlace, quick deshake, two-pass vidstab stabilization.
@@ -67,4 +70,6 @@ Generated videos are written to `video_toolkit_outputs/` by default and are igno
 
 ## End-User Verification
 
-`scripts/end_user_blender_preview_test.py` opens a real MP4 in Blender's Video Sequencer, selects the movie strip, applies live Blender color tools through the same operators the UI buttons use, edits the resulting live modifier properties, renders before/after Sequencer preview frames to PNG, and fails if the pixels do not change.
+`scripts/end_user_blender_preview_test.py` opens a real MP4 in Blender's Video Sequencer, selects the movie strip, applies live Blender color tools through the same operators the UI buttons use, edits the resulting live modifier properties, renders before/after Sequencer preview frames to PNG, and fails if the pixels do not change. It also creates Blender-native compositor color and restoration node graphs from that selected strip and verifies the nodes are linked.
+
+`scripts/blender_native_coverage.py` audits the installed Blender build directly. It verifies every VSE color modifier used by the add-on and every tracked Blender compositor video node can be created in Blender 5.2.

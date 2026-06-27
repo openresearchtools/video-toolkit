@@ -150,6 +150,18 @@ for candidate in scene.sequence_editor.strips_all:
     candidate.select = False
 strip.select = True
 scene.video_toolkit_apply_target = 'ACTIVE'
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='COLOR')
+tree = scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree
+node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK ')]
+assert 'CompositorNodeMovieClip' in node_types
+assert 'CompositorNodeColorCorrection' in node_types
+assert 'CompositorNodeTonemap' in node_types
+assert len(tree.links) >= 12
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='RESTORATION')
+node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK ')]
+assert 'CompositorNodeStabilize' in node_types
+assert 'CompositorNodeMovieDistortion' in node_types
+assert 'CompositorNodeDenoise' in node_types
 bpy.ops.video_toolkit.apply_filter(filter_id='deflicker_normalize')
 assert scene.video_toolkit_last_output
 assert os.path.exists(scene.video_toolkit_last_output)
