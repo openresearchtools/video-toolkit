@@ -428,6 +428,53 @@ def build_auto_balance_stack(stats: ColorStats) -> tuple[tuple[str, dict[str, ob
     return build_color_match_stack(stats, reference)
 
 
+def build_sampled_white_balance_stack(stats: ColorStats) -> tuple[tuple[str, dict[str, object]], ...]:
+    """Build a live neutralizing stack from sampled RGB and tonal-zone casts."""
+
+    skin_soften = _clamp(stats.skin_ratio * 1.8, 0.0, 0.36)
+    mean_balance = _blend_rgb(
+        _neutral_channel_balance(stats.mean_rgb, power=0.48, low=0.78, high=1.28),
+        (1.0, 1.0, 1.0),
+        skin_soften,
+    )
+    shadow_balance = _blend_rgb(
+        _neutral_channel_balance(_zone_or_mean(stats.shadow_rgb, stats.mean_rgb), power=0.28, low=0.88, high=1.14),
+        mean_balance,
+        0.30,
+    )
+    midtone_balance = _blend_rgb(
+        _neutral_channel_balance(_zone_or_mean(stats.midtone_rgb, stats.mean_rgb), power=0.42, low=0.82, high=1.22),
+        mean_balance,
+        0.42,
+    )
+    highlight_balance = _blend_rgb(
+        _neutral_channel_balance(_zone_or_mean(stats.highlight_rgb, stats.mean_rgb), power=0.58, low=0.78, high=1.28),
+        mean_balance,
+        0.26,
+    )
+    if skin_soften:
+        midtone_balance = _blend_rgb(midtone_balance, (1.0, 1.0, 1.0), skin_soften * 0.35)
+    brightness = _clamp((118.0 - stats.mean_luma) / 255.0 * 0.50, -0.10, 0.10)
+    contrast = _clamp((52.0 - stats.luma_std) / 52.0 * 9.0, -9.0, 14.0)
+    saturation = _sampled_saturation_curve_value(stats)
+    return (
+        ("WHITE_BALANCE", {"white_value": mean_balance}),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.lift": shadow_balance,
+                "color_balance.gamma": midtone_balance,
+                "color_balance.gain": highlight_balance,
+                "color_multiply": _clamp(1.0 + (0.34 - stats.mean_saturation) * 0.12, 0.94, 1.06),
+            },
+        ),
+        ("BRIGHT_CONTRAST", {"bright": brightness, "contrast": contrast}),
+        ("CURVES", {"__curve_points__": {0: _sampled_neutral_curve_points(stats)}}),
+        ("HUE_CORRECT", {"__hue_correct__": {"saturation": saturation, "value": 0.5}}),
+    )
+
+
 def build_color_match_stack(
     target: ColorStats,
     reference: ColorStats,
@@ -609,6 +656,60 @@ def _zone_balance(
     ratios = [_safe_ratio(ref, target) ** power for ref, target in zip(reference_rgb, target_rgb)]
     average = sum(ratios) / len(ratios)
     return tuple(_clamp(value / average, low, high) for value in ratios)
+
+
+def _neutral_channel_balance(
+    rgb: tuple[float, float, float],
+    *,
+    power: float,
+    low: float,
+    high: float,
+) -> tuple[float, float, float]:
+    if sum(rgb) <= 1.0:
+        return (1.0, 1.0, 1.0)
+    neutral = sum(rgb) / 3.0
+    ratios = [(_safe_ratio(neutral, channel) ** power) for channel in rgb]
+    average = sum(ratios) / len(ratios)
+    return tuple(_clamp(value / average, low, high) for value in ratios)
+
+
+def _blend_rgb(
+    first: tuple[float, float, float],
+    second: tuple[float, float, float],
+    second_weight: float,
+) -> tuple[float, float, float]:
+    weight = _clamp(second_weight, 0.0, 1.0)
+    return tuple(a * (1.0 - weight) + b * weight for a, b in zip(first, second))
+
+
+def _zone_or_mean(zone_rgb: tuple[float, float, float], mean_rgb: tuple[float, float, float]) -> tuple[float, float, float]:
+    if sum(zone_rgb) <= 1.0:
+        return mean_rgb
+    return zone_rgb
+
+
+def _sampled_neutral_curve_points(stats: ColorStats) -> list[tuple[float, float]]:
+    black_in = _clamp(stats.luma_p05 / 255.0, 0.01, 0.30)
+    white_in = _clamp(stats.luma_p95 / 255.0, 0.62, 1.0)
+    if white_in - black_in < 0.22:
+        white_in = _clamp(black_in + 0.22, 0.62, 1.0)
+    shadow_out = _clamp(0.05 + (28.0 - stats.shadow_luma) / 255.0 * 0.20, 0.02, 0.13)
+    mid_out = _clamp(0.50 + (118.0 - stats.midtone_luma) / 255.0 * 0.11, 0.42, 0.58)
+    highlight_out = _clamp(0.95 + (218.0 - stats.highlight_luma) / 255.0 * 0.09, 0.86, 0.99)
+    return [
+        (0.0, 0.0),
+        (black_in, shadow_out),
+        (0.50, mid_out),
+        (white_in, highlight_out),
+        (1.0, 1.0),
+    ]
+
+
+def _sampled_saturation_curve_value(stats: ColorStats) -> float:
+    saturation = _clamp(0.5 + (0.34 - stats.mean_saturation) * 0.28, 0.38, 0.62)
+    if stats.skin_ratio > 0.10:
+        saturation = _clamp(saturation, 0.45, 0.57)
+    return saturation
 
 
 def _pixel_zone_average(pixels: list[tuple[int, int, int, float]]) -> tuple[tuple[float, float, float], float]:

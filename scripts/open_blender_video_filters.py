@@ -64,6 +64,7 @@ def _setup_scene() -> None:
     try:
         bpy.ops.video_toolkit.color_diagnostics()
         bpy.ops.video_toolkit.apply_diagnostic_grade()
+        bpy.ops.video_toolkit.apply_sampled_white_balance()
     except Exception:
         traceback.print_exc()
 

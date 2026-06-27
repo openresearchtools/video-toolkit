@@ -11,6 +11,7 @@ from .color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_sampled_white_balance_stack,
     build_color_timeline_match_keyframes,
     build_lighting_match_keyframes,
     build_lighting_normalization_keyframes,
@@ -229,6 +230,40 @@ class VIDEO_TOOLKIT_OT_apply_diagnostic_grade(Operator):
                 f"diagnostic grade {len(modifiers)} modifier(s) on {len(targets)} target(s): {', '.join(labels)}"
             )
             self.report({"INFO"}, scene.video_toolkit_last_diagnostic_grade)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
+class VIDEO_TOOLKIT_OT_apply_sampled_white_balance(Operator):
+    bl_idname = "video_toolkit.apply_sampled_white_balance"
+    bl_label = "Sampled White Balance"
+    bl_description = "Sample real frames and create editable Blender modifiers that neutralize color cast"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            stats = sample_video_color(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            stack = build_sampled_white_balance_stack(stats)
+            modifiers, targets = _add_blender_stack_for_target(context, stack, "Sampled White Balance")
+            white_value = stack[0][1]["white_value"]
+            scene.video_toolkit_last_sampled_white_balance = (
+                f"sampled white balance {len(modifiers)} modifier(s) on {len(targets)} target(s), "
+                f"RGB {stats.mean_r:.1f}/{stats.mean_g:.1f}/{stats.mean_b:.1f}, "
+                f"white {white_value[0]:.2f}/{white_value[1]:.2f}/{white_value[2]:.2f}"
+            )
+            self.report({"INFO"}, scene.video_toolkit_last_sampled_white_balance)
             return {"FINISHED"}
         except Exception as exc:
             traceback.print_exc()
@@ -547,6 +582,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         op.mode = "MATCH"
         op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Identify Colors", icon="COLOR")
         op.mode = "PALETTE"
+        layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="Analyze: Neutralize Color Cast", icon="EYEDROPPER")
         layout.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Analyze: Color Diagnostics", icon="TEXT")
         layout.operator(VIDEO_TOOLKIT_OT_apply_diagnostic_grade.bl_idname, text="Apply Diagnostic Grade", icon="COLOR")
         layout.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Analyze: Normalize Flicker", icon="IPO_EASE_IN_OUT")
@@ -688,6 +724,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     op.mode = "MATCH"
     op = row.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Identify", icon="COLOR")
     op.mode = "PALETTE"
+    box.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="Sampled White Balance / Cast Fix", icon="EYEDROPPER")
     box.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Normalize Lighting Flicker", icon="IPO_EASE_IN_OUT")
     box.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Lighting Timeline", icon="GRAPH")
     box.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color Timeline", icon="COLOR")
@@ -711,6 +748,8 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
             box.label(text=scene.video_toolkit_last_diagnostics_text, icon="TEXT")
     if scene.video_toolkit_last_diagnostic_grade:
         box.label(text=scene.video_toolkit_last_diagnostic_grade, icon="MODIFIER")
+    if scene.video_toolkit_last_sampled_white_balance:
+        box.label(text=scene.video_toolkit_last_sampled_white_balance, icon="EYEDROPPER")
 
 
 def _draw_scene_color_management(layout, scene) -> None:
@@ -1642,6 +1681,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_color_diagnostics,
     VIDEO_TOOLKIT_OT_apply_diagnostic_grade,
+    VIDEO_TOOLKIT_OT_apply_sampled_white_balance,
     VIDEO_TOOLKIT_OT_normalize_lighting,
     VIDEO_TOOLKIT_OT_match_lighting_timeline,
     VIDEO_TOOLKIT_OT_match_color_timeline,
@@ -1718,6 +1758,10 @@ def register() -> None:
     )
     bpy.types.Scene.video_toolkit_last_diagnostic_grade = bpy.props.StringProperty(
         name="Last Diagnostic Grade",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_last_sampled_white_balance = bpy.props.StringProperty(
+        name="Last Sampled White Balance",
         default="",
     )
     bpy.types.Scene.video_toolkit_apply_target = bpy.props.EnumProperty(
@@ -1805,6 +1849,7 @@ def unregister() -> None:
         "video_toolkit_last_diagnostics",
         "video_toolkit_last_diagnostics_text",
         "video_toolkit_last_diagnostic_grade",
+        "video_toolkit_last_sampled_white_balance",
         "video_toolkit_apply_target",
         "video_toolkit_ffmpeg_chain",
         "video_toolkit_last_translation",

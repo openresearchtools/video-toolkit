@@ -122,6 +122,11 @@ bpy.ops.video_toolkit.apply_diagnostic_grade()
 assert scene.video_toolkit_last_diagnostic_grade.startswith('diagnostic grade')
 assert any(m.name.startswith('VTK Diagnostic Grade') for m in strip.modifiers)
 assert any(m.name.startswith('VTK Diagnostic Grade') for m in second_strip.modifiers)
+bpy.ops.video_toolkit.apply_sampled_white_balance()
+assert scene.video_toolkit_last_sampled_white_balance.startswith('sampled white balance')
+sampled_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Sampled White Balance')]
+assert sampled_types == ['WHITE_BALANCE', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'CURVES', 'HUE_CORRECT'], sampled_types
+assert any(m.name.startswith('VTK Sampled White Balance') for m in second_strip.modifiers)
 scene.video_toolkit_apply_target = 'ACTIVE'
 bpy.ops.video_toolkit.normalize_lighting()
 normalizer = next(m for m in strip.modifiers if m.name.startswith('VTK Live Flicker Normalizer'))

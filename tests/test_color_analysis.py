@@ -10,6 +10,7 @@ from video_toolkit.color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_sampled_white_balance_stack,
     build_color_timeline_match_keyframes,
     build_lighting_match_keyframes,
     build_lighting_normalization_keyframes,
@@ -113,6 +114,24 @@ def test_color_identity_stack_uses_palette_math(tmp_path):
     ]
     white_value = stack[0][1]["white_value"]
     assert white_value[2] > white_value[0]
+
+
+def test_sampled_white_balance_stack_neutralizes_measured_cast(tmp_path):
+    warm = sample_video_color(_make_color_clip(tmp_path / "warm_balance.mp4", "orange"), max_samples=6, sample_grid=8)
+    stack = build_sampled_white_balance_stack(warm)
+    assert [modifier_type for modifier_type, _settings in stack] == [
+        "WHITE_BALANCE",
+        "COLOR_BALANCE",
+        "BRIGHT_CONTRAST",
+        "CURVES",
+        "HUE_CORRECT",
+    ]
+    white_value = stack[0][1]["white_value"]
+    assert white_value[2] > white_value[0]
+    color_balance = stack[1][1]
+    assert color_balance["color_balance.gamma"][2] > color_balance["color_balance.gamma"][0]
+    assert "__curve_points__" in stack[3][1]
+    assert "__hue_correct__" in stack[4][1]
 
 
 def test_color_diagnosis_reports_palette_and_suggested_tools(tmp_path):

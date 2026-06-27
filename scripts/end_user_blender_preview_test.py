@@ -134,6 +134,7 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     translated = output_dir / "after_native_color_chain.png"
     color_managed = output_dir / "after_color_management_preset.png"
     diagnostic_grade = output_dir / "after_diagnostic_grade.png"
+    sampled_white_balance = output_dir / "after_sampled_white_balance.png"
     blend = output_dir / "end_user_preview.blend"
     report = output_dir / "report.json"
     return f"""
@@ -295,6 +296,21 @@ diagnostic_grade_diff = (
 )
 assert diagnostic_grade_diff > 0.001, f'Diagnostic grade did not visibly change preview pixels: {{diagnostic_grade_diff}}'
 
+result = bpy.ops.video_toolkit.apply_sampled_white_balance()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_sampled_white_balance.startswith('sampled white balance')
+sampled_white_balance_types = [
+    modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Sampled White Balance')
+]
+assert sampled_white_balance_types == ['WHITE_BALANCE', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'CURVES', 'HUE_CORRECT'], sampled_white_balance_types
+sampled_white_balance_stats = render_preview({str(sampled_white_balance)!r})
+sampled_white_balance_diff = (
+    abs(sampled_white_balance_stats['r'] - diagnostic_grade_stats['r'])
+    + abs(sampled_white_balance_stats['g'] - diagnostic_grade_stats['g'])
+    + abs(sampled_white_balance_stats['b'] - diagnostic_grade_stats['b'])
+)
+assert sampled_white_balance_diff > 0.001, f'Sampled white balance did not visibly change preview pixels: {{sampled_white_balance_diff}}'
+
 result = bpy.ops.video_toolkit.normalize_lighting()
 assert result == {{'FINISHED'}}, result
 normalizer = next(modifier for modifier in strip.modifiers if modifier.name.startswith('VTK Live Flicker Normalizer'))
@@ -409,15 +425,18 @@ Path({str(report)!r}).write_text(json.dumps({{
     'translated_png': {str(translated)!r},
     'color_managed_png': {str(color_managed)!r},
     'diagnostic_grade_png': {str(diagnostic_grade)!r},
+    'sampled_white_balance_png': {str(sampled_white_balance)!r},
     'before': before_stats,
     'after': after_stats,
     'translated': translated_stats,
     'color_managed': color_managed_stats,
     'diagnostic_grade': diagnostic_grade_stats,
+    'sampled_white_balance': sampled_white_balance_stats,
     'rgb_abs_diff': diff,
     'translated_rgb_abs_diff': translated_diff,
     'color_management_rgb_abs_diff': color_management_diff,
     'diagnostic_grade_rgb_abs_diff': diagnostic_grade_diff,
+    'sampled_white_balance_rgb_abs_diff': sampled_white_balance_diff,
     'edited_modifiers': edited,
     'native_modifier_types': types,
     'translated_chain_summary': scene.video_toolkit_last_translation,
@@ -430,6 +449,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'diagnostics_report_excerpt': diagnostics_report.splitlines()[:12],
     'diagnostic_grade_summary': scene.video_toolkit_last_diagnostic_grade,
     'diagnostic_grade_modifier_types': diagnostic_grade_types,
+    'sampled_white_balance_summary': scene.video_toolkit_last_sampled_white_balance,
+    'sampled_white_balance_modifier_types': sampled_white_balance_types,
     'primary_correction_modifier_types': primary_correction_types,
     'normalizer_keyframes': normalizer_keyframes,
     'timeline_match_reference': {str(reference_video)!r},
