@@ -313,6 +313,32 @@ exposure_socket = next(socket for socket in sampled_exposure.inputs if socket.na
 assert abs(exposure_socket.default_value) > 0.001
 sampled_curves = next(node for node in tree.nodes if node.name == 'VTK Sampled RGB Curves')
 assert len(sampled_curves.mapping.curves[0].points) >= 5
+scene.video_toolkit_ffmpeg_chain = (
+    'colorspace=iall=bt709:all=bt709:irange=tv:range=pc,'
+    'eq=contrast=1.12:saturation=1.08:gamma=1.02,'
+    'colorbalance=rs=0.04:bm=0.03:bh=-0.04:pl=1,'
+    'curves=preset=strong_contrast,'
+    'histeq=strength=0.20:intensity=0.18'
+)
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_COLOR')
+assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
+assert 'color management:' in scene.video_toolkit_last_compositor_nodes
+translated_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Translated ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in translated_node_types, required
+translated_bright = next(node for node in tree.nodes if node.name == 'VTK Translated Bright Contrast')
+translated_contrast = next(socket for socket in translated_bright.inputs if socket.name == 'Contrast')
+assert translated_contrast.default_value > 0.0
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='RESTORATION')
 node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK ')]
 assert 'CompositorNodeStabilize' in node_types

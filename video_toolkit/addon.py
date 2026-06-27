@@ -47,6 +47,7 @@ APPLY_TARGET_ITEMS = (
 COMPOSITOR_STACK_ITEMS = (
     ("COLOR", "Color Node Stack", "Build a Blender compositor color node graph from the active movie strip"),
     ("SAMPLED_COLOR", "Sampled Color Node Stack", "Sample real frames and build a Blender compositor color graph from the measured footage"),
+    ("TRANSLATED_COLOR", "Translated Color Node Stack", "Translate the FFmpeg-style color chain into a Blender compositor graph"),
     ("RESTORATION", "Restoration Node Stack", "Build a Blender compositor restoration node graph from the active movie strip"),
     ("NODE_LIBRARY", "Native Node Library", "Create every tracked Blender compositor video-finishing node in organized groups"),
 )
@@ -638,6 +639,18 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
                 created = _create_sampled_compositor_color_stack(context.scene, strip, profile)
                 label = "sampled color"
                 summary = f"{profile.summary}; {_compositor_node_summary(created)}"
+            elif self.stack_type == "TRANSLATED_COLOR":
+                chain = context.scene.video_toolkit_ffmpeg_chain.strip()
+                if not chain:
+                    raise RuntimeError("Enter an FFmpeg-style color chain before creating translated compositor nodes")
+                translation = translate_filter_chain(chain)
+                if not translation.stack and not translation.color_management:
+                    unsupported = ", ".join(translation.unsupported_filters) or "none"
+                    raise RuntimeError(f"No native Blender compositor graph could be built. Unsupported: {unsupported}")
+                created = _create_translated_compositor_color_stack(context.scene, strip, translation)
+                color_management = _apply_translation_color_management(context, translation)
+                label = "translated color"
+                summary = _translated_compositor_summary(translation, len(created), color_management)
             else:
                 created = _create_compositor_color_stack(context.scene, strip)
                 label = "color"
@@ -760,6 +773,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
             icon="NODETREE",
         )
         op.stack_type = "SAMPLED_COLOR"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Translated Color Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "TRANSLATED_COLOR"
         op = layout.operator(
             VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
             text="Create Restoration Node Stack",
@@ -970,6 +989,9 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op.stack_type = "COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Sampled", icon="EYEDROPPER")
     op.stack_type = "SAMPLED_COLOR"
+    row = box.row(align=True)
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Translated", icon="MODIFIER")
+    op.stack_type = "TRANSLATED_COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
     op.stack_type = "RESTORATION"
     op = box.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Native Node Library", icon="NODETREE")
@@ -1286,6 +1308,17 @@ def _translation_summary(translation, modifier_count: int, target_count: int, co
     return summary
 
 
+def _translated_compositor_summary(translation, node_count: int, color_management: tuple[str, ...] = ()) -> str:
+    supported = ", ".join(translation.supported_filters) or "none"
+    unsupported = ", ".join(translation.unsupported_filters)
+    summary = f"translated compositor {supported} into {node_count} node(s)"
+    if color_management:
+        summary += f"; color management: {', '.join(color_management)}"
+    if unsupported:
+        summary += f"; rendered-only/not native: {unsupported}"
+    return summary
+
+
 def _apply_translation_color_management(context, translation) -> tuple[str, ...]:
     scene = context.scene
     applied: list[str] = []
@@ -1544,6 +1577,106 @@ def _create_sampled_compositor_color_stack(scene, strip, profile):
     return [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap, separate, combine, levels, viewer, output]
 
 
+def _create_translated_compositor_color_stack(scene, strip, translation):
+    tree = _ensure_compositor_tree(scene)
+    origin = _next_node_origin(tree)
+    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", "VTK Translated Movie Clip", 0, origin=origin)
+    _assign_movie_clip(movie, _movie_path(strip))
+    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", "VTK Translated Color Space", 1, origin=origin)
+    chain_nodes = [movie, convert]
+    skipped = 0
+    for modifier_type, settings in translation.stack:
+        node = _translated_modifier_to_compositor_node(
+            tree,
+            modifier_type,
+            settings,
+            len(chain_nodes),
+            origin,
+        )
+        if node is None:
+            skipped += 1
+            continue
+        chain_nodes.append(node)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Translated Levels", len(chain_nodes), y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Translated Viewer", len(chain_nodes) + 1, origin=origin)
+    output = _new_output_file_node(tree, scene, len(chain_nodes) + 1, y_offset=-160, origin=origin)
+    output.name = "VTK Translated Output File"
+    output.label = "VTK Translated Output File"
+    final_socket = _link_compositor_chain(tree, chain_nodes)
+    _link_socket(tree, final_socket, _image_input(levels))
+    _link_socket(tree, final_socket, _image_input(viewer))
+    _link_socket(tree, final_socket, _first_socket(output.inputs))
+    created = chain_nodes + [levels, viewer, output]
+    if skipped:
+        for node in created:
+            node["video_toolkit_skipped_translated_modifiers"] = skipped
+    return created
+
+
+def _translated_modifier_to_compositor_node(tree, modifier_type: str, settings: dict[str, object], index: int, origin):
+    label = f"VTK Translated {_modifier_label(modifier_type)}"
+    if modifier_type == "BRIGHT_CONTRAST":
+        node = _new_compositor_node(tree, "CompositorNodeBrightContrast", label, index, origin=origin)
+        _set_input_default_candidates(node, ("Brightness", "Bright"), settings.get("bright", 0.0))
+        _set_input_default(node, "Contrast", settings.get("contrast", 0.0))
+        return node
+    if modifier_type == "COLOR_BALANCE":
+        node = _new_compositor_node(tree, "CompositorNodeColorBalance", label, index, origin=origin)
+        _set_input_default_candidates(node, ("Fac", "Factor"), 1.0)
+        _set_input_default_candidates(node, ("Type",), _color_balance_method_name(settings))
+        for key, socket_names in (
+            ("color_balance.lift", ("Color Lift", "Lift")),
+            ("color_balance.gamma", ("Color Gamma", "Gamma")),
+            ("color_balance.gain", ("Color Gain", "Gain")),
+            ("color_balance.offset", ("Color Offset", "Offset")),
+            ("color_balance.power", ("Color Power", "Power")),
+            ("color_balance.slope", ("Color Slope", "Slope")),
+        ):
+            value = settings.get(key)
+            if value is not None:
+                _set_input_default_candidates(node, socket_names, _rgba(value))
+        return node
+    if modifier_type == "CURVES":
+        node = _new_compositor_node(tree, "CompositorNodeCurveRGB", label, index, origin=origin)
+        curve_points = settings.get("__curve_points__")
+        if curve_points:
+            _apply_curve_points(node.mapping, curve_points)
+        return node
+    if modifier_type == "HUE_CORRECT":
+        node = _new_compositor_node(tree, "CompositorNodeHueCorrect", label, index, origin=origin)
+        hue_values = settings.get("__hue_correct__")
+        curve_points = settings.get("__curve_points__")
+        if hue_values:
+            _apply_hue_correct(node.mapping, hue_values)
+        if curve_points:
+            _apply_curve_points(node.mapping, curve_points)
+        return node
+    if modifier_type == "TONEMAP":
+        node = _new_compositor_node(tree, "CompositorNodeTonemap", label, index, origin=origin)
+        _set_input_default(node, "Type", _tonemap_type_name(settings.get("tonemap_type")))
+        for key, socket_name in (
+            ("key", "Key"),
+            ("offset", "Offset"),
+            ("gamma", "Gamma"),
+            ("intensity", "Intensity"),
+            ("contrast", "Contrast"),
+            ("adaptation", "Light Adaptation"),
+            ("correction", "Chromatic Adaptation"),
+        ):
+            if key in settings:
+                _set_input_default(node, socket_name, settings[key])
+        return node
+    if modifier_type == "WHITE_BALANCE":
+        node = _new_compositor_node(tree, "CompositorNodeColorBalance", label, index, origin=origin)
+        white_value = _rgba(settings.get("white_value", (1.0, 1.0, 1.0)))
+        _set_input_default_candidates(node, ("Fac", "Factor"), 1.0)
+        _set_input_default_candidates(node, ("Type",), "LIFT_GAMMA_GAIN")
+        _set_input_default_candidates(node, ("Color Gamma", "Gamma"), white_value)
+        _set_input_default_candidates(node, ("Color Gain", "Gain"), white_value)
+        return node
+    return None
+
+
 def _create_compositor_restoration_stack(scene, strip):
     tree = _ensure_compositor_tree(scene)
     origin = _next_node_origin(tree)
@@ -1737,6 +1870,30 @@ def _try_set_socket_default(socket, value) -> bool:
         return True
     except Exception:
         return False
+
+
+def _rgba(value, alpha: float = 1.0) -> tuple[float, float, float, float]:
+    if not isinstance(value, (tuple, list)):
+        return (float(value), float(value), float(value), alpha)
+    values = list(value)
+    if len(values) >= 4:
+        return tuple(float(item) for item in values[:4])
+    while len(values) < 3:
+        values.append(1.0)
+    return (float(values[0]), float(values[1]), float(values[2]), alpha)
+
+
+def _color_balance_method_name(settings: dict[str, object]) -> str:
+    method = str(settings.get("color_balance.correction_method", "LIFT_GAMMA_GAIN"))
+    if method == "OFFSET_POWER_SLOPE":
+        return "OFFSET_POWER_SLOPE"
+    return "LIFT_GAMMA_GAIN"
+
+
+def _tonemap_type_name(value) -> str:
+    if str(value) == "RH_SIMPLE":
+        return "RH_SIMPLE"
+    return "RD_PHOTORECEPTOR"
 
 
 def _set_output_default(node, socket_name: str, value) -> None:
