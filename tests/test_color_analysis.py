@@ -5,9 +5,12 @@ from pathlib import Path
 import pytest
 
 from video_toolkit.color_analysis import (
+    LumaSample,
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_lighting_normalization_keyframes,
+    sample_video_luma_timeline,
     sample_video_color,
 )
 
@@ -52,6 +55,14 @@ def test_sample_video_color_reads_real_pixels(tmp_path):
     assert stats.mean_chroma > 0
 
 
+def test_sample_video_luma_timeline_reads_real_frames(tmp_path):
+    red = _make_color_clip(tmp_path / "red_timeline.mp4", "red")
+    timeline = sample_video_luma_timeline(red, max_samples=6, sample_grid=8)
+    assert len(timeline) > 0
+    assert timeline[0].sample_index == 0
+    assert all(sample.luma > 0 for sample in timeline)
+
+
 def test_auto_balance_builds_live_blender_stack(tmp_path):
     source = _make_color_clip(tmp_path / "blue.mp4", "blue")
     stats = sample_video_color(source, max_samples=6, sample_grid=8)
@@ -89,3 +100,18 @@ def test_color_identity_stack_uses_palette_math(tmp_path):
     ]
     white_value = stack[0][1]["white_value"]
     assert white_value[2] > white_value[0]
+
+
+def test_lighting_normalization_keyframes_follow_smoothed_luma():
+    samples = (
+        LumaSample(0, 90.0),
+        LumaSample(1, 150.0),
+        LumaSample(2, 92.0),
+        LumaSample(3, 148.0),
+        LumaSample(4, 91.0),
+    )
+    keyframes = build_lighting_normalization_keyframes(samples, smoothing=3, strength=1.0)
+    assert len(keyframes) == 5
+    corrections = dict(keyframes)
+    assert corrections[1] < 0.0
+    assert corrections[2] > 0.0

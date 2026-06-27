@@ -189,6 +189,24 @@ assert result == {{'FINISHED'}}, result
 palette_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Frame Color Identity')]
 assert palette_types == ['WHITE_BALANCE', 'COLOR_BALANCE', 'CURVES', 'HUE_CORRECT', 'TONEMAP'], palette_types
 assert 'palette #' in scene.video_toolkit_last_analysis
+palette_summary = scene.video_toolkit_last_analysis
+
+result = bpy.ops.video_toolkit.normalize_lighting()
+assert result == {{'FINISHED'}}, result
+normalizer = next(modifier for modifier in strip.modifiers if modifier.name.startswith('VTK Live Flicker Normalizer'))
+def action_keyframe_count(action, data_path):
+    if hasattr(action, 'fcurves'):
+        return sum(len(fcurve.keyframe_points) for fcurve in action.fcurves if fcurve.data_path == data_path)
+    total = 0
+    for layer in action.layers:
+        for action_strip in layer.strips:
+            for channelbag in action_strip.channelbags:
+                total += sum(len(fcurve.keyframe_points) for fcurve in channelbag.fcurves if fcurve.data_path == data_path)
+    return total
+assert scene.animation_data is not None
+assert scene.animation_data.action is not None
+normalizer_keyframes = action_keyframe_count(scene.animation_data.action, normalizer.path_from_id('bright'))
+assert normalizer_keyframes >= 2, normalizer_keyframes
 
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='COLOR')
 assert result == {{'FINISHED'}}, result
@@ -239,7 +257,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'edited_modifiers': edited,
     'native_modifier_types': types,
     'palette_modifier_types': palette_types,
-    'palette_summary': scene.video_toolkit_last_analysis,
+    'palette_summary': palette_summary,
+    'normalizer_keyframes': normalizer_keyframes,
     'compositor_color_node_types': color_node_types,
     'compositor_all_node_types': all_node_types,
     'compositor_links': len(tree.links),

@@ -101,6 +101,21 @@ bpy.ops.video_toolkit.analyze_color(mode='AUTO')
 assert len(strip.modifiers) >= 5
 bpy.ops.video_toolkit.analyze_color(mode='PALETTE')
 assert 'palette #' in scene.video_toolkit_last_analysis
+bpy.ops.video_toolkit.normalize_lighting()
+normalizer = next(m for m in strip.modifiers if m.name.startswith('VTK Live Flicker Normalizer'))
+def action_keyframe_count(action, data_path):
+    if hasattr(action, 'fcurves'):
+        return sum(len(fcurve.keyframe_points) for fcurve in action.fcurves if fcurve.data_path == data_path)
+    total = 0
+    for layer in action.layers:
+        for action_strip in layer.strips:
+            for channelbag in action_strip.channelbags:
+                total += sum(len(fcurve.keyframe_points) for fcurve in channelbag.fcurves if fcurve.data_path == data_path)
+    return total
+normalizer_path = normalizer.path_from_id('bright')
+assert scene.animation_data is not None
+assert scene.animation_data.action is not None
+assert action_keyframe_count(scene.animation_data.action, normalizer_path) >= 2
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',

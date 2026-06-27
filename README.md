@@ -53,6 +53,7 @@ FFmpeg must be installed and visible on `PATH`.
 ## Included Tool Groups
 
 - Live frame analysis: auto balance selected footage, match the active movie strip to another selected reference strip, or identify dominant colors and build a palette-aware live grade.
+- Live lighting normalization: samples luma through time and creates keyframed Blender Brightness/Contrast correction on the selected strip to reduce flicker without rendering a new file.
 - Zone-aware matching: frame samples are split into shadows, midtones, and highlights, then mapped to Blender Lift/Gamma/Gain, Tone Map, RGB Curves, and Hue Correct.
 - Palette math: sampled frames report dominant swatches, warm/cool balance, skin-tone-like pixel ratio, average saturation, and chroma, then map that identity into White Balance, Color Balance, Curves, Hue Correct, and Tone Map.
 - Live Blender color room: Color Management, Sequencer input color space, exposure, gamma, white balance, strip transform/crop/opacity, and editable live modifier stack.

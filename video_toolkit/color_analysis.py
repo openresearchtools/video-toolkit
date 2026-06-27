@@ -12,6 +12,12 @@ from .ffmpeg_backend import FFmpegError, probe_video, require_executable
 
 
 @dataclass(frozen=True)
+class LumaSample:
+    sample_index: int
+    luma: float
+
+
+@dataclass(frozen=True)
 class ColorStats:
     samples: int
     mean_r: float
@@ -164,6 +170,85 @@ def sample_video_color(
         mean_saturation=saturation_total / count,
         mean_chroma=chroma_total / count,
     )
+
+
+def sample_video_luma_timeline(
+    input_path: str | Path,
+    *,
+    max_samples: int = 240,
+    sample_grid: int = 12,
+) -> tuple[LumaSample, ...]:
+    """Sample per-frame luma through time for live keyframed normalization."""
+
+    path = Path(input_path)
+    info = probe_video(path)
+    duration = info.duration or 1.0
+    max_samples = max(2, int(max_samples))
+    sample_grid = max(1, int(sample_grid))
+    fps = min(max_samples / max(duration, 0.001), info.frame_rate or 60.0)
+    ffmpeg = require_executable("ffmpeg")
+    command = [
+        ffmpeg,
+        "-hide_banner",
+        "-v",
+        "error",
+        "-i",
+        str(path),
+        "-an",
+        "-vf",
+        f"fps={fps:.6f},scale={sample_grid}:{sample_grid}:flags=area,format=rgb24",
+        "-frames:v",
+        str(max_samples),
+        "-f",
+        "rawvideo",
+        "pipe:1",
+    ]
+    result = subprocess.run(command, check=False, capture_output=True)
+    if result.returncode != 0:
+        message = result.stderr.decode("utf-8", "replace").strip()
+        raise FFmpegError(message or "ffmpeg luma timeline sampling failed")
+    frame_size = sample_grid * sample_grid * 3
+    usable = len(result.stdout) - (len(result.stdout) % frame_size)
+    if usable <= 0:
+        raise FFmpegError(f"No sample frames decoded from {path}")
+    samples: list[LumaSample] = []
+    for sample_index, frame_start in enumerate(range(0, usable, frame_size)):
+        frame = result.stdout[frame_start : frame_start + frame_size]
+        luma_total = 0.0
+        pixel_count = len(frame) // 3
+        for offset in range(0, len(frame), 3):
+            luma_total += 0.2126 * frame[offset] + 0.7152 * frame[offset + 1] + 0.0722 * frame[offset + 2]
+        samples.append(LumaSample(sample_index=sample_index, luma=luma_total / max(pixel_count, 1)))
+    return tuple(samples)
+
+
+def build_lighting_normalization_keyframes(
+    samples: tuple[LumaSample, ...],
+    *,
+    smoothing: int = 9,
+    strength: float = 0.80,
+    max_bright: float = 0.22,
+) -> tuple[tuple[int, float], ...]:
+    """Convert luma pulses into Blender Brightness/Contrast keyframes.
+
+    The correction follows a moving-average target, so slow exposure changes are
+    mostly preserved while frame-to-frame flicker is reduced.
+    """
+
+    if not samples:
+        return ()
+    smoothing = max(1, int(smoothing))
+    if smoothing % 2 == 0:
+        smoothing += 1
+    strength = _clamp(float(strength), 0.0, 1.5)
+    max_bright = abs(float(max_bright))
+    lumas = [sample.luma for sample in samples]
+    smoothed = _moving_average(lumas, smoothing)
+    keyframes: list[tuple[int, float]] = []
+    for sample, target_luma in zip(samples, smoothed):
+        correction = _clamp((target_luma - sample.luma) / 255.0 * strength, -max_bright, max_bright)
+        keyframes.append((sample.sample_index, correction))
+    return tuple(_reduce_keyframes(keyframes))
 
 
 def build_auto_balance_stack(stats: ColorStats) -> tuple[tuple[str, dict[str, object]], ...]:
@@ -337,6 +422,30 @@ def _dominant_swatches(bins: dict[tuple[int, int, int], list[float]]) -> tuple[t
 
 def _rgb_hex(rgb: tuple[float, float, float]) -> str:
     return "#" + "".join(f"{int(_clamp(channel, 0.0, 255.0)):02x}" for channel in rgb)
+
+
+def _moving_average(values: list[float], window: int) -> list[float]:
+    half = window // 2
+    result: list[float] = []
+    for index in range(len(values)):
+        start = max(0, index - half)
+        end = min(len(values), index + half + 1)
+        result.append(sum(values[start:end]) / max(end - start, 1))
+    return result
+
+
+def _reduce_keyframes(keyframes: list[tuple[int, float]]) -> list[tuple[int, float]]:
+    if len(keyframes) <= 2:
+        return keyframes
+    reduced = [keyframes[0]]
+    for previous, current, following in zip(keyframes, keyframes[1:], keyframes[2:]):
+        slope_a = current[1] - previous[1]
+        slope_b = following[1] - current[1]
+        if abs(current[1]) < 0.001 and abs(slope_a) < 0.001 and abs(slope_b) < 0.001:
+            continue
+        reduced.append(current)
+    reduced.append(keyframes[-1])
+    return reduced
 
 
 def _contrast_curve_points(target: ColorStats, reference: ColorStats) -> list[tuple[float, float]]:

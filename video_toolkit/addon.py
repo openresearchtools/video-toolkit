@@ -11,6 +11,8 @@ from .color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_lighting_normalization_keyframes,
+    sample_video_luma_timeline,
     sample_video_color,
     summarize_stats,
 )
@@ -151,6 +153,51 @@ class VIDEO_TOOLKIT_OT_analyze_color(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_normalize_lighting(Operator):
+    bl_idname = "video_toolkit.normalize_lighting"
+    bl_label = "Normalize Lighting Flicker"
+    bl_description = "Sample luma over time and create live keyframed Blender brightness correction"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            samples = sample_video_luma_timeline(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            keyframes = build_lighting_normalization_keyframes(
+                samples,
+                smoothing=scene.video_toolkit_flicker_smoothing,
+                strength=scene.video_toolkit_flicker_strength,
+            )
+            if not keyframes:
+                raise RuntimeError("No lighting samples were available for normalization")
+            modifier = _add_blender_modifier(
+                strip,
+                "BRIGHT_CONTRAST",
+                {"bright": keyframes[0][1], "contrast": 0.0},
+                "Live Flicker Normalizer",
+            )
+            inserted = _insert_modifier_keyframes(strip, modifier, keyframes, "bright")
+            scene.video_toolkit_last_analysis = (
+                f"lighting keyframes {inserted}, luma {min(sample.luma for sample in samples):.1f}-"
+                f"{max(sample.luma for sample in samples):.1f}, smoothing {scene.video_toolkit_flicker_smoothing}, "
+                f"strength {scene.video_toolkit_flicker_strength:.2f}"
+            )
+            self.report({"INFO"}, f"Added live flicker normalizer with {inserted} keyframes")
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_clear_live_modifiers(Operator):
     bl_idname = "video_toolkit.clear_live_modifiers"
     bl_label = "Clear Video Toolkit Modifiers"
@@ -233,6 +280,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         op.mode = "MATCH"
         op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Identify Colors", icon="COLOR")
         op.mode = "PALETTE"
+        layout.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Analyze: Normalize Flicker", icon="IPO_EASE_IN_OUT")
         _draw_operator(layout, "live_pro_color_stack", icon="MODIFIER")
         layout.separator()
         layout.menu("VIDEO_TOOLKIT_MT_live_blender_color", icon="COLOR")
@@ -347,7 +395,11 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     op.mode = "MATCH"
     op = row.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Identify", icon="COLOR")
     op.mode = "PALETTE"
+    box.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Normalize Lighting Flicker", icon="IPO_EASE_IN_OUT")
     box.prop(scene, "video_toolkit_analysis_samples")
+    row = box.row(align=True)
+    row.prop(scene, "video_toolkit_flicker_smoothing", text="Smooth")
+    row.prop(scene, "video_toolkit_flicker_strength", text="Strength")
     if scene.video_toolkit_last_analysis:
         box.label(text=scene.video_toolkit_last_analysis, icon="INFO")
 
@@ -530,6 +582,70 @@ def _add_blender_modifier(strip, modifier_type, settings, label):
     for path, value in settings.items():
         _set_nested_attr(modifier, path, value)
     return modifier
+
+
+def _insert_modifier_keyframes(strip, modifier, keyframes, property_name: str) -> int:
+    if not hasattr(modifier, property_name):
+        raise RuntimeError(f"{modifier.name} does not expose {property_name}")
+    start = int(getattr(strip, "frame_final_start", getattr(strip, "frame_start", 1)))
+    end = int(getattr(strip, "frame_final_end", start + getattr(strip, "frame_final_duration", 1))) - 1
+    duration = max(1, end - start)
+    max_index = max((index for index, _value in keyframes), default=1)
+    inserted = 0
+    seen_frames: set[int] = set()
+    for sample_index, value in keyframes:
+        frame = start + round((sample_index / max(max_index, 1)) * duration)
+        if frame in seen_frames:
+            continue
+        seen_frames.add(frame)
+        setattr(modifier, property_name, value)
+        modifier.keyframe_insert(data_path=property_name, frame=frame)
+        inserted += 1
+    _set_keyframes_linear(modifier)
+    return inserted
+
+
+def _set_keyframes_linear(target) -> None:
+    owners = [target]
+    owner_id = getattr(target, "id_data", None)
+    if owner_id is not None and owner_id is not target:
+        owners.append(owner_id)
+    for owner in owners:
+        animation = getattr(owner, "animation_data", None)
+        action = getattr(animation, "action", None) if animation else None
+        if action is None:
+            continue
+        for fcurve in _iter_action_fcurves(action):
+            for keyframe in fcurve.keyframe_points:
+                keyframe.interpolation = "LINEAR"
+
+
+def _iter_action_fcurves(action):
+    if hasattr(action, "fcurves"):
+        yield from action.fcurves
+        return
+    for layer in getattr(action, "layers", []):
+        for action_strip in getattr(layer, "strips", []):
+            for channelbag in getattr(action_strip, "channelbags", []):
+                yield from getattr(channelbag, "fcurves", [])
+
+
+def _count_action_keyframes(action, data_path: str) -> int:
+    if action is None:
+        return 0
+    total = 0
+    for fcurve in _iter_action_fcurves(action):
+        if fcurve.data_path == data_path:
+            total += len(fcurve.keyframe_points)
+    return total
+
+
+def _set_action_keyframes_linear(action, data_path: str) -> None:
+    for fcurve in _iter_action_fcurves(action):
+        if fcurve.data_path != data_path:
+            continue
+        for keyframe in fcurve.keyframe_points:
+            keyframe.interpolation = "LINEAR"
 
 
 def _create_compositor_color_stack(scene, strip):
@@ -905,6 +1021,7 @@ def _overlaps(strip, start: int, end: int) -> bool:
 CLASSES = (
     VIDEO_TOOLKIT_OT_apply_filter,
     VIDEO_TOOLKIT_OT_analyze_color,
+    VIDEO_TOOLKIT_OT_normalize_lighting,
     VIDEO_TOOLKIT_OT_clear_live_modifiers,
     VIDEO_TOOLKIT_OT_create_compositor_nodes,
     VIDEO_TOOLKIT_OT_open_output_folder,
@@ -971,6 +1088,20 @@ def register() -> None:
         items=APPLY_TARGET_ITEMS,
         default="ACTIVE",
     )
+    bpy.types.Scene.video_toolkit_flicker_smoothing = bpy.props.IntProperty(
+        name="Flicker Smoothing",
+        description="Odd-sized sample window used by the live lighting normalizer",
+        min=1,
+        max=99,
+        default=9,
+    )
+    bpy.types.Scene.video_toolkit_flicker_strength = bpy.props.FloatProperty(
+        name="Flicker Strength",
+        description="How strongly keyframed Blender brightness follows the smoothed luma target",
+        min=0.0,
+        max=1.5,
+        default=0.80,
+    )
     bpy.types.Scene.video_toolkit_last_compositor_nodes = bpy.props.StringProperty(
         name="Last Compositor Nodes",
         default="",
@@ -993,6 +1124,8 @@ def unregister() -> None:
         "video_toolkit_analysis_samples",
         "video_toolkit_last_analysis",
         "video_toolkit_apply_target",
+        "video_toolkit_flicker_smoothing",
+        "video_toolkit_flicker_strength",
         "video_toolkit_last_compositor_nodes",
     ):
         if hasattr(bpy.types.Scene, attr):
