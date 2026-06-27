@@ -133,6 +133,7 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     after = output_dir / "after_live_edit.png"
     translated = output_dir / "after_native_color_chain.png"
     color_managed = output_dir / "after_color_management_preset.png"
+    diagnostic_grade = output_dir / "after_diagnostic_grade.png"
     blend = output_dir / "end_user_preview.blend"
     report = output_dir / "report.json"
     return f"""
@@ -261,6 +262,18 @@ assert diagnostics_text_name in bpy.data.texts
 diagnostics_report = bpy.data.texts[diagnostics_text_name].as_string()
 assert 'Video Toolkit Color Diagnostics' in diagnostics_report
 assert 'Suggested native Blender tools' in diagnostics_report
+result = bpy.ops.video_toolkit.apply_diagnostic_grade()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_diagnostic_grade.startswith('diagnostic grade')
+diagnostic_grade_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Diagnostic Grade')]
+assert diagnostic_grade_types, 'No diagnostic grade modifiers were added'
+diagnostic_grade_stats = render_preview({str(diagnostic_grade)!r})
+diagnostic_grade_diff = (
+    abs(diagnostic_grade_stats['r'] - color_managed_stats['r'])
+    + abs(diagnostic_grade_stats['g'] - color_managed_stats['g'])
+    + abs(diagnostic_grade_stats['b'] - color_managed_stats['b'])
+)
+assert diagnostic_grade_diff > 0.001, f'Diagnostic grade did not visibly change preview pixels: {{diagnostic_grade_diff}}'
 
 result = bpy.ops.video_toolkit.normalize_lighting()
 assert result == {{'FINISHED'}}, result
@@ -375,13 +388,16 @@ Path({str(report)!r}).write_text(json.dumps({{
     'after_png': {str(after)!r},
     'translated_png': {str(translated)!r},
     'color_managed_png': {str(color_managed)!r},
+    'diagnostic_grade_png': {str(diagnostic_grade)!r},
     'before': before_stats,
     'after': after_stats,
     'translated': translated_stats,
     'color_managed': color_managed_stats,
+    'diagnostic_grade': diagnostic_grade_stats,
     'rgb_abs_diff': diff,
     'translated_rgb_abs_diff': translated_diff,
     'color_management_rgb_abs_diff': color_management_diff,
+    'diagnostic_grade_rgb_abs_diff': diagnostic_grade_diff,
     'edited_modifiers': edited,
     'native_modifier_types': types,
     'translated_chain_summary': scene.video_toolkit_last_translation,
@@ -392,6 +408,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'diagnostics_summary': scene.video_toolkit_last_diagnostics,
     'diagnostics_text': diagnostics_text_name,
     'diagnostics_report_excerpt': diagnostics_report.splitlines()[:12],
+    'diagnostic_grade_summary': scene.video_toolkit_last_diagnostic_grade,
+    'diagnostic_grade_modifier_types': diagnostic_grade_types,
     'normalizer_keyframes': normalizer_keyframes,
     'timeline_match_reference': {str(reference_video)!r},
     'timeline_match_keyframes': timeline_match_keyframes,

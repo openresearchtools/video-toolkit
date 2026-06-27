@@ -199,6 +199,43 @@ class VIDEO_TOOLKIT_OT_color_diagnostics(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_apply_diagnostic_grade(Operator):
+    bl_idname = "video_toolkit.apply_diagnostic_grade"
+    bl_label = "Apply Diagnostic Grade"
+    bl_description = "Sample the selected video, diagnose color issues, and apply recommended native Blender live tools"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            stats = sample_video_color(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            diagnosis = diagnose_color(stats)
+            text = _write_diagnostics_text(strip, diagnosis.report)
+            stack, labels = _diagnostic_recommended_stack(diagnosis)
+            if not stack:
+                raise RuntimeError("No live Blender diagnostic tools were available for this diagnosis")
+            modifiers, targets = _add_blender_stack_for_target(context, stack, "Diagnostic Grade")
+            scene.video_toolkit_last_diagnostics = diagnosis.summary
+            scene.video_toolkit_last_diagnostics_text = text.name
+            scene.video_toolkit_last_diagnostic_grade = (
+                f"diagnostic grade {len(modifiers)} modifier(s) on {len(targets)} target(s): {', '.join(labels)}"
+            )
+            self.report({"INFO"}, scene.video_toolkit_last_diagnostic_grade)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_normalize_lighting(Operator):
     bl_idname = "video_toolkit.normalize_lighting"
     bl_label = "Normalize Lighting Flicker"
@@ -503,6 +540,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Identify Colors", icon="COLOR")
         op.mode = "PALETTE"
         layout.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Analyze: Color Diagnostics", icon="TEXT")
+        layout.operator(VIDEO_TOOLKIT_OT_apply_diagnostic_grade.bl_idname, text="Apply Diagnostic Grade", icon="COLOR")
         layout.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Analyze: Normalize Flicker", icon="IPO_EASE_IN_OUT")
         layout.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Analyze: Match Lighting Timeline", icon="GRAPH")
         layout.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Analyze: Match Color Timeline", icon="COLOR")
@@ -646,6 +684,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     box.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Lighting Timeline", icon="GRAPH")
     box.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color Timeline", icon="COLOR")
     box.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Color Diagnostics Report", icon="TEXT")
+    box.operator(VIDEO_TOOLKIT_OT_apply_diagnostic_grade.bl_idname, text="Apply Diagnostic Grade", icon="COLOR")
     box.prop(scene, "video_toolkit_analysis_samples")
     row = box.row(align=True)
     row.prop(scene, "video_toolkit_flicker_smoothing", text="Smooth")
@@ -662,6 +701,8 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
         box.label(text=scene.video_toolkit_last_diagnostics, icon="INFO")
         if scene.video_toolkit_last_diagnostics_text:
             box.label(text=scene.video_toolkit_last_diagnostics_text, icon="TEXT")
+    if scene.video_toolkit_last_diagnostic_grade:
+        box.label(text=scene.video_toolkit_last_diagnostic_grade, icon="MODIFIER")
 
 
 def _draw_scene_color_management(layout, scene) -> None:
@@ -934,6 +975,22 @@ def _set_if_present(target, prop: str, value) -> None:
             setattr(target, prop, value)
         except Exception:
             return
+
+
+def _diagnostic_recommended_stack(diagnosis):
+    tools_by_label = {tool.label: tool for tool in all_tools() if tool.is_blender_modifier}
+    stack = []
+    labels = []
+    for label in diagnosis.suggested_tools:
+        tool = tools_by_label.get(label)
+        if tool is None:
+            continue
+        labels.append(tool.label)
+        if tool.blender_stack:
+            stack.extend(tool.blender_stack)
+        elif tool.blender_modifier:
+            stack.append((tool.blender_modifier, tool.blender_settings))
+    return tuple(stack), tuple(labels)
 
 
 def _add_blender_tool(strip, tool):
@@ -1533,6 +1590,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_apply_filter,
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_color_diagnostics,
+    VIDEO_TOOLKIT_OT_apply_diagnostic_grade,
     VIDEO_TOOLKIT_OT_normalize_lighting,
     VIDEO_TOOLKIT_OT_match_lighting_timeline,
     VIDEO_TOOLKIT_OT_match_color_timeline,
@@ -1605,6 +1663,10 @@ def register() -> None:
     )
     bpy.types.Scene.video_toolkit_last_diagnostics_text = bpy.props.StringProperty(
         name="Last Color Diagnostics Text",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_last_diagnostic_grade = bpy.props.StringProperty(
+        name="Last Diagnostic Grade",
         default="",
     )
     bpy.types.Scene.video_toolkit_apply_target = bpy.props.EnumProperty(
@@ -1691,6 +1753,7 @@ def unregister() -> None:
         "video_toolkit_last_analysis",
         "video_toolkit_last_diagnostics",
         "video_toolkit_last_diagnostics_text",
+        "video_toolkit_last_diagnostic_grade",
         "video_toolkit_apply_target",
         "video_toolkit_ffmpeg_chain",
         "video_toolkit_last_translation",

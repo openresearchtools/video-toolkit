@@ -64,7 +64,7 @@ FFmpeg must be installed and visible on `PATH`.
 
 ## Included Tool Groups
 
-- Live frame analysis: auto balance selected footage, match the active movie strip to another selected reference strip, identify dominant colors, build a palette-aware live grade, and write a color diagnostics report with findings and suggested native Blender tools.
+- Live frame analysis: auto balance selected footage, match the active movie strip to another selected reference strip, identify dominant colors, build a palette-aware live grade, write a color diagnostics report, and apply a diagnostic grade from the suggested native Blender tools.
 - Live lighting and color timeline matching: samples luma and RGB through time, creates keyframed Blender Brightness/Contrast correction to reduce flicker, matches the active strip's lighting timeline to another selected reference strip, or keyframes Color Balance gamma/gain to follow a reference clip's color timeline without rendering a new file.
 - Zone-aware matching: frame samples are split into shadows, midtones, and highlights, then mapped to Blender Lift/Gamma/Gain, Tone Map, RGB Curves, and Hue Correct.
 - Palette math: sampled frames report dominant swatches, warm/cool balance, skin-tone-like pixel ratio, average saturation, and chroma, then map that identity into White Balance, Color Balance, Curves, Hue Correct, and Tone Map.
@@ -85,8 +85,10 @@ Generated videos are written to `video_toolkit_outputs/` by default and are igno
 
 ## End-User Verification
 
-`scripts/end_user_blender_preview_test.py` opens a real MP4 in Blender's Video Sequencer, selects the movie strip, applies live Blender color tools through the same operators the UI buttons use, translates an FFmpeg-style color chain into native Blender modifiers, applies a native Color Management preset, writes a color diagnostics report, edits the resulting live modifier properties, renders before/after Sequencer preview frames to PNG, and fails if the pixels do not change. It also creates Blender-native compositor color/restoration graphs and the full native node library from that selected strip.
+`scripts/end_user_blender_preview_test.py` opens a real MP4 in Blender's Video Sequencer, selects the movie strip, applies live Blender color tools through the same operators the UI buttons use, translates an FFmpeg-style color chain into native Blender modifiers, applies a native Color Management preset, writes a color diagnostics report, applies the diagnostic grade recommendations, edits the resulting live modifier properties, renders before/after Sequencer preview frames to PNG, and fails if the pixels do not change. It also creates Blender-native compositor color/restoration graphs and the full native node library from that selected strip.
 
 `scripts/blender_native_coverage.py` audits the installed Blender build directly. It verifies every VSE color modifier used by the add-on and every tracked Blender compositor video node can be created in Blender 5.2.
 
 `scripts/capture_blender_ui.py` opens Blender's Sequencer with a selected movie strip and captures the **Video Filters** panel to `tests/output/blender_ui/video_filters_panel_open.png`.
+
+`scripts/open_blender_video_filters.py` opens Blender for manual checking, registers the add-on from this checkout, selects a real video strip in the Sequencer, applies the diagnostic grade tools, and leaves the **Video Filters** panel open.
