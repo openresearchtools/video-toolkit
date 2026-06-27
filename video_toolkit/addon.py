@@ -1128,6 +1128,64 @@ class VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_create_recommended_recipe_mix_nodes(Operator):
+    bl_idname = "video_toolkit.create_recommended_recipe_mix_nodes"
+    bl_label = "Create Recommended Mix Nodes"
+    bl_description = "Sample real frames and create one Blender compositor graph from the ranked native recipe mix"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            stats = sample_video_color(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            diagnosis = diagnose_color(stats)
+            recommendations = _rank_catalog_recipes(stats, diagnosis)
+            if not recommendations:
+                raise RuntimeError("No Blender-native color recipes were available for recommendation")
+            text = _write_recipe_recommendation_text(strip, stats, diagnosis, recommendations)
+            count = max(1, min(scene.video_toolkit_recommendation_mix_count, len(recommendations)))
+            stack, labels, recipe_ids = _recommended_recipe_mix_stack(recommendations, count)
+            supported_count = sum(1 for modifier_type, _settings in stack if modifier_type in COMPOSITOR_MODIFIER_TYPES)
+            if not supported_count:
+                raise RuntimeError("Recommended recipes did not contain any compositor-compatible Blender nodes")
+            created = _create_compositor_nodes_from_blender_stack(scene, strip, stack, "Recommended Recipe Mix")
+            skipped = len(stack) - supported_count
+            for node in created:
+                node["video_toolkit_recommended_recipe_ids"] = ",".join(recipe_ids)
+                node["video_toolkit_recommended_recipe_labels"] = ", ".join(labels)
+                node["video_toolkit_source_strip"] = strip.name
+            scene.video_toolkit_last_recipe_recommendations = text.name
+            scene["video_toolkit_last_recommended_recipe_ids"] = ",".join(
+                tool.id for _score, tool, _reasons in recommendations[:12]
+            )
+            scene["video_toolkit_last_recommended_recipe_mix_ids"] = ",".join(recipe_ids)
+            scene["video_toolkit_last_recommended_recipe_mix_node_ids"] = ",".join(recipe_ids)
+            top_tool = recommendations[0][1]
+            scene.video_toolkit_sidecar_group = _enum_key(top_tool.category)
+            scene.video_toolkit_sidecar_tool = top_tool.id
+            summary = (
+                f"recommended recipe mix nodes {len(created)} node(s) from {len(recipe_ids)} recipe(s): "
+                f"{', '.join(labels)}"
+            )
+            if skipped:
+                summary = f"{summary}; skipped {skipped} VSE-only modifier(s)"
+            scene.video_toolkit_last_compositor_nodes = summary
+            self.report({"INFO"}, summary)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_write_catalog_coverage_report(Operator):
     bl_idname = "video_toolkit.write_catalog_coverage_report"
     bl_label = "Write Catalog Coverage Report"
@@ -1686,8 +1744,9 @@ def _draw_one_click_video_effects(layout, scene, strip) -> None:
     row.operator(VIDEO_TOOLKIT_OT_recommend_catalog_recipes.bl_idname, text="Recommend", icon="SORT_ASC")
     row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_recommended_recipe_mix.bl_idname, text="Apply Mix", icon="MODIFIER")
-    row.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Deflicker", icon="IPO_EASE_IN_OUT")
+    row.operator(VIDEO_TOOLKIT_OT_create_recommended_recipe_mix_nodes.bl_idname, text="Mix Nodes", icon="NODETREE")
     row = controls.row(align=True)
+    row.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Deflicker", icon="IPO_EASE_IN_OUT")
     row.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Light", icon="GRAPH")
     row.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color", icon="COLOR")
     row = controls.row(align=True)
@@ -1743,6 +1802,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     box.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Color Diagnostics Report", icon="TEXT")
     box.operator(VIDEO_TOOLKIT_OT_recommend_catalog_recipes.bl_idname, text="Recommend Catalog Recipes", icon="SORT_ASC")
     box.operator(VIDEO_TOOLKIT_OT_apply_recommended_recipe_mix.bl_idname, text="Apply Recommended Recipe Mix", icon="MODIFIER")
+    box.operator(VIDEO_TOOLKIT_OT_create_recommended_recipe_mix_nodes.bl_idname, text="Recommended Recipe Mix Nodes", icon="NODETREE")
     box.operator(VIDEO_TOOLKIT_OT_apply_diagnostic_grade.bl_idname, text="Apply Diagnostic Grade", icon="COLOR")
     box.prop(scene, "video_toolkit_analysis_samples")
     box.prop(scene, "video_toolkit_recommendation_mix_count", text="Mix Count")
@@ -1850,6 +1910,11 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
     op.stack_type = "RESTORATION"
     box.menu("VIDEO_TOOLKIT_MT_compositor_recipes", text="Color Recipe Nodes", icon="NODETREE")
+    box.operator(
+        VIDEO_TOOLKIT_OT_create_recommended_recipe_mix_nodes.bl_idname,
+        text="Recommended Recipe Mix Nodes",
+        icon="NODETREE",
+    )
     box.operator(VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes.bl_idname, text="All Color Recipe Nodes", icon="NODETREE")
     box.operator(VIDEO_TOOLKIT_OT_write_catalog_coverage_report.bl_idname, text="Catalog Coverage Report", icon="TEXT")
     op = box.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Native Node Library", icon="NODETREE")
@@ -3639,6 +3704,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_create_tool_compositor_nodes,
     VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes,
     VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes,
+    VIDEO_TOOLKIT_OT_create_recommended_recipe_mix_nodes,
     VIDEO_TOOLKIT_OT_write_catalog_coverage_report,
     VIDEO_TOOLKIT_OT_apply_color_management_preset,
     VIDEO_TOOLKIT_OT_apply_sampled_color_management,

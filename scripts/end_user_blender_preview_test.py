@@ -323,6 +323,31 @@ assert recipe_mix_ids
 assert recipe_mix_ids[0] in recommended_recipe_ids
 recipe_mix_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Recommended Recipe Mix')]
 assert recipe_mix_types, 'No recommended recipe mix modifiers were added'
+result = bpy.ops.video_toolkit.create_recommended_recipe_mix_nodes()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('recommended recipe mix nodes')
+recommended_recipe_mix_node_summary = scene.video_toolkit_last_compositor_nodes
+recipe_mix_node_ids = scene.get('video_toolkit_last_recommended_recipe_mix_node_ids', '').split(',')
+assert recipe_mix_node_ids == recipe_mix_ids
+tree = scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree
+recommended_recipe_mix_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Recommended Recipe Mix ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in recommended_recipe_mix_node_types, required
+assert any(
+    required in recommended_recipe_mix_node_types
+    for required in ('CompositorNodeColorBalance', 'CompositorNodeCurveRGB', 'CompositorNodeHueCorrect', 'CompositorNodeTonemap')
+), recommended_recipe_mix_node_types
 recommended_recipe_mix_stats = render_preview({str(recommended_recipe_mix)!r})
 recommended_recipe_mix_diff = (
     abs(recommended_recipe_mix_stats['r'] - sampled_color_management_stats['r'])
@@ -925,6 +950,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'recommended_recipe_mix_summary': scene.video_toolkit_last_recommended_recipe_mix,
     'recommended_recipe_mix_ids': recipe_mix_ids,
     'recommended_recipe_mix_modifier_types': recipe_mix_types,
+    'recommended_recipe_mix_node_summary': recommended_recipe_mix_node_summary,
+    'recommended_recipe_mix_node_ids': recipe_mix_node_ids,
+    'recommended_recipe_mix_node_types': recommended_recipe_mix_node_types,
     'diagnostic_grade_summary': scene.video_toolkit_last_diagnostic_grade,
     'diagnostic_grade_modifier_types': diagnostic_grade_types,
     'sampled_white_balance_summary': scene.video_toolkit_last_sampled_white_balance,

@@ -145,6 +145,26 @@ assert recipe_mix_ids[0] in recommended_recipe_ids
 recipe_mix_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Recommended Recipe Mix')]
 assert recipe_mix_types, 'No recommended recipe mix modifiers were added'
 assert any(modifier_type in recipe_mix_types for modifier_type in ('BRIGHT_CONTRAST', 'COLOR_BALANCE', 'CURVES', 'HUE_CORRECT'))
+bpy.ops.video_toolkit.create_recommended_recipe_mix_nodes()
+assert scene.video_toolkit_last_compositor_nodes.startswith('recommended recipe mix nodes')
+recipe_mix_node_ids = scene.get('video_toolkit_last_recommended_recipe_mix_node_ids', '').split(',')
+assert recipe_mix_node_ids == recipe_mix_ids
+tree = scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree
+recipe_mix_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Recommended Recipe Mix ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in recipe_mix_node_types, required
+assert any(required in recipe_mix_node_types for required in ('CompositorNodeColorBalance', 'CompositorNodeCurveRGB', 'CompositorNodeHueCorrect'))
 scene.video_toolkit_apply_target = 'SELECTED'
 bpy.ops.video_toolkit.apply_diagnostic_grade()
 assert scene.video_toolkit_last_diagnostic_grade.startswith('diagnostic grade')
