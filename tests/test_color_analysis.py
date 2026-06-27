@@ -13,6 +13,7 @@ from video_toolkit.color_analysis import (
     build_color_timeline_match_keyframes,
     build_lighting_match_keyframes,
     build_lighting_normalization_keyframes,
+    diagnose_color,
     sample_video_color_timeline,
     sample_video_luma_timeline,
     sample_video_color,
@@ -112,6 +113,17 @@ def test_color_identity_stack_uses_palette_math(tmp_path):
     ]
     white_value = stack[0][1]["white_value"]
     assert white_value[2] > white_value[0]
+
+
+def test_color_diagnosis_reports_palette_and_suggested_tools(tmp_path):
+    orange = sample_video_color(_make_color_clip(tmp_path / "diagnose_orange.mp4", "orange"), max_samples=6, sample_grid=8)
+    diagnosis = diagnose_color(orange)
+
+    assert diagnosis.palette_hex
+    assert "Video Toolkit Color Diagnostics" in diagnosis.report
+    assert "Suggested native Blender tools" in diagnosis.report
+    assert "Temperature Cool" in diagnosis.suggested_tools
+    assert diagnosis.summary.startswith("diagnosis")
 
 
 def test_lighting_normalization_keyframes_follow_smoothed_luma():

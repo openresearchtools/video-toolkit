@@ -14,6 +14,7 @@ from .color_analysis import (
     build_color_timeline_match_keyframes,
     build_lighting_match_keyframes,
     build_lighting_normalization_keyframes,
+    diagnose_color,
     sample_video_color_timeline,
     sample_video_luma_timeline,
     sample_video_color,
@@ -161,6 +162,36 @@ class VIDEO_TOOLKIT_OT_analyze_color(Operator):
             modifiers = _add_blender_stack(active, stack, label)
             scene.video_toolkit_last_analysis = summary
             self.report({"INFO"}, f"Added {len(modifiers)} live modifiers from {summary}")
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
+class VIDEO_TOOLKIT_OT_color_diagnostics(Operator):
+    bl_idname = "video_toolkit.color_diagnostics"
+    bl_label = "Color Diagnostics"
+    bl_description = "Sample real frames and write a professional color diagnostics report"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            stats = sample_video_color(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            diagnosis = diagnose_color(stats)
+            text = _write_diagnostics_text(strip, diagnosis.report)
+            scene.video_toolkit_last_diagnostics = diagnosis.summary
+            scene.video_toolkit_last_diagnostics_text = text.name
+            self.report({"INFO"}, f"{diagnosis.summary}; report {text.name}")
             return {"FINISHED"}
         except Exception as exc:
             traceback.print_exc()
@@ -471,6 +502,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         op.mode = "MATCH"
         op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Identify Colors", icon="COLOR")
         op.mode = "PALETTE"
+        layout.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Analyze: Color Diagnostics", icon="TEXT")
         layout.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Analyze: Normalize Flicker", icon="IPO_EASE_IN_OUT")
         layout.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Analyze: Match Lighting Timeline", icon="GRAPH")
         layout.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Analyze: Match Color Timeline", icon="COLOR")
@@ -613,6 +645,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     box.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Normalize Lighting Flicker", icon="IPO_EASE_IN_OUT")
     box.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Lighting Timeline", icon="GRAPH")
     box.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color Timeline", icon="COLOR")
+    box.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Color Diagnostics Report", icon="TEXT")
     box.prop(scene, "video_toolkit_analysis_samples")
     row = box.row(align=True)
     row.prop(scene, "video_toolkit_flicker_smoothing", text="Smooth")
@@ -625,6 +658,10 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     row.prop(scene, "video_toolkit_color_match_strength", text="Color Strength")
     if scene.video_toolkit_last_analysis:
         box.label(text=scene.video_toolkit_last_analysis, icon="INFO")
+    if scene.video_toolkit_last_diagnostics:
+        box.label(text=scene.video_toolkit_last_diagnostics, icon="INFO")
+        if scene.video_toolkit_last_diagnostics_text:
+            box.label(text=scene.video_toolkit_last_diagnostics_text, icon="TEXT")
 
 
 def _draw_scene_color_management(layout, scene) -> None:
@@ -1381,6 +1418,16 @@ def _movie_path(strip) -> Path:
     return path
 
 
+def _write_diagnostics_text(strip, report: str):
+    name = f"VTK Color Diagnostics - {strip.name}"
+    text = bpy.data.texts.get(name)
+    if text is None:
+        text = bpy.data.texts.new(name)
+    text.clear()
+    text.write(report + "\n")
+    return text
+
+
 def _reference_movie_strip(context, active):
     selected = _selected_movie_strips(context)
     for strip in selected:
@@ -1485,6 +1532,7 @@ def _overlaps(strip, start: int, end: int) -> bool:
 CLASSES = (
     VIDEO_TOOLKIT_OT_apply_filter,
     VIDEO_TOOLKIT_OT_analyze_color,
+    VIDEO_TOOLKIT_OT_color_diagnostics,
     VIDEO_TOOLKIT_OT_normalize_lighting,
     VIDEO_TOOLKIT_OT_match_lighting_timeline,
     VIDEO_TOOLKIT_OT_match_color_timeline,
@@ -1549,6 +1597,14 @@ def register() -> None:
     )
     bpy.types.Scene.video_toolkit_last_analysis = bpy.props.StringProperty(
         name="Last Analysis",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_last_diagnostics = bpy.props.StringProperty(
+        name="Last Color Diagnostics",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_last_diagnostics_text = bpy.props.StringProperty(
+        name="Last Color Diagnostics Text",
         default="",
     )
     bpy.types.Scene.video_toolkit_apply_target = bpy.props.EnumProperty(
@@ -1633,6 +1689,8 @@ def unregister() -> None:
         "video_toolkit_last_output",
         "video_toolkit_analysis_samples",
         "video_toolkit_last_analysis",
+        "video_toolkit_last_diagnostics",
+        "video_toolkit_last_diagnostics_text",
         "video_toolkit_apply_target",
         "video_toolkit_ffmpeg_chain",
         "video_toolkit_last_translation",

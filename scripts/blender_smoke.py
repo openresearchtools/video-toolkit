@@ -113,6 +113,10 @@ bpy.ops.video_toolkit.analyze_color(mode='AUTO')
 assert len(strip.modifiers) >= 5
 bpy.ops.video_toolkit.analyze_color(mode='PALETTE')
 assert 'palette #' in scene.video_toolkit_last_analysis
+bpy.ops.video_toolkit.color_diagnostics()
+assert scene.video_toolkit_last_diagnostics.startswith('diagnosis')
+assert scene.video_toolkit_last_diagnostics_text in bpy.data.texts
+assert 'Suggested native Blender tools' in bpy.data.texts[scene.video_toolkit_last_diagnostics_text].as_string()
 bpy.ops.video_toolkit.normalize_lighting()
 normalizer = next(m for m in strip.modifiers if m.name.startswith('VTK Live Flicker Normalizer'))
 def action_keyframe_count(action, data_path):

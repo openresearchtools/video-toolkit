@@ -253,6 +253,14 @@ palette_types = [modifier.type for modifier in strip.modifiers if modifier.name.
 assert palette_types == ['WHITE_BALANCE', 'COLOR_BALANCE', 'CURVES', 'HUE_CORRECT', 'TONEMAP'], palette_types
 assert 'palette #' in scene.video_toolkit_last_analysis
 palette_summary = scene.video_toolkit_last_analysis
+result = bpy.ops.video_toolkit.color_diagnostics()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_diagnostics.startswith('diagnosis')
+diagnostics_text_name = scene.video_toolkit_last_diagnostics_text
+assert diagnostics_text_name in bpy.data.texts
+diagnostics_report = bpy.data.texts[diagnostics_text_name].as_string()
+assert 'Video Toolkit Color Diagnostics' in diagnostics_report
+assert 'Suggested native Blender tools' in diagnostics_report
 
 result = bpy.ops.video_toolkit.normalize_lighting()
 assert result == {{'FINISHED'}}, result
@@ -381,6 +389,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'color_management_summary': scene.video_toolkit_last_color_management,
     'palette_modifier_types': palette_types,
     'palette_summary': palette_summary,
+    'diagnostics_summary': scene.video_toolkit_last_diagnostics,
+    'diagnostics_text': diagnostics_text_name,
+    'diagnostics_report_excerpt': diagnostics_report.splitlines()[:12],
     'normalizer_keyframes': normalizer_keyframes,
     'timeline_match_reference': {str(reference_video)!r},
     'timeline_match_keyframes': timeline_match_keyframes,
