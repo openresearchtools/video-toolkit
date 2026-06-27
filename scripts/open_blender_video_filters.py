@@ -68,6 +68,7 @@ def _setup_scene() -> None:
         bpy.ops.video_toolkit.apply_sampled_levels_gamma()
         bpy.ops.video_toolkit.apply_sampled_hue_chroma()
         bpy.ops.video_toolkit.apply_sampled_pro_grade()
+        bpy.ops.video_toolkit.apply_sampled_color_management()
     except Exception:
         traceback.print_exc()
 

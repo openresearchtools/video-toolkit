@@ -133,6 +133,7 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     after = output_dir / "after_live_edit.png"
     translated = output_dir / "after_native_color_chain.png"
     color_managed = output_dir / "after_color_management_preset.png"
+    sampled_color_management = output_dir / "after_sampled_color_management.png"
     diagnostic_grade = output_dir / "after_diagnostic_grade.png"
     sampled_white_balance = output_dir / "after_sampled_white_balance.png"
     sampled_levels_gamma = output_dir / "after_sampled_levels_gamma.png"
@@ -265,6 +266,7 @@ result = bpy.ops.video_toolkit.apply_color_management_preset(preset_id='VIEW_CUR
 assert result == {{'FINISHED'}}, result
 assert scene.view_settings.use_curve_mapping
 assert 'View Curve Contrast' in scene.video_toolkit_last_color_management
+color_management_summary = scene.video_toolkit_last_color_management
 color_managed_stats = render_preview({str(color_managed)!r})
 color_management_diff = (
     abs(color_managed_stats['r'] - translated_stats['r'])
@@ -272,6 +274,19 @@ color_management_diff = (
     + abs(color_managed_stats['b'] - translated_stats['b'])
 )
 assert color_management_diff > 0.001, f'Color Management preset did not visibly change preview pixels: {{color_management_diff}}'
+
+result = bpy.ops.video_toolkit.apply_sampled_color_management()
+assert result == {{'FINISHED'}}, result
+assert scene.view_settings.use_curve_mapping
+assert scene.video_toolkit_last_sampled_color_management.startswith('sampled color management')
+sampled_color_management_summary = scene.video_toolkit_last_sampled_color_management
+sampled_color_management_stats = render_preview({str(sampled_color_management)!r})
+sampled_color_management_diff = (
+    abs(sampled_color_management_stats['r'] - color_managed_stats['r'])
+    + abs(sampled_color_management_stats['g'] - color_managed_stats['g'])
+    + abs(sampled_color_management_stats['b'] - color_managed_stats['b'])
+)
+assert sampled_color_management_diff > 0.001, f'Sampled Color Management did not visibly change preview pixels: {{sampled_color_management_diff}}'
 
 result = bpy.ops.video_toolkit.analyze_color(mode='PALETTE')
 assert result == {{'FINISHED'}}, result
@@ -294,9 +309,9 @@ diagnostic_grade_types = [modifier.type for modifier in strip.modifiers if modif
 assert diagnostic_grade_types, 'No diagnostic grade modifiers were added'
 diagnostic_grade_stats = render_preview({str(diagnostic_grade)!r})
 diagnostic_grade_diff = (
-    abs(diagnostic_grade_stats['r'] - color_managed_stats['r'])
-    + abs(diagnostic_grade_stats['g'] - color_managed_stats['g'])
-    + abs(diagnostic_grade_stats['b'] - color_managed_stats['b'])
+    abs(diagnostic_grade_stats['r'] - sampled_color_management_stats['r'])
+    + abs(diagnostic_grade_stats['g'] - sampled_color_management_stats['g'])
+    + abs(diagnostic_grade_stats['b'] - sampled_color_management_stats['b'])
 )
 assert diagnostic_grade_diff > 0.001, f'Diagnostic grade did not visibly change preview pixels: {{diagnostic_grade_diff}}'
 
@@ -492,6 +507,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'after_png': {str(after)!r},
     'translated_png': {str(translated)!r},
     'color_managed_png': {str(color_managed)!r},
+    'sampled_color_management_png': {str(sampled_color_management)!r},
     'diagnostic_grade_png': {str(diagnostic_grade)!r},
     'sampled_white_balance_png': {str(sampled_white_balance)!r},
     'sampled_levels_gamma_png': {str(sampled_levels_gamma)!r},
@@ -502,6 +518,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'after': after_stats,
     'translated': translated_stats,
     'color_managed': color_managed_stats,
+    'sampled_color_management': sampled_color_management_stats,
     'diagnostic_grade': diagnostic_grade_stats,
     'sampled_white_balance': sampled_white_balance_stats,
     'sampled_levels_gamma': sampled_levels_gamma_stats,
@@ -511,6 +528,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'rgb_abs_diff': diff,
     'translated_rgb_abs_diff': translated_diff,
     'color_management_rgb_abs_diff': color_management_diff,
+    'sampled_color_management_rgb_abs_diff': sampled_color_management_diff,
     'diagnostic_grade_rgb_abs_diff': diagnostic_grade_diff,
     'sampled_white_balance_rgb_abs_diff': sampled_white_balance_diff,
     'sampled_levels_gamma_rgb_abs_diff': sampled_levels_gamma_diff,
@@ -520,7 +538,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'native_modifier_types': types,
     'translated_chain_summary': scene.video_toolkit_last_translation,
     'translated_modifier_types': translated_types,
-    'color_management_summary': scene.video_toolkit_last_color_management,
+    'color_management_summary': color_management_summary,
+    'sampled_color_management_summary': sampled_color_management_summary,
     'palette_modifier_types': palette_types,
     'palette_summary': palette_summary,
     'diagnostics_summary': scene.video_toolkit_last_diagnostics,

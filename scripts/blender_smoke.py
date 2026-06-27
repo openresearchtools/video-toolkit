@@ -105,6 +105,15 @@ assert scene.view_settings.use_curve_mapping
 view_curve_points = [tuple(point.location[:]) for point in scene.view_settings.curve_mapping.curves[0].points]
 assert view_curve_points[1][1] < view_curve_points[1][0]
 assert view_curve_points[-2][1] > view_curve_points[-2][0]
+result = bpy.ops.video_toolkit.apply_sampled_color_management()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_sampled_color_management.startswith('sampled color management')
+assert scene.view_settings.use_curve_mapping
+assert scene.view_settings.view_transform in {{'AgX', 'Khronos PBR Neutral', 'Filmic', 'Standard'}}
+assert 0.88 <= scene.view_settings.gamma <= 1.16
+sampled_view_curve_points = [tuple(point.location[:]) for point in scene.view_settings.curve_mapping.curves[0].points]
+assert len(sampled_view_curve_points) >= 5
+assert sampled_view_curve_points[2][0] == 0.5
 bpy.ops.video_toolkit.apply_filter(filter_id='neutral_grade')
 assert any(m.name.startswith('VTK Neutral Grade') for m in strip.modifiers)
 assert any(m.name.startswith('VTK Neutral Grade') for m in second_strip.modifiers)

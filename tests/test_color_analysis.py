@@ -11,6 +11,7 @@ from video_toolkit.color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_sampled_color_management,
     build_sampled_hue_chroma_stack,
     build_sampled_levels_gamma_stack,
     build_sampled_pro_grade_stack,
@@ -243,6 +244,44 @@ def test_sampled_pro_grade_combines_sampled_native_stacks():
     ]
     assert stack[0][1]["white_value"][2] > stack[0][1]["white_value"][0]
     assert "__curve_points__" in stack[6][1]
+
+
+def test_sampled_color_management_builds_scene_view_profile():
+    stats = ColorStats(
+        samples=24,
+        mean_r=150.0,
+        mean_g=165.0,
+        mean_b=192.0,
+        mean_luma=170.0,
+        luma_std=22.0,
+        luma_p05=132.0,
+        luma_p95=224.0,
+        shadow_rgb=(104.0, 116.0, 140.0),
+        midtone_rgb=(152.0, 166.0, 192.0),
+        highlight_rgb=(214.0, 224.0, 238.0),
+        shadow_luma=118.0,
+        midtone_luma=168.0,
+        highlight_luma=226.0,
+        shadow_count=64,
+        midtone_count=320,
+        highlight_count=128,
+        dominant_rgb=((120.0, 150.0, 220.0), (180.0, 190.0, 204.0)),
+        warm_ratio=0.08,
+        cool_ratio=0.36,
+        skin_ratio=0.02,
+        mean_saturation=0.22,
+        mean_chroma=42.0,
+    )
+    profile = build_sampled_color_management(stats)
+    assert profile.summary.startswith("sampled color management")
+    assert profile.view_transform_candidates[0] == "AgX"
+    assert "Medium High Contrast" in profile.look_candidates
+    assert profile.exposure < 0.0
+    assert 0.88 <= profile.gamma <= 1.16
+    assert profile.white_balance_temperature > 6500.0
+    assert len(profile.curve_points) == 5
+    assert profile.curve_points[2][1] < 0.50
+    assert profile.sequencer_input == "bt709"
 
 
 def test_color_diagnosis_reports_palette_and_suggested_tools(tmp_path):

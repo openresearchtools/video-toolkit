@@ -11,6 +11,7 @@ from .color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_sampled_color_management,
     build_sampled_hue_chroma_stack,
     build_sampled_levels_gamma_stack,
     build_sampled_pro_grade_stack,
@@ -660,6 +661,36 @@ class VIDEO_TOOLKIT_OT_apply_color_management_preset(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_apply_sampled_color_management(Operator):
+    bl_idname = "video_toolkit.apply_sampled_color_management"
+    bl_label = "Sampled Color Management"
+    bl_description = "Sample real frames and set native Blender scene Color Management for the Sequencer preview"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            stats = sample_video_color(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            profile = build_sampled_color_management(stats)
+            summary = _apply_sampled_color_management_profile(scene, profile)
+            scene.video_toolkit_last_sampled_color_management = summary
+            scene.video_toolkit_last_color_management = summary
+            self.report({"INFO"}, summary)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_open_output_folder(Operator):
     bl_idname = "video_toolkit.open_output_folder"
     bl_label = "Open Output Folder"
@@ -686,6 +717,11 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Identify Colors", icon="COLOR")
         op.mode = "PALETTE"
         layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Apply: Sampled Pro Grade", icon="MODIFIER")
+        layout.operator(
+            VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname,
+            text="Analyze: Sampled Color Management",
+            icon="WORLD",
+        )
         layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="Analyze: Neutralize Color Cast", icon="EYEDROPPER")
         layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma.bl_idname, text="Analyze: Normalize Levels/Gamma", icon="IPO_EASE_IN_OUT")
         layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_hue_chroma.bl_idname, text="Analyze: Balance Hue/Chroma", icon="COLOR")
@@ -831,6 +867,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Identify", icon="COLOR")
     op.mode = "PALETTE"
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Sampled Pro Grade", icon="MODIFIER")
+    box.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname, text="Sampled Color Management", icon="WORLD")
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="Sampled White Balance / Cast Fix", icon="EYEDROPPER")
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma.bl_idname, text="Sampled Levels / Gamma Normalize", icon="IPO_EASE_IN_OUT")
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_hue_chroma.bl_idname, text="Sampled Hue / Chroma Balance", icon="COLOR")
@@ -865,11 +902,18 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
         box.label(text=scene.video_toolkit_last_sampled_hue_chroma, icon="COLOR")
     if scene.video_toolkit_last_sampled_pro_grade:
         box.label(text=scene.video_toolkit_last_sampled_pro_grade, icon="MODIFIER")
+    if scene.video_toolkit_last_sampled_color_management:
+        box.label(text=scene.video_toolkit_last_sampled_color_management, icon="WORLD")
 
 
 def _draw_scene_color_management(layout, scene) -> None:
     box = layout.box()
     box.label(text="Blender Color Management", icon="WORLD")
+    box.operator(
+        VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname,
+        text="Sampled Color Management",
+        icon="EYEDROPPER",
+    )
     preset_grid = box.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=False, align=True)
     for preset_id, label, _description in COLOR_MANAGEMENT_PRESET_ITEMS:
         op = preset_grid.operator(VIDEO_TOOLKIT_OT_apply_color_management_preset.bl_idname, text=label, icon="WORLD")
@@ -895,6 +939,8 @@ def _draw_scene_color_management(layout, scene) -> None:
                 box.label(text="Open Color Management for curve editing.", icon="INFO")
     if scene.video_toolkit_last_color_management:
         box.label(text=scene.video_toolkit_last_color_management, icon="INFO")
+    if scene.video_toolkit_last_sampled_color_management:
+        box.label(text=scene.video_toolkit_last_sampled_color_management, icon="WORLD")
 
 
 def _draw_compositor_nodes(layout, scene, strip) -> None:
@@ -1119,6 +1165,32 @@ def _apply_color_management_preset(scene, preset_id: str) -> str:
             _apply_curve_points(view.curve_mapping, preset["curves"])
     label = dict((item[0], item[1]) for item in COLOR_MANAGEMENT_PRESET_ITEMS).get(preset_id, preset_id)
     return f"{label}: {view_transform or view.view_transform}, {look or view.look}, exposure {view.exposure:.2f}, gamma {view.gamma:.2f}"
+
+
+def _apply_sampled_color_management_profile(scene, profile) -> str:
+    view = scene.view_settings
+    sequencer_input = None
+    if getattr(profile, "sequencer_input", None) and hasattr(scene, "sequencer_colorspace_settings"):
+        sequencer_input = _set_sequencer_input_colorspace(scene, profile.sequencer_input)
+    view_transform = _set_enum_candidate(view, "view_transform", profile.view_transform_candidates)
+    look = _set_enum_candidate(view, "look", profile.look_candidates)
+    _set_if_present(view, "exposure", profile.exposure)
+    _set_if_present(view, "gamma", profile.gamma)
+    if hasattr(view, "use_white_balance"):
+        view.use_white_balance = bool(profile.use_white_balance)
+        if view.use_white_balance:
+            _set_if_present(view, "white_balance_temperature", profile.white_balance_temperature)
+            _set_if_present(view, "white_balance_tint", profile.white_balance_tint)
+    if hasattr(view, "use_curve_mapping"):
+        view.use_curve_mapping = True
+        if hasattr(view, "curve_mapping"):
+            _apply_curve_points(view.curve_mapping, {0: profile.curve_points})
+    summary = (
+        f"{profile.summary}, {view_transform or view.view_transform}, {look or view.look}"
+    )
+    if sequencer_input:
+        summary += f", input {sequencer_input}"
+    return summary
 
 
 def _set_enum_candidate(target, prop: str, candidates) -> str | None:
@@ -1807,6 +1879,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_clear_live_modifiers,
     VIDEO_TOOLKIT_OT_create_compositor_nodes,
     VIDEO_TOOLKIT_OT_apply_color_management_preset,
+    VIDEO_TOOLKIT_OT_apply_sampled_color_management,
     VIDEO_TOOLKIT_OT_open_output_folder,
     VIDEO_TOOLKIT_MT_live_blender_color,
     VIDEO_TOOLKIT_MT_native_blender_primitives,
@@ -1892,6 +1965,10 @@ def register() -> None:
     )
     bpy.types.Scene.video_toolkit_last_sampled_pro_grade = bpy.props.StringProperty(
         name="Last Sampled Pro Grade",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_last_sampled_color_management = bpy.props.StringProperty(
+        name="Last Sampled Color Management",
         default="",
     )
     bpy.types.Scene.video_toolkit_apply_target = bpy.props.EnumProperty(
@@ -1983,6 +2060,7 @@ def unregister() -> None:
         "video_toolkit_last_sampled_levels_gamma",
         "video_toolkit_last_sampled_hue_chroma",
         "video_toolkit_last_sampled_pro_grade",
+        "video_toolkit_last_sampled_color_management",
         "video_toolkit_apply_target",
         "video_toolkit_ffmpeg_chain",
         "video_toolkit_last_translation",

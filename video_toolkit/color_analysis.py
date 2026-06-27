@@ -72,6 +72,20 @@ class ColorDiagnosis:
     palette_hex: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class SampledColorManagement:
+    view_transform_candidates: tuple[str, ...]
+    look_candidates: tuple[str, ...]
+    exposure: float
+    gamma: float
+    use_white_balance: bool
+    white_balance_temperature: float
+    white_balance_tint: float
+    curve_points: tuple[tuple[float, float], ...]
+    sequencer_input: str
+    summary: str
+
+
 def sample_video_color(
     input_path: str | Path,
     *,
@@ -575,6 +589,59 @@ def build_sampled_pro_grade_stack(stats: ColorStats) -> tuple[tuple[str, dict[st
     )
 
 
+def build_sampled_color_management(stats: ColorStats) -> SampledColorManagement:
+    """Build native Blender scene/view Color Management from sampled frame stats."""
+
+    dynamic_range = stats.luma_p95 - stats.luma_p05
+    highlight_heavy = stats.mean_luma > 162.0 or stats.luma_p95 > 225.0
+    low_contrast = dynamic_range < 122.0 or stats.luma_std < 34.0
+    if highlight_heavy:
+        view_transform = ("AgX", "Khronos PBR Neutral", "Filmic", "Standard")
+        look = ("Medium High Contrast", "High Contrast", "Medium Contrast", "None") if low_contrast else (
+            "Medium Contrast",
+            "Medium High Contrast",
+            "None",
+        )
+    elif stats.mean_luma < 92.0:
+        view_transform = ("AgX", "Khronos PBR Neutral", "Standard", "Filmic")
+        look = ("Medium High Contrast", "High Contrast", "Medium Contrast", "None")
+    else:
+        view_transform = ("AgX", "Khronos PBR Neutral", "Standard", "Filmic")
+        look = ("Medium Contrast", "Medium High Contrast", "None")
+
+    target_luma = 124.0 if highlight_heavy else 118.0
+    exposure = _clamp((target_luma - stats.mean_luma) / 255.0 * 1.22, -0.55, 0.42)
+    gamma = _clamp(1.0 + (118.0 - (stats.midtone_luma or stats.mean_luma)) / 255.0 * 0.34, 0.88, 1.16)
+    if low_contrast:
+        gamma = _clamp(gamma * 0.98, 0.88, 1.16)
+
+    warm_cool_delta = _clamp(stats.warm_ratio - stats.cool_ratio, -0.60, 0.60)
+    red_blue_delta = _clamp((stats.mean_b - stats.mean_r) / 255.0, -0.50, 0.50)
+    white_balance_temperature = _clamp(6500.0 + red_blue_delta * 3000.0 - warm_cool_delta * 1500.0, 4200.0, 8600.0)
+    green_cast = (stats.mean_g - ((stats.mean_r + stats.mean_b) * 0.5)) / 255.0
+    white_balance_tint = _clamp(-green_cast * 140.0, -45.0, 45.0)
+
+    curve_points = _sampled_view_curve_points(stats)
+    summary = (
+        f"sampled color management {stats.samples} frames, "
+        f"luma {stats.luma_p05:.1f}/{stats.mean_luma:.1f}/{stats.luma_p95:.1f}, "
+        f"exposure {exposure:.2f}, gamma {gamma:.2f}, "
+        f"WB {white_balance_temperature:.0f}K/{white_balance_tint:.1f}"
+    )
+    return SampledColorManagement(
+        view_transform_candidates=view_transform,
+        look_candidates=look,
+        exposure=exposure,
+        gamma=gamma,
+        use_white_balance=True,
+        white_balance_temperature=white_balance_temperature,
+        white_balance_tint=white_balance_tint,
+        curve_points=curve_points,
+        sequencer_input="bt709",
+        summary=summary,
+    )
+
+
 def build_color_match_stack(
     target: ColorStats,
     reference: ColorStats,
@@ -884,6 +951,32 @@ def _sampled_hue_chroma_curve_points(stats: ColorStats) -> dict[int, list[tuple[
         saturation_points.append((x_value, _clamp(saturation_value, 0.28, 0.72)))
         value_points.append((x_value, _clamp(value_value, 0.42, 0.58)))
     return {0: hue_points, 1: saturation_points, 2: value_points}
+
+
+def _sampled_view_curve_points(stats: ColorStats) -> tuple[tuple[float, float], ...]:
+    dynamic_range = stats.luma_p95 - stats.luma_p05
+    shadow_luma = stats.shadow_luma or stats.luma_p05
+    mid_luma = stats.midtone_luma or stats.mean_luma
+    highlight_luma = stats.highlight_luma or stats.luma_p95
+    shadow_y = _clamp(0.18 + (32.0 - shadow_luma) / 255.0 * 0.18, 0.08, 0.26)
+    mid_y = _clamp(0.50 + (118.0 - mid_luma) / 255.0 * 0.26, 0.39, 0.61)
+    highlight_y = _clamp(0.84 + (218.0 - highlight_luma) / 255.0 * 0.12, 0.74, 0.93)
+    if dynamic_range < 118.0:
+        shadow_y = _clamp(shadow_y - 0.025, 0.08, 0.26)
+        highlight_y = _clamp(highlight_y + 0.025, 0.74, 0.93)
+    if stats.mean_luma > 166.0:
+        mid_y = _clamp(mid_y - 0.035, 0.36, 0.61)
+        highlight_y = _clamp(highlight_y - 0.025, 0.72, 0.93)
+    elif stats.mean_luma < 92.0:
+        mid_y = _clamp(mid_y + 0.035, 0.39, 0.64)
+        shadow_y = _clamp(shadow_y + 0.025, 0.08, 0.29)
+    return (
+        (0.0, 0.0),
+        (0.18, shadow_y),
+        (0.50, mid_y),
+        (0.82, highlight_y),
+        (1.0, 1.0),
+    )
 
 
 def _dominant_hue_presence(swatches: tuple[tuple[float, float, float], ...]) -> dict[str, float]:
