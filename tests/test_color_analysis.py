@@ -5,11 +5,13 @@ from pathlib import Path
 import pytest
 
 from video_toolkit.color_analysis import (
+    ColorStats,
     LumaSample,
     ColorTimelineSample,
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_sampled_levels_gamma_stack,
     build_sampled_white_balance_stack,
     build_color_timeline_match_keyframes,
     build_lighting_match_keyframes,
@@ -132,6 +134,43 @@ def test_sampled_white_balance_stack_neutralizes_measured_cast(tmp_path):
     assert color_balance["color_balance.gamma"][2] > color_balance["color_balance.gamma"][0]
     assert "__curve_points__" in stack[3][1]
     assert "__hue_correct__" in stack[4][1]
+
+
+def test_sampled_levels_gamma_stack_normalizes_luma_percentiles():
+    stats = ColorStats(
+        samples=12,
+        mean_r=104.0,
+        mean_g=106.0,
+        mean_b=108.0,
+        mean_luma=106.0,
+        luma_std=12.0,
+        luma_p05=64.0,
+        luma_p95=156.0,
+        shadow_rgb=(52.0, 52.0, 54.0),
+        midtone_rgb=(94.0, 96.0, 98.0),
+        highlight_rgb=(152.0, 154.0, 158.0),
+        shadow_luma=52.0,
+        midtone_luma=96.0,
+        highlight_luma=154.0,
+        shadow_count=100,
+        midtone_count=200,
+        highlight_count=100,
+        mean_saturation=0.12,
+        mean_chroma=12.0,
+    )
+    stack = build_sampled_levels_gamma_stack(stats)
+    assert [modifier_type for modifier_type, _settings in stack] == [
+        "CURVES",
+        "COLOR_BALANCE",
+        "BRIGHT_CONTRAST",
+        "TONEMAP",
+        "HUE_CORRECT",
+    ]
+    curve_points = stack[0][1]["__curve_points__"][0]
+    assert curve_points[1][0] < curve_points[2][0] < curve_points[3][0]
+    color_balance = stack[1][1]
+    assert color_balance["color_balance.gamma"][0] > 1.0
+    assert stack[2][1]["contrast"] > 0.0
 
 
 def test_color_diagnosis_reports_palette_and_suggested_tools(tmp_path):
