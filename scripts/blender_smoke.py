@@ -319,6 +319,30 @@ for required in [
 ]:
     assert required in native_room_node_types, required
 assert len([link for link in tree.links if link.from_node.name.startswith('VTK Native Color Room ')]) >= 16
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR_MANAGEMENT')
+assert scene.video_toolkit_last_compositor_nodes.startswith('sampled color management')
+sampled_cm_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Sampled Color Management ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeExposure',
+    'CompositorNodeColorBalance',
+    'CompositorNodeColorCorrection',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueSat',
+    'CompositorNodeTonemap',
+    'CompositorNodeConvertToDisplay',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in sampled_cm_node_types, required
+sampled_cm_exposure = next(node for node in tree.nodes if node.name == 'VTK Sampled Color Management Exposure')
+sampled_cm_exposure_socket = next(socket for socket in sampled_cm_exposure.inputs if socket.name == 'Exposure')
+assert abs(sampled_cm_exposure_socket.default_value) > 0.001
+sampled_cm_display = next(node for node in tree.nodes if node.name == 'VTK Sampled Color Management Display Convert')
+assert sampled_cm_display['video_toolkit_view_transform']
+assert sampled_cm_display['video_toolkit_sequencer_input'] == 'bt709'
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR')
 assert scene.video_toolkit_last_compositor_nodes.startswith('sampled compositor grade')
 sampled_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Sampled ')]

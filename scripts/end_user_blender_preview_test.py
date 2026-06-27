@@ -493,6 +493,37 @@ for required in [
 native_room_links = len([link for link in tree.links if link.from_node.name.startswith('VTK Native Color Room ')])
 assert native_room_links >= 16, native_room_links
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR_MANAGEMENT')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('sampled color management')
+sampled_cm_compositor_summary = scene.video_toolkit_last_compositor_nodes
+sampled_cm_compositor_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Sampled Color Management ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeExposure',
+    'CompositorNodeColorBalance',
+    'CompositorNodeColorCorrection',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueSat',
+    'CompositorNodeTonemap',
+    'CompositorNodeConvertToDisplay',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in sampled_cm_compositor_node_types, required
+sampled_cm_exposure_node = next(node for node in tree.nodes if node.name == 'VTK Sampled Color Management Exposure')
+sampled_cm_exposure_socket = next(socket for socket in sampled_cm_exposure_node.inputs if socket.name == 'Exposure')
+assert abs(sampled_cm_exposure_socket.default_value) > 0.001
+sampled_cm_display_node = next(node for node in tree.nodes if node.name == 'VTK Sampled Color Management Display Convert')
+assert sampled_cm_display_node['video_toolkit_view_transform']
+assert sampled_cm_display_node['video_toolkit_sequencer_input'] == 'bt709'
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('sampled compositor grade')
@@ -795,6 +826,11 @@ Path({str(report)!r}).write_text(json.dumps({{
     'native_room_summary': native_room_summary,
     'native_room_node_types': native_room_node_types,
     'native_room_links': native_room_links,
+    'sampled_cm_compositor_summary': sampled_cm_compositor_summary,
+    'sampled_cm_compositor_node_types': sampled_cm_compositor_node_types,
+    'sampled_cm_compositor_exposure': sampled_cm_exposure_socket.default_value,
+    'sampled_cm_compositor_view_transform': sampled_cm_display_node['video_toolkit_view_transform'],
+    'sampled_cm_compositor_input': sampled_cm_display_node['video_toolkit_sequencer_input'],
     'sampled_compositor_summary': sampled_compositor_summary,
     'sampled_compositor_node_types': sampled_compositor_node_types,
     'sampled_compositor_exposure': sampled_exposure_socket.default_value,

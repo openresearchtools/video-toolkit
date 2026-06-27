@@ -47,6 +47,7 @@ APPLY_TARGET_ITEMS = (
 COMPOSITOR_STACK_ITEMS = (
     ("COLOR", "Color Node Stack", "Build a Blender compositor color node graph from the active movie strip"),
     ("NATIVE_COLOR_ROOM", "Native Color Room Node Stack", "Build a connected graph of Blender's native compositor color controls"),
+    ("SAMPLED_COLOR_MANAGEMENT", "Sampled Color Management Node Stack", "Sample real frames and build a compositor graph for view exposure, gamma, white balance, and display conversion"),
     ("SAMPLED_COLOR", "Sampled Color Node Stack", "Sample real frames and build a Blender compositor color graph from the measured footage"),
     ("IDENTITY_COLOR", "Palette Identity Node Stack", "Identify dominant colors and build a Blender compositor palette-aware graph"),
     ("MATCHED_COLOR", "Matched Color Node Stack", "Match the active movie strip to a selected reference strip with Blender compositor nodes"),
@@ -643,6 +644,16 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
                 created = _create_native_color_room_compositor_stack(context.scene, strip)
                 label = "native color room"
                 summary = f"native color room graph; {_compositor_node_summary(created)}"
+            elif self.stack_type == "SAMPLED_COLOR_MANAGEMENT":
+                stats = sample_video_color(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
+                profile = build_sampled_color_management(stats)
+                created = _create_sampled_color_management_compositor_stack(context.scene, strip, profile)
+                label = "sampled color management"
+                summary = (
+                    f"{profile.summary}, view {profile.view_transform_candidates[0]}, "
+                    f"look {profile.look_candidates[0]}, input {profile.sequencer_input}; "
+                    f"{_compositor_node_summary(created)}"
+                )
             elif self.stack_type == "SAMPLED_COLOR":
                 stats = sample_video_color(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
                 profile = build_sampled_compositor_grade(stats)
@@ -871,6 +882,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
             icon="NODETREE",
         )
         op.stack_type = "NATIVE_COLOR_ROOM"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Sampled Color Management Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "SAMPLED_COLOR_MANAGEMENT"
         op = layout.operator(
             VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
             text="Create Sampled Color Node Stack",
@@ -1124,8 +1141,11 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Color Room", icon="NODETREE")
     op.stack_type = "NATIVE_COLOR_ROOM"
     row = box.row(align=True)
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Sampled CM", icon="WORLD")
+    op.stack_type = "SAMPLED_COLOR_MANAGEMENT"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Sampled", icon="EYEDROPPER")
     op.stack_type = "SAMPLED_COLOR"
+    row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Identity", icon="COLOR")
     op.stack_type = "IDENTITY_COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Matched", icon="EYEDROPPER")
@@ -1790,6 +1810,58 @@ def _create_native_color_room_compositor_stack(scene, strip):
     ]
 
 
+def _create_sampled_color_management_compositor_stack(scene, strip, profile):
+    tree = _ensure_compositor_tree(scene)
+    origin = _next_node_origin(tree)
+    movie = _new_compositor_node(tree, "CompositorNodeMovieClip", "VTK Sampled Color Management Movie Clip", 0, origin=origin)
+    _assign_movie_clip(movie, _movie_path(strip))
+    convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", "VTK Sampled Color Management Color Space", 1, origin=origin)
+    exposure = _new_compositor_node(tree, "CompositorNodeExposure", "VTK Sampled Color Management Exposure", 2, origin=origin)
+    _set_input_default(exposure, "Exposure", profile.exposure)
+    balance = _new_compositor_node(tree, "CompositorNodeColorBalance", "VTK Sampled Color Management White Balance", 3, origin=origin)
+    white_balance = _sampled_color_management_white_balance(profile)
+    _set_input_default_candidates(balance, ("Fac", "Factor"), 1.0)
+    _set_input_default_candidates(balance, ("Type",), "LIFT_GAMMA_GAIN")
+    _set_input_default_candidates(balance, ("Color Gamma", "Gamma"), white_balance)
+    _set_input_default_candidates(balance, ("Color Gain", "Gain"), white_balance)
+    correction = _new_compositor_node(tree, "CompositorNodeColorCorrection", "VTK Sampled Color Management View Gamma", 4, origin=origin)
+    _set_input_default_candidates(correction, ("Gamma", "Master Gamma"), profile.gamma)
+    _set_input_default_candidates(correction, ("Gain", "Master Gain"), _clamp_node_value(1.0 + profile.exposure * 0.18, 0.88, 1.12))
+    _set_input_default_candidates(correction, ("Saturation", "Master Saturation"), 1.0)
+    curves = _new_compositor_node(tree, "CompositorNodeCurveRGB", "VTK Sampled Color Management View Curves", 5, origin=origin)
+    _apply_curve_points(curves.mapping, {0: profile.curve_points})
+    hue_sat = _new_compositor_node(tree, "CompositorNodeHueSat", "VTK Sampled Color Management Review HSV", 6, origin=origin)
+    _set_input_default(hue_sat, "Saturation", 1.0)
+    _set_input_default(hue_sat, "Value", _clamp_node_value(profile.gamma, 0.88, 1.16))
+    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Sampled Color Management View Transform", 7, origin=origin)
+    _set_input_default(tonemap, "Type", "RD_PHOTORECEPTOR")
+    _set_input_default(tonemap, "Intensity", _clamp_node_value(max(-profile.exposure, 0.0) * 0.35, 0.0, 0.18))
+    _set_input_default(tonemap, "Contrast", 0.06 if profile.look_candidates and "High" in profile.look_candidates[0] else 0.03)
+    _set_input_default(tonemap, "Gamma", profile.gamma)
+    display = _new_compositor_node(tree, "CompositorNodeConvertToDisplay", "VTK Sampled Color Management Display Convert", 8, origin=origin)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Sampled Color Management Levels", 9, y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Sampled Color Management Viewer", 10, origin=origin)
+    output = _new_output_file_node(tree, scene, 10, y_offset=-160, origin=origin)
+    output.name = "VTK Sampled Color Management Output File"
+    output.label = "VTK Sampled Color Management Output File"
+
+    final_socket = _link_compositor_chain(
+        tree,
+        [movie, convert, exposure, balance, correction, curves, hue_sat, tonemap, display],
+    )
+    _link_socket(tree, final_socket, _image_input(levels))
+    _link_socket(tree, final_socket, _image_input(viewer))
+    _link_socket(tree, final_socket, _first_socket(output.inputs))
+    created = [movie, convert, exposure, balance, correction, curves, hue_sat, tonemap, display, levels, viewer, output]
+    for node in created:
+        node["video_toolkit_view_transform"] = profile.view_transform_candidates[0] if profile.view_transform_candidates else ""
+        node["video_toolkit_look"] = profile.look_candidates[0] if profile.look_candidates else ""
+        node["video_toolkit_sequencer_input"] = profile.sequencer_input
+        node["video_toolkit_white_balance_temperature"] = profile.white_balance_temperature
+        node["video_toolkit_white_balance_tint"] = profile.white_balance_tint
+    return created
+
+
 def _create_sampled_compositor_color_stack(scene, strip, profile):
     tree = _ensure_compositor_tree(scene)
     origin = _next_node_origin(tree)
@@ -2255,6 +2327,15 @@ def _rgba(value, alpha: float = 1.0) -> tuple[float, float, float, float]:
     while len(values) < 3:
         values.append(1.0)
     return (float(values[0]), float(values[1]), float(values[2]), alpha)
+
+
+def _sampled_color_management_white_balance(profile) -> tuple[float, float, float, float]:
+    temperature_delta = _clamp_node_value((float(profile.white_balance_temperature) - 6500.0) / 2400.0, -1.0, 1.0)
+    tint_delta = _clamp_node_value(float(profile.white_balance_tint) / 45.0, -1.0, 1.0)
+    red = _clamp_node_value(1.0 + temperature_delta * 0.10 + max(tint_delta, 0.0) * 0.025, 0.86, 1.14)
+    green = _clamp_node_value(1.0 - tint_delta * 0.08, 0.88, 1.12)
+    blue = _clamp_node_value(1.0 - temperature_delta * 0.10 + max(tint_delta, 0.0) * 0.025, 0.86, 1.14)
+    return (red, green, blue, 1.0)
 
 
 def _color_balance_method_name(settings: dict[str, object]) -> str:
