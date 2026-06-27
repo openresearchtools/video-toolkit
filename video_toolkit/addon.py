@@ -591,6 +591,13 @@ def _draw_scene_color_management(layout, scene) -> None:
             row = box.row(align=True)
             row.prop(view, "white_balance_temperature", text="Temp")
             row.prop(view, "white_balance_tint", text="Tint")
+    if hasattr(view, "use_curve_mapping"):
+        box.prop(view, "use_curve_mapping", text="Use View Curves")
+        if view.use_curve_mapping and hasattr(view, "curve_mapping"):
+            try:
+                box.template_curve_mapping(view, "curve_mapping")
+            except Exception:
+                box.label(text="Open Color Management for curve editing.", icon="INFO")
 
 
 def _draw_compositor_nodes(layout, scene, strip) -> None:

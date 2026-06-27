@@ -111,8 +111,10 @@ print(json.dumps({{
     missing = REQUIRED_MODIFIERS - set(payload["covered"])
     if missing:
         raise SystemExit(f"Missing Blender VSE color modifiers: {sorted(missing)}")
-    if "gamma" not in payload["scene_view_settings"] or "exposure" not in payload["scene_view_settings"]:
-        raise SystemExit("Blender Color Management exposure/gamma controls were not visible")
+    required_scene_props = {"gamma", "exposure", "use_curve_mapping", "curve_mapping"}
+    missing_scene_props = required_scene_props - set(payload["scene_view_settings"])
+    if missing_scene_props:
+        raise SystemExit(f"Blender Color Management controls were not visible: {sorted(missing_scene_props)}")
     if "name" not in payload["sequencer_colorspace_settings"]:
         raise SystemExit("Blender Sequencer input color-space control was not visible")
     failed_nodes = {
