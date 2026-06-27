@@ -1,0 +1,11 @@
+schema_version = "1.0.0"
+id = "open_research_video_toolkit"
+version = "0.1.0"
+name = "Open Research Video Toolkit"
+tagline = "One-click Video Sequencer filters and restoration tools"
+maintainer = "Open Research Tools"
+type = "add-on"
+website = "https://github.com/openresearchtools/video-toolkit"
+tags = ["Sequencer", "Video", "Compositing"]
+blender_version_min = "4.2.0"
+license = ["SPDX:MIT"]

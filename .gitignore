@@ -1,0 +1,46 @@
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local Blender downloads, extracted builds, and caches.
+.cache/
+.local/
+blender-*.tar.xz
+blender-*.tar.xz.sha256
+blender-*.zip
+blender-*.dmg
+blender-*.msi
+blender-*/
+
+# Python packaging output.
+build/
+dist/
+*.egg-info/
+
+# Blender local working files.
+*.blend1
+*.blend2
+*.blend@
+*.blend.autosave
+
+# Generated video outputs and local test media.
+video_toolkit_outputs/
+tests/output/
+tests/fixtures/*
+!tests/fixtures/.gitkeep
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.trf
+
+# OS/editor noise.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
