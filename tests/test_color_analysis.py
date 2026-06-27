@@ -9,6 +9,7 @@ from video_toolkit.color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_lighting_match_keyframes,
     build_lighting_normalization_keyframes,
     sample_video_luma_timeline,
     sample_video_color,
@@ -115,3 +116,20 @@ def test_lighting_normalization_keyframes_follow_smoothed_luma():
     corrections = dict(keyframes)
     assert corrections[1] < 0.0
     assert corrections[2] > 0.0
+
+
+def test_lighting_match_keyframes_follow_reference_luma():
+    target = (
+        LumaSample(0, 90.0),
+        LumaSample(1, 100.0),
+        LumaSample(2, 110.0),
+        LumaSample(3, 120.0),
+    )
+    reference = (
+        LumaSample(0, 140.0),
+        LumaSample(1, 150.0),
+    )
+    keyframes = build_lighting_match_keyframes(target, reference, smoothing=1, strength=1.0)
+    assert len(keyframes) == 4
+    assert all(value > 0.0 for _index, value in keyframes)
+    assert keyframes[0][1] > keyframes[-1][1]

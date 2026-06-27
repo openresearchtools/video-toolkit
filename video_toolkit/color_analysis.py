@@ -251,6 +251,33 @@ def build_lighting_normalization_keyframes(
     return tuple(_reduce_keyframes(keyframes))
 
 
+def build_lighting_match_keyframes(
+    target_samples: tuple[LumaSample, ...],
+    reference_samples: tuple[LumaSample, ...],
+    *,
+    smoothing: int = 5,
+    strength: float = 0.85,
+    max_bright: float = 0.26,
+) -> tuple[tuple[int, float], ...]:
+    """Build brightness keyframes that match target luma to a reference clip."""
+
+    if not target_samples or not reference_samples:
+        return ()
+    smoothing = max(1, int(smoothing))
+    if smoothing % 2 == 0:
+        smoothing += 1
+    strength = _clamp(float(strength), 0.0, 1.5)
+    max_bright = abs(float(max_bright))
+    target_lumas = _moving_average([sample.luma for sample in target_samples], smoothing)
+    reference_lumas = _moving_average([sample.luma for sample in reference_samples], smoothing)
+    reference_lumas = _resample_values(reference_lumas, len(target_lumas))
+    keyframes: list[tuple[int, float]] = []
+    for sample, target_luma, reference_luma in zip(target_samples, target_lumas, reference_lumas):
+        correction = _clamp((reference_luma - target_luma) / 255.0 * strength, -max_bright, max_bright)
+        keyframes.append((sample.sample_index, correction))
+    return tuple(_reduce_keyframes(keyframes))
+
+
 def build_auto_balance_stack(stats: ColorStats) -> tuple[tuple[str, dict[str, object]], ...]:
     reference = ColorStats(
         samples=stats.samples,
@@ -431,6 +458,32 @@ def _moving_average(values: list[float], window: int) -> list[float]:
         start = max(0, index - half)
         end = min(len(values), index + half + 1)
         result.append(sum(values[start:end]) / max(end - start, 1))
+    return result
+
+
+def _resample_values(values: list[float], output_count: int) -> list[float]:
+    if output_count <= 0:
+        return []
+    if not values:
+        return [0.0] * output_count
+    if len(values) == output_count:
+        return values
+    if output_count == 1:
+        return [values[0]]
+    if len(values) == 1:
+        return [values[0]] * output_count
+    result: list[float] = []
+    source_max = len(values) - 1
+    target_max = output_count - 1
+    for index in range(output_count):
+        position = index * source_max / target_max
+        lower = int(math.floor(position))
+        upper = int(math.ceil(position))
+        if lower == upper:
+            result.append(values[lower])
+            continue
+        fraction = position - lower
+        result.append(values[lower] * (1.0 - fraction) + values[upper] * fraction)
     return result
 
 

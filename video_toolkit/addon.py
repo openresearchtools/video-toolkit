@@ -11,6 +11,7 @@ from .color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_lighting_match_keyframes,
     build_lighting_normalization_keyframes,
     sample_video_luma_timeline,
     sample_video_color,
@@ -198,6 +199,56 @@ class VIDEO_TOOLKIT_OT_normalize_lighting(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_match_lighting_timeline(Operator):
+    bl_idname = "video_toolkit.match_lighting_timeline"
+    bl_label = "Match Lighting Timeline"
+    bl_description = "Match active strip lighting over time to another selected movie strip with live Blender keyframes"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            active = scene.sequence_editor.active_strip
+            reference = _reference_movie_strip(context, active)
+            if reference is None:
+                raise RuntimeError("Select a reference movie strip as well as the active target strip")
+            target_samples = sample_video_luma_timeline(_movie_path(active), max_samples=scene.video_toolkit_analysis_samples)
+            reference_samples = sample_video_luma_timeline(_movie_path(reference), max_samples=scene.video_toolkit_analysis_samples)
+            keyframes = build_lighting_match_keyframes(
+                target_samples,
+                reference_samples,
+                smoothing=scene.video_toolkit_match_smoothing,
+                strength=scene.video_toolkit_match_strength,
+            )
+            if not keyframes:
+                raise RuntimeError("No lighting samples were available for timeline matching")
+            modifier = _add_blender_modifier(
+                active,
+                "BRIGHT_CONTRAST",
+                {"bright": keyframes[0][1], "contrast": 0.0},
+                f"Live Timeline Match to {reference.name}",
+            )
+            inserted = _insert_modifier_keyframes(active, modifier, keyframes, "bright")
+            scene.video_toolkit_last_analysis = (
+                f"timeline match keyframes {inserted}, target luma "
+                f"{min(sample.luma for sample in target_samples):.1f}-{max(sample.luma for sample in target_samples):.1f}, "
+                f"reference {min(sample.luma for sample in reference_samples):.1f}-{max(sample.luma for sample in reference_samples):.1f}"
+            )
+            self.report({"INFO"}, f"Added live timeline match with {inserted} keyframes")
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_clear_live_modifiers(Operator):
     bl_idname = "video_toolkit.clear_live_modifiers"
     bl_label = "Clear Video Toolkit Modifiers"
@@ -281,6 +332,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         op = layout.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Analyze: Identify Colors", icon="COLOR")
         op.mode = "PALETTE"
         layout.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Analyze: Normalize Flicker", icon="IPO_EASE_IN_OUT")
+        layout.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Analyze: Match Lighting Timeline", icon="GRAPH")
         _draw_operator(layout, "live_pro_color_stack", icon="MODIFIER")
         layout.separator()
         layout.menu("VIDEO_TOOLKIT_MT_live_blender_color", icon="COLOR")
@@ -396,10 +448,14 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Identify", icon="COLOR")
     op.mode = "PALETTE"
     box.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Normalize Lighting Flicker", icon="IPO_EASE_IN_OUT")
+    box.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Lighting Timeline", icon="GRAPH")
     box.prop(scene, "video_toolkit_analysis_samples")
     row = box.row(align=True)
     row.prop(scene, "video_toolkit_flicker_smoothing", text="Smooth")
     row.prop(scene, "video_toolkit_flicker_strength", text="Strength")
+    row = box.row(align=True)
+    row.prop(scene, "video_toolkit_match_smoothing", text="Match Smooth")
+    row.prop(scene, "video_toolkit_match_strength", text="Match Strength")
     if scene.video_toolkit_last_analysis:
         box.label(text=scene.video_toolkit_last_analysis, icon="INFO")
 
@@ -1022,6 +1078,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_apply_filter,
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_normalize_lighting,
+    VIDEO_TOOLKIT_OT_match_lighting_timeline,
     VIDEO_TOOLKIT_OT_clear_live_modifiers,
     VIDEO_TOOLKIT_OT_create_compositor_nodes,
     VIDEO_TOOLKIT_OT_open_output_folder,
@@ -1102,6 +1159,20 @@ def register() -> None:
         max=1.5,
         default=0.80,
     )
+    bpy.types.Scene.video_toolkit_match_smoothing = bpy.props.IntProperty(
+        name="Timeline Match Smoothing",
+        description="Odd-sized sample window used when matching active lighting to a reference strip",
+        min=1,
+        max=99,
+        default=5,
+    )
+    bpy.types.Scene.video_toolkit_match_strength = bpy.props.FloatProperty(
+        name="Timeline Match Strength",
+        description="How strongly keyframed Blender brightness follows the selected reference strip",
+        min=0.0,
+        max=1.5,
+        default=0.85,
+    )
     bpy.types.Scene.video_toolkit_last_compositor_nodes = bpy.props.StringProperty(
         name="Last Compositor Nodes",
         default="",
@@ -1126,6 +1197,8 @@ def unregister() -> None:
         "video_toolkit_apply_target",
         "video_toolkit_flicker_smoothing",
         "video_toolkit_flicker_strength",
+        "video_toolkit_match_smoothing",
+        "video_toolkit_match_strength",
         "video_toolkit_last_compositor_nodes",
     ):
         if hasattr(bpy.types.Scene, attr):

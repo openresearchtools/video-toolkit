@@ -116,6 +116,10 @@ normalizer_path = normalizer.path_from_id('bright')
 assert scene.animation_data is not None
 assert scene.animation_data.action is not None
 assert action_keyframe_count(scene.animation_data.action, normalizer_path) >= 2
+bpy.ops.video_toolkit.match_lighting_timeline()
+timeline_match = next(m for m in strip.modifiers if m.name.startswith('VTK Live Timeline Match'))
+timeline_match_path = timeline_match.path_from_id('bright')
+assert action_keyframe_count(scene.animation_data.action, timeline_match_path) >= 2
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',

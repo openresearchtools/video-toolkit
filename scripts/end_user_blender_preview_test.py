@@ -38,15 +38,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if not BLENDER.exists():
         raise SystemExit(f"Blender not found: {BLENDER}. Run scripts/download_blender.py first.")
-    if not shutil.which("ffprobe"):
-        raise SystemExit("ffprobe is required for the end-user preview test")
+    if not shutil.which("ffprobe") or not shutil.which("ffmpeg"):
+        raise SystemExit("ffmpeg and ffprobe are required for the end-user preview test")
 
     video = _ensure_real_video(args.video)
     _probe(video)
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    reference_video = _make_reference_video(video, output_dir / "reference_lighting_match.mp4")
 
-    script = _blender_script(video, output_dir)
+    script = _blender_script(video, reference_video, output_dir)
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as handle:
         handle.write(script)
         script_path = Path(handle.name)
@@ -99,7 +100,35 @@ def _probe(path: Path) -> None:
     )
 
 
-def _blender_script(video: Path, output_dir: Path) -> str:
+def _make_reference_video(source: Path, output: Path) -> Path:
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-y",
+            "-i",
+            str(source),
+            "-an",
+            "-vf",
+            "eq=brightness=0.10:contrast=1.05:saturation=1.02",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            str(output),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return output
+
+
+def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str:
     before = output_dir / "before_live_edit.png"
     after = output_dir / "after_live_edit.png"
     blend = output_dir / "end_user_preview.blend"
@@ -208,6 +237,23 @@ assert scene.animation_data.action is not None
 normalizer_keyframes = action_keyframe_count(scene.animation_data.action, normalizer.path_from_id('bright'))
 assert normalizer_keyframes >= 2, normalizer_keyframes
 
+reference_strip = editor.strips.new_movie(
+    name='END USER REFERENCE LIGHTING VIDEO',
+    filepath={str(reference_video)!r},
+    channel=2,
+    frame_start=1,
+)
+for candidate in editor.strips_all:
+    candidate.select = False
+strip.select = True
+reference_strip.select = True
+editor.active_strip = strip
+result = bpy.ops.video_toolkit.match_lighting_timeline()
+assert result == {{'FINISHED'}}, result
+timeline_match = next(modifier for modifier in strip.modifiers if modifier.name.startswith('VTK Live Timeline Match'))
+timeline_match_keyframes = action_keyframe_count(scene.animation_data.action, timeline_match.path_from_id('bright'))
+assert timeline_match_keyframes >= 2, timeline_match_keyframes
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='COLOR')
 assert result == {{'FINISHED'}}, result
 if hasattr(scene, 'compositing_node_group'):
@@ -259,6 +305,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'palette_modifier_types': palette_types,
     'palette_summary': palette_summary,
     'normalizer_keyframes': normalizer_keyframes,
+    'timeline_match_reference': {str(reference_video)!r},
+    'timeline_match_keyframes': timeline_match_keyframes,
     'compositor_color_node_types': color_node_types,
     'compositor_all_node_types': all_node_types,
     'compositor_links': len(tree.links),
