@@ -14,6 +14,7 @@ class NativeTranslation:
     supported_filters: tuple[str, ...] = ()
     unsupported_filters: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
+    color_management: tuple[tuple[str, str], ...] = ()
 
 
 def translate_filter_chain(chain: str) -> NativeTranslation:
@@ -29,6 +30,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
     supported: list[str] = []
     unsupported: list[str] = []
     notes: list[str] = []
+    color_management: list[tuple[str, str]] = []
     for name, args in _split_filters(chain):
         name = name.lower()
         if name == "eq":
@@ -97,12 +99,28 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             stack.extend(histeq_to_blender_stack(**args))
             supported.append(name)
             notes.append("Histogram equalization is approximated with live Blender curves and tone mapping.")
+        elif name == "colorspace":
+            color_management.extend(colorspace_to_blender_color_management(**args))
+            supported.append(name)
+            notes.append("Colorspace is applied through Blender Sequencer input color-management settings where possible.")
+        elif name == "colormatrix":
+            color_management.extend(colormatrix_to_blender_color_management(**args))
+            supported.append(name)
+            notes.append("Colormatrix is tracked as Blender color-management intent; exact YUV matrix conversion is not a VSE modifier.")
+        elif name == "setparams":
+            color_management.extend(setparams_to_blender_color_management(**args))
+            supported.append(name)
+            notes.append("Setparams color metadata is tracked as Blender color-management intent.")
+        elif name == "setrange":
+            color_management.extend(setrange_to_blender_color_management(**args))
+            supported.append(name)
+            notes.append("Setrange is tracked as color-range metadata; Blender VSE has no direct range flag modifier.")
         elif name in {"unsharp"}:
             unsupported.append(name)
             notes.append(f"{name} is not a native live VSE color primitive and is omitted from the live stack.")
         else:
             unsupported.append(name)
-    return NativeTranslation(tuple(stack), tuple(supported), tuple(unsupported), tuple(notes))
+    return NativeTranslation(tuple(stack), tuple(supported), tuple(unsupported), tuple(notes), tuple(_dedupe_pairs(color_management)))
 
 
 def eq_to_blender_stack(
@@ -728,6 +746,99 @@ def selectivecolor_to_blender_stack(
     return tuple(stack)
 
 
+def colorspace_to_blender_color_management(
+    *,
+    all: str | int = "",
+    space: str | int = "",
+    range: str | int = "",
+    primaries: str | int = "",
+    trc: str | int = "",
+    iall: str | int = "",
+    ispace: str | int = "",
+    irange: str | int = "",
+    iprimaries: str | int = "",
+    itrc: str | int = "",
+    **_unused: str,
+) -> tuple[tuple[str, str], ...]:
+    pairs: list[tuple[str, str]] = []
+    input_space = _first_color_value(iall, ispace, iprimaries, itrc)
+    output_space = _first_color_value(all, space, primaries, trc)
+    if input_space:
+        pairs.append(("sequencer_input", input_space))
+    elif output_space:
+        pairs.append(("sequencer_input", output_space))
+    for key, value in (
+        ("input_matrix", ispace or iall),
+        ("output_matrix", space or all),
+        ("input_primaries", iprimaries or iall),
+        ("output_primaries", primaries or all),
+        ("input_transfer", itrc or iall),
+        ("output_transfer", trc or all),
+    ):
+        normalized = _normalize_color_value(value)
+        if normalized:
+            pairs.append((key, normalized))
+    for key, value in (("input_range", irange), ("output_range", range)):
+        normalized = _normalize_range_value(value)
+        if normalized:
+            pairs.append((key, normalized))
+    return tuple(_dedupe_pairs(pairs))
+
+
+def colormatrix_to_blender_color_management(
+    *,
+    src: str | int = "",
+    dst: str | int = "",
+    preset: str | int = "",
+    **_unused: str,
+) -> tuple[tuple[str, str], ...]:
+    source = _normalize_color_value(src or preset)
+    destination = _normalize_color_value(dst)
+    pairs: list[tuple[str, str]] = []
+    if source:
+        pairs.append(("sequencer_input", source))
+        pairs.append(("input_matrix", source))
+    if destination:
+        pairs.append(("output_matrix", destination))
+    return tuple(pairs)
+
+
+def setparams_to_blender_color_management(
+    *,
+    range: str | int = "",
+    color_primaries: str | int = "",
+    color_trc: str | int = "",
+    colorspace: str | int = "",
+    **_unused: str,
+) -> tuple[tuple[str, str], ...]:
+    pairs: list[tuple[str, str]] = []
+    space = _first_color_value(colorspace, color_primaries, color_trc)
+    if space:
+        pairs.append(("sequencer_input", space))
+    for key, value in (
+        ("output_primaries", color_primaries),
+        ("output_transfer", color_trc),
+        ("output_matrix", colorspace),
+    ):
+        normalized = _normalize_color_value(value)
+        if normalized:
+            pairs.append((key, normalized))
+    normalized_range = _normalize_range_value(range)
+    if normalized_range:
+        pairs.append(("output_range", normalized_range))
+    return tuple(_dedupe_pairs(pairs))
+
+
+def setrange_to_blender_color_management(
+    *,
+    range: str | int = "",
+    preset: str | int = "",
+    **_unused: str,
+) -> tuple[tuple[str, str], ...]:
+    normalized = _normalize_range_value(range or preset)
+    return (("output_range", normalized),) if normalized else ()
+
+
 def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
     filters: list[tuple[str, dict[str, str]]] = []
     for item in chain.split(","):
@@ -830,6 +941,63 @@ def _normalize_limiter_value(value: float) -> float:
     if value > 1.0:
         return _clamp(value / 255.0, 0.0, 1.0)
     return _clamp(value, 0.0, 1.0)
+
+
+def _first_color_value(*values: str | int) -> str:
+    for value in values:
+        normalized = _normalize_color_value(value)
+        if normalized:
+            return normalized
+    return ""
+
+
+def _normalize_color_value(value: str | int | None) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip().lower()
+    if not text or text in {"auto", "unknown", "unspecified", "-1", "0"}:
+        return ""
+    aliases = {
+        "bt601": "smpte170m",
+        "bt470": "bt470bg",
+        "bt2020nc": "bt2020",
+        "bt2020ncl": "bt2020",
+        "iec61966-2-1": "srgb",
+        "gamma22": "bt470m",
+        "gamma28": "bt470bg",
+        "arib-std-b67": "hlg",
+        "smpte2084": "pq",
+    }
+    if text.isdigit():
+        return ""
+    return aliases.get(text, text)
+
+
+def _normalize_range_value(value: str | int | None) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip().lower()
+    if not text or text in {"auto", "unknown", "unspecified", "-1", "0"}:
+        return ""
+    if text in {"1", "limited", "tv", "mpeg"}:
+        return "limited"
+    if text in {"2", "full", "pc", "jpeg"}:
+        return "full"
+    return text
+
+
+def _dedupe_pairs(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    result: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for key, value in pairs:
+        if not value:
+            continue
+        item = (key, value)
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def _parse_cmyk_adjustment(value: str) -> tuple[float, float, float, float]:

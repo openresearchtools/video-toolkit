@@ -231,6 +231,7 @@ primary_correction_types = [
 assert {{'CURVES', 'COLOR_BALANCE', 'WHITE_BALANCE'}}.issubset(set(primary_correction_types))
 
 scene.video_toolkit_ffmpeg_chain = (
+    'colorspace=iall=bt709:all=bt709:irange=tv:range=pc,'
     'normalize=smoothing=24:independence=0.7:strength=0.55,'
     'eq=contrast=1.12:saturation=1.08:gamma=1.02,'
     'colorbalance=rs=0.05:bm=0.03:bh=-0.04:pl=1,'
@@ -242,7 +243,8 @@ scene.video_toolkit_ffmpeg_chain = (
 )
 result = bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert result == {{'FINISHED'}}, result
-assert 'translated normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, histeq' in scene.video_toolkit_last_translation
+assert 'translated colorspace, normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, histeq' in scene.video_toolkit_last_translation
+assert 'color management:' in scene.video_toolkit_last_translation
 translated_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Translated Color Chain')]
 for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'HUE_CORRECT', 'TONEMAP', 'WHITE_BALANCE']:
     assert required in translated_types, required

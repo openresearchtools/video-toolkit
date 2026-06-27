@@ -416,16 +416,24 @@ class VIDEO_TOOLKIT_OT_translate_ffmpeg_chain(Operator):
             if not chain:
                 raise RuntimeError("Enter an FFmpeg-style color chain before translating")
             translation = translate_filter_chain(chain)
-            if not translation.stack:
+            if not translation.stack and not translation.color_management:
                 unsupported = ", ".join(translation.unsupported_filters) or "none"
                 raise RuntimeError(f"No native Blender live color stack could be built. Unsupported: {unsupported}")
-            modifiers, targets = _add_blender_stack_for_target(
-                context,
-                translation.stack,
-                "Translated Color Chain",
-                self.target,
+            modifiers, targets = [], []
+            if translation.stack:
+                modifiers, targets = _add_blender_stack_for_target(
+                    context,
+                    translation.stack,
+                    "Translated Color Chain",
+                    self.target,
+                )
+            color_management = _apply_translation_color_management(context, translation)
+            scene.video_toolkit_last_translation = _translation_summary(
+                translation,
+                len(modifiers),
+                len(targets),
+                color_management,
             )
-            scene.video_toolkit_last_translation = _translation_summary(translation, len(modifiers), len(targets))
             self.report({"INFO"}, scene.video_toolkit_last_translation)
             return {"FINISHED"}
         except Exception as exc:
@@ -1022,13 +1030,56 @@ def _add_blender_stack(strip, stack, label: str):
     return modifiers
 
 
-def _translation_summary(translation, modifier_count: int, target_count: int) -> str:
+def _translation_summary(translation, modifier_count: int, target_count: int, color_management: tuple[str, ...] = ()) -> str:
     supported = ", ".join(translation.supported_filters) or "none"
     unsupported = ", ".join(translation.unsupported_filters)
     summary = f"translated {supported} into {modifier_count} live modifier(s) on {target_count} target(s)"
+    if color_management:
+        summary += f"; color management: {', '.join(color_management)}"
     if unsupported:
         summary += f"; rendered-only/not native: {unsupported}"
     return summary
+
+
+def _apply_translation_color_management(context, translation) -> tuple[str, ...]:
+    scene = context.scene
+    applied: list[str] = []
+    values = {key: value for key, value in translation.color_management}
+    if "sequencer_input" in values and hasattr(scene, "sequencer_colorspace_settings"):
+        selected = _set_sequencer_input_colorspace(scene, values["sequencer_input"])
+        if selected:
+            applied.append(f"input {selected}")
+    for key in ("input_range", "output_range", "input_matrix", "output_matrix", "input_transfer", "output_transfer", "input_primaries", "output_primaries"):
+        if key in values:
+            applied.append(f"{key.replace('_', ' ')} {values[key]}")
+    return tuple(applied)
+
+
+def _set_sequencer_input_colorspace(scene, intent: str) -> str | None:
+    candidates = _sequencer_colorspace_candidates(intent)
+    if not candidates:
+        return None
+    return _set_enum_candidate(scene.sequencer_colorspace_settings, "name", candidates)
+
+
+def _sequencer_colorspace_candidates(intent: str) -> tuple[str, ...]:
+    key = str(intent).lower()
+    mapping = {
+        "bt709": ("sRGB", "Gamma 2.2 Encoded Rec.709", "Gamma 2.4 Encoded Rec.709", "Rec.1886", "Linear Rec.709"),
+        "smpte170m": ("sRGB", "Gamma 2.2 Encoded Rec.709", "Rec.1886", "Linear Rec.709"),
+        "bt470bg": ("Gamma 2.2 Encoded Rec.709", "sRGB", "Rec.1886", "Linear Rec.709"),
+        "bt470m": ("Gamma 1.8 Encoded Rec.709", "Gamma 2.2 Encoded Rec.709", "sRGB"),
+        "smpte240m": ("Gamma 2.2 Encoded Rec.709", "sRGB", "Linear Rec.709"),
+        "srgb": ("sRGB", "Filmic sRGB", "AgX Base sRGB"),
+        "linear": ("Linear Rec.709", "scene_linear"),
+        "gbr": ("Linear Rec.709", "scene_linear"),
+        "bt2020": ("Rec.2020", "Linear Rec.2020", "Rec.2100-HLG", "Rec.2100-PQ"),
+        "bt2020-10": ("Rec.2020", "Linear Rec.2020", "Rec.2100-HLG"),
+        "bt2020-12": ("Rec.2020", "Linear Rec.2020", "Rec.2100-HLG"),
+        "hlg": ("Rec.2100-HLG", "Rec.2020", "Linear Rec.2020"),
+        "pq": ("Rec.2100-PQ", "Rec.2020", "Linear Rec.2020"),
+    }
+    return mapping.get(key, ())
 
 
 def _add_blender_modifier(strip, modifier_type, settings, label):

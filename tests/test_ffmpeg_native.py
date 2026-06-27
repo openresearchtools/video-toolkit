@@ -103,8 +103,25 @@ def test_filter_chain_reports_non_native_filters():
     ]
 
 
+def test_filter_chain_supports_color_space_metadata():
+    result = translate_filter_chain(
+        "colorspace=iall=bt709:all=bt2020:irange=tv:range=pc,"
+        "colormatrix=src=smpte170m:dst=bt709,"
+        "setparams=color_primaries=bt2020:color_trc=bt2020-10:colorspace=bt2020nc:range=full,"
+        "setrange=limited"
+    )
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("colorspace", "colormatrix", "setparams", "setrange")
+    assert ("sequencer_input", "bt709") in result.color_management
+    assert ("output_matrix", "bt2020") in result.color_management
+    assert ("output_transfer", "bt2020-10") in result.color_management
+    assert ("output_range", "limited") in result.color_management
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
+        "colorspace=iall=bt709:all=bt709:range=pc,"
         "colorlevels=rimin=0.02:rimax=0.98,"
         "colorbalance=rs=0.1:bm=0.2,"
         "vibrance=intensity=0.4,"
@@ -121,6 +138,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     )
     assert result.unsupported_filters == ()
     assert result.supported_filters == (
+        "colorspace",
         "colorlevels",
         "colorbalance",
         "vibrance",
@@ -138,3 +156,4 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
+    assert ("sequencer_input", "bt709") in result.color_management
