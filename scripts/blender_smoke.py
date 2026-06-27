@@ -153,6 +153,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'colorlevels=rimin=0.02:rimax=0.98,'
     'colorcorrect=rl=0.05:bl=-0.04:rh=0.03:bh=-0.02:saturation=1.06,'
     'colorcontrast=rc=0.12:gm=-0.05:by=0.08:rcw=0.5:gmw=0.4:byw=0.5:pl=1,'
+    'selectivecolor=reds=0.10 -0.04 -0.02 0.00:blues=-0.04 0.02 0.10 0.03:whites=0.02 0.00 -0.08 0.01,'
     'monochrome=cb=0.05:cr=-0.04:high=0.1,'
     'colorize=hue=35:saturation=0.25:lightness=0.55:mix=0.85,'
     'vibrance=intensity=0.4,'
@@ -160,7 +161,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'histeq=strength=0.25:intensity=0.22:antibanding=1'
 )
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
-assert 'translated normalize, colorlevels, colorcorrect, colorcontrast, monochrome, colorize, vibrance, exposure, histeq' in scene.video_toolkit_last_translation
+assert 'translated normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, vibrance, exposure, histeq' in scene.video_toolkit_last_translation
 translated_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Chain')]
 assert {{'CURVES', 'HUE_CORRECT', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'TONEMAP', 'WHITE_BALANCE'}}.issubset(set(translated_types))
 for filter_id in (

@@ -82,6 +82,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             stack.extend(colorcontrast_to_blender_stack(**args))
             supported.append(name)
             notes.append("Colorcontrast is approximated with Blender opponent-channel Color Balance controls.")
+        elif name == "selectivecolor":
+            stack.extend(selectivecolor_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Selectivecolor is approximated with Blender Hue Correct hue-zone curves and Color Balance tonal zones.")
         elif name == "monochrome":
             stack.extend(monochrome_to_blender_stack(**args))
             supported.append(name)
@@ -674,6 +678,56 @@ def histeq_to_blender_stack(
     )
 
 
+def selectivecolor_to_blender_stack(
+    *,
+    correction_method: str | int = "absolute",
+    reds: str = "",
+    yellows: str = "",
+    greens: str = "",
+    cyans: str = "",
+    blues: str = "",
+    magentas: str = "",
+    whites: str = "",
+    neutrals: str = "",
+    blacks: str = "",
+    **_unused: str,
+) -> BlenderStack:
+    relative = str(correction_method).lower() in {"1", "relative"}
+    scale = 0.72 if relative else 1.0
+    zone_values = {
+        "reds": _parse_cmyk_adjustment(reds),
+        "yellows": _parse_cmyk_adjustment(yellows),
+        "greens": _parse_cmyk_adjustment(greens),
+        "cyans": _parse_cmyk_adjustment(cyans),
+        "blues": _parse_cmyk_adjustment(blues),
+        "magentas": _parse_cmyk_adjustment(magentas),
+    }
+    tonal_values = {
+        "blacks": _parse_cmyk_adjustment(blacks),
+        "neutrals": _parse_cmyk_adjustment(neutrals),
+        "whites": _parse_cmyk_adjustment(whites),
+    }
+    stack: list[tuple[str, dict[str, Any]]] = []
+    if any(any(abs(channel) > 1e-6 for channel in value) for value in zone_values.values()):
+        stack.append(("HUE_CORRECT", {"__curve_points__": _selective_hue_curve_points(zone_values, scale)}))
+    if any(any(abs(channel) > 1e-6 for channel in value) for value in tonal_values.values()):
+        stack.append(
+            (
+                "COLOR_BALANCE",
+                {
+                    "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                    "color_balance.lift": _cmyk_to_rgb_balance(tonal_values["blacks"], scale=0.26 * scale),
+                    "color_balance.gamma": _cmyk_to_rgb_balance(tonal_values["neutrals"], scale=0.22 * scale),
+                    "color_balance.gain": _cmyk_to_rgb_balance(tonal_values["whites"], scale=0.30 * scale),
+                    "color_multiply": _clamp(1.0 - tonal_values["neutrals"][3] * 0.06 * scale, 0.75, 1.25),
+                },
+            )
+        )
+    if not stack:
+        stack.append(("HUE_CORRECT", {"__hue_correct__": {"saturation": 0.5, "value": 0.5}}))
+    return tuple(stack)
+
+
 def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
     filters: list[tuple[str, dict[str, str]]] = []
     for item in chain.split(","):
@@ -778,6 +832,50 @@ def _normalize_limiter_value(value: float) -> float:
     return _clamp(value, 0.0, 1.0)
 
 
+def _parse_cmyk_adjustment(value: str) -> tuple[float, float, float, float]:
+    parts = str(value or "").replace("/", " ").replace(",", " ").split()
+    channels = [_float_percent(part) for part in parts[:4]]
+    while len(channels) < 4:
+        channels.append(0.0)
+    return tuple(_clamp(channel, -1.0, 1.0) for channel in channels[:4])
+
+
+def _selective_hue_curve_points(
+    zone_values: dict[str, tuple[float, float, float, float]],
+    scale: float,
+) -> dict[int, list[tuple[float, float]]]:
+    anchors = (
+        (0.0, "reds"),
+        (1.0 / 6.0, "yellows"),
+        (2.0 / 6.0, "greens"),
+        (3.0 / 6.0, "cyans"),
+        (4.0 / 6.0, "blues"),
+        (5.0 / 6.0, "magentas"),
+        (1.0, "reds"),
+    )
+    hue_points: list[tuple[float, float]] = []
+    saturation_points: list[tuple[float, float]] = []
+    value_points: list[tuple[float, float]] = []
+    for x, name in anchors:
+        cyan, magenta, yellow, black = zone_values[name]
+        hue_delta = _clamp((magenta - yellow + cyan * 0.45) * 0.035 * scale, -0.16, 0.16)
+        saturation_delta = _clamp((abs(cyan) + abs(magenta) + abs(yellow)) * 0.055 * scale - black * 0.025 * scale, -0.22, 0.22)
+        value_delta = _clamp((-black * 0.12 - (cyan + magenta + yellow) * 0.018) * scale, -0.24, 0.24)
+        hue_points.append((x, _clamp(0.5 + hue_delta, 0.0, 1.0)))
+        saturation_points.append((x, _clamp(0.5 + saturation_delta, 0.0, 1.0)))
+        value_points.append((x, _clamp(0.5 + value_delta, 0.0, 1.0)))
+    return {0: hue_points, 1: saturation_points, 2: value_points}
+
+
+def _cmyk_to_rgb_balance(value: tuple[float, float, float, float], *, scale: float) -> tuple[float, float, float]:
+    cyan, magenta, yellow, black = value
+    return (
+        _clamp(1.0 - cyan * scale - black * scale * 0.45, 0.35, 1.85),
+        _clamp(1.0 - magenta * scale - black * scale * 0.45, 0.35, 1.85),
+        _clamp(1.0 - yellow * scale - black * scale * 0.45, 0.35, 1.85),
+    )
+
+
 def _parse_color(value: str, default: tuple[float, float, float]) -> tuple[float, float, float]:
     if not value:
         return default
@@ -866,6 +964,12 @@ def _float(value: str | float | int | None, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _float_percent(value: str | float | int | None) -> float:
+    if isinstance(value, str) and value.strip().endswith("%"):
+        return _float(value.strip()[:-1], 0.0) / 100.0
+    return _float(value, 0.0)
 
 
 def _clamp(value: float, low: float, high: float) -> float:

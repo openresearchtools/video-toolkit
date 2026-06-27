@@ -6,6 +6,7 @@ from video_toolkit.ffmpeg_native import (
     eq_to_blender_stack,
     exposure_to_blender_stack,
     normalize_to_blender_stack,
+    selectivecolor_to_blender_stack,
     translate_filter_chain,
     vibrance_to_blender_stack,
 )
@@ -68,6 +69,24 @@ def test_normalize_translates_to_live_curves_and_tonemap():
     assert stack[1][1]["intensity"] > 0.0
 
 
+def test_selectivecolor_translates_to_hue_zones_and_tonal_balance():
+    stack = selectivecolor_to_blender_stack(
+        correction_method="relative",
+        reds="0.12 -0.08 -0.04 0.00",
+        blues="-0.04 0.02 0.12 0.03",
+        whites="0.02 0.00 -0.08 0.01",
+        neutrals="0.00 -0.04 0.03 0.00",
+        blacks="-0.03 0.02 0.00 0.06",
+    )
+    assert [modifier_type for modifier_type, _settings in stack] == ["HUE_CORRECT", "COLOR_BALANCE"]
+    hue_points = stack[0][1]["__curve_points__"]
+    assert {0, 1, 2}.issubset(hue_points)
+    assert hue_points[1][0][1] != hue_points[1][1][1]
+    settings = stack[1][1]
+    assert settings["color_balance.correction_method"] == "LIFT_GAMMA_GAIN"
+    assert settings["color_balance.gain"][2] > settings["color_balance.gain"][0]
+
+
 def test_filter_chain_reports_non_native_filters():
     result = translate_filter_chain(
         "normalize=smoothing=30,eq=contrast=1.08:saturation=1.1:gamma=1.02,unsharp=5:5:0.45"
@@ -95,6 +114,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "tonemap=tonemap=mobius:param=0.35:desat=0.4,"
         "colorcorrect=rl=0.1:bl=-0.05:rh=0.03:bh=-0.02:saturation=1.08,"
         "colorcontrast=rc=0.2:gm=-0.1:by=0.15:rcw=0.6:gmw=0.4:byw=0.5:pl=1,"
+        "selectivecolor=reds=0.10 -0.04 -0.02 0.00:blues=-0.04 0.02 0.10 0.03:whites=0.02 0.00 -0.08 0.01,"
         "monochrome=cb=0.1:cr=-0.1:high=0.2,"
         "colorize=hue=210:saturation=0.45:lightness=0.55:mix=0.65,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1"
@@ -110,6 +130,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "tonemap",
         "colorcorrect",
         "colorcontrast",
+        "selectivecolor",
         "monochrome",
         "colorize",
         "histeq",
