@@ -513,6 +513,36 @@ for required in [
 identity_curve_node = next(node for node in tree.nodes if node.name == 'VTK Palette Identity Curves')
 assert len(identity_curve_node.mapping.curves[0].points) >= 5
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='DIAGNOSTIC_COLOR')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('diagnostic compositor grade')
+diagnostic_compositor_summary = scene.video_toolkit_last_compositor_nodes
+diagnostic_compositor_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Diagnostic Grade ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in diagnostic_compositor_node_types, required
+assert any(
+    node_type in diagnostic_compositor_node_types
+    for node_type in (
+        'CompositorNodeBrightContrast',
+        'CompositorNodeColorBalance',
+        'CompositorNodeCurveRGB',
+        'CompositorNodeHueCorrect',
+        'CompositorNodeTonemap',
+    )
+), diagnostic_compositor_node_types
+assert scene.video_toolkit_last_diagnostics_text in bpy.data.texts
+diagnostic_compositor_report = bpy.data.texts[scene.video_toolkit_last_diagnostics_text].as_string()
+assert 'Suggested native Blender tools' in diagnostic_compositor_report
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='LIGHTING_NORMALIZE')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('compositor lighting normalizer')
@@ -734,6 +764,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_compositor_exposure': sampled_exposure_socket.default_value,
     'identity_compositor_summary': identity_compositor_summary,
     'identity_compositor_node_types': identity_compositor_node_types,
+    'diagnostic_compositor_summary': diagnostic_compositor_summary,
+    'diagnostic_compositor_node_types': diagnostic_compositor_node_types,
+    'diagnostic_compositor_report_excerpt': diagnostic_compositor_report.splitlines()[:12],
     'lighting_compositor_summary': lighting_compositor_summary,
     'lighting_compositor_node_types': lighting_compositor_node_types,
     'lighting_compositor_keyframes': lighting_compositor_keyframes,

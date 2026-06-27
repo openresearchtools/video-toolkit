@@ -330,6 +330,28 @@ for required in [
     assert required in identity_node_types, required
 identity_curve = next(node for node in tree.nodes if node.name == 'VTK Palette Identity Curves')
 assert len(identity_curve.mapping.curves[0].points) >= 5
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='DIAGNOSTIC_COLOR')
+assert scene.video_toolkit_last_compositor_nodes.startswith('diagnostic compositor grade')
+assert scene.video_toolkit_last_diagnostics_text in bpy.data.texts
+assert 'Suggested native Blender tools' in bpy.data.texts[scene.video_toolkit_last_diagnostics_text].as_string()
+diagnostic_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Diagnostic Grade ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in diagnostic_node_types, required
+assert any(
+    node_type in diagnostic_node_types
+    for node_type in (
+        'CompositorNodeBrightContrast',
+        'CompositorNodeColorBalance',
+        'CompositorNodeCurveRGB',
+        'CompositorNodeHueCorrect',
+        'CompositorNodeTonemap',
+    )
+), diagnostic_node_types
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='LIGHTING_NORMALIZE')
 assert scene.video_toolkit_last_compositor_nodes.startswith('compositor lighting normalizer')
 lighting_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Lighting Normalizer ')]

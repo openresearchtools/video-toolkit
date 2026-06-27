@@ -50,6 +50,7 @@ COMPOSITOR_STACK_ITEMS = (
     ("IDENTITY_COLOR", "Palette Identity Node Stack", "Identify dominant colors and build a Blender compositor palette-aware graph"),
     ("MATCHED_COLOR", "Matched Color Node Stack", "Match the active movie strip to a selected reference strip with Blender compositor nodes"),
     ("COLOR_TIMELINE_MATCH", "Color Timeline Match Node Stack", "Sample active/reference RGB over time and animate Blender compositor color balance"),
+    ("DIAGNOSTIC_COLOR", "Diagnostic Grade Node Stack", "Diagnose real frames and build the recommended Blender compositor color graph"),
     ("TRANSLATED_COLOR", "Translated Color Node Stack", "Translate the FFmpeg-style color chain into a Blender compositor graph"),
     ("LIGHTING_NORMALIZE", "Lighting Normalize Node Stack", "Sample luma over time and animate Blender compositor brightness correction"),
     ("RESTORATION", "Restoration Node Stack", "Build a Blender compositor restoration node graph from the active movie strip"),
@@ -700,6 +701,21 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
                     f"reference {_timeline_rgb_summary(reference_samples)}; "
                     f"{_compositor_node_summary(created)}"
                 )
+            elif self.stack_type == "DIAGNOSTIC_COLOR":
+                stats = sample_video_color(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
+                diagnosis = diagnose_color(stats)
+                text = _write_diagnostics_text(strip, diagnosis.report)
+                stack, labels = _diagnostic_recommended_stack(diagnosis)
+                if not stack:
+                    raise RuntimeError("No Blender compositor diagnostic tools were available for this diagnosis")
+                created = _create_diagnostic_compositor_color_stack(context.scene, strip, stack)
+                context.scene.video_toolkit_last_diagnostics = diagnosis.summary
+                context.scene.video_toolkit_last_diagnostics_text = text.name
+                label = "diagnostic grade"
+                summary = (
+                    f"diagnostic compositor grade {len(created)} nodes, tools: {', '.join(labels)}; "
+                    f"{summarize_stats(stats)}; report {text.name}; {_compositor_node_summary(created)}"
+                )
             elif self.stack_type == "TRANSLATED_COLOR":
                 chain = context.scene.video_toolkit_ffmpeg_chain.strip()
                 if not chain:
@@ -868,6 +884,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
             icon="NODETREE",
         )
         op.stack_type = "COLOR_TIMELINE_MATCH"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Diagnostic Grade Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "DIAGNOSTIC_COLOR"
         op = layout.operator(
             VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
             text="Create Translated Color Node Stack",
@@ -1101,8 +1123,11 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Translated", icon="MODIFIER")
     op.stack_type = "TRANSLATED_COLOR"
     row = box.row(align=True)
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Diagnostic", icon="TEXT")
+    op.stack_type = "DIAGNOSTIC_COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Normalize", icon="IPO_EASE_IN_OUT")
     op.stack_type = "LIGHTING_NORMALIZE"
+    row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Restore Stack", icon="MODIFIER")
     op.stack_type = "RESTORATION"
     op = box.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Native Node Library", icon="NODETREE")
@@ -1737,6 +1762,10 @@ def _create_identity_compositor_color_stack(scene, strip, stack):
 
 def _create_matched_compositor_color_stack(scene, strip, stack, reference_name: str):
     return _create_compositor_nodes_from_blender_stack(scene, strip, stack, f"Matched to {reference_name}")
+
+
+def _create_diagnostic_compositor_color_stack(scene, strip, stack):
+    return _create_compositor_nodes_from_blender_stack(scene, strip, stack, "Diagnostic Grade")
 
 
 def _create_color_timeline_match_compositor_stack(scene, strip, keyframes, reference_name: str):
