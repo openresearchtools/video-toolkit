@@ -172,6 +172,10 @@ def _tool_has_compositor_stack(tool) -> bool:
     return any(modifier_type in COMPOSITOR_MODIFIER_TYPES for modifier_type, _settings in _tool_compositor_stack(tool))
 
 
+def _tool_modifier_names(tool) -> tuple[str, ...]:
+    return tuple(modifier_type for modifier_type, _settings in _tool_compositor_stack(tool))
+
+
 def _compositor_tool_items(_self, _context):
     return tuple(
         (tool.id, tool.label, f"Create a Blender compositor graph for {tool.label}")
@@ -1002,6 +1006,19 @@ class VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_write_catalog_coverage_report(Operator):
+    bl_idname = "video_toolkit.write_catalog_coverage_report"
+    bl_label = "Write Catalog Coverage Report"
+    bl_description = "Write a Blender text report showing native, compositor, and rendered fallback tool coverage"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        text = _write_catalog_coverage_text()
+        context.scene.video_toolkit_last_catalog_report = text.name
+        self.report({"INFO"}, f"Wrote {text.name}")
+        return {"FINISHED"}
+
+
 class VIDEO_TOOLKIT_OT_apply_color_management_preset(Operator):
     bl_idname = "video_toolkit.apply_color_management_preset"
     bl_label = "Apply Blender Color Management Preset"
@@ -1104,6 +1121,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         layout.menu("VIDEO_TOOLKIT_MT_blender_vse_modifiers", icon="SEQ_STRIP_DUPLICATE")
         layout.menu("VIDEO_TOOLKIT_MT_compositor_recipes", icon="NODETREE")
         layout.operator(VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes.bl_idname, text="Create All Color Recipe Nodes", icon="NODETREE")
+        layout.operator(VIDEO_TOOLKIT_OT_write_catalog_coverage_report.bl_idname, text="Write Catalog Coverage Report", icon="TEXT")
         op = layout.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Create Color Node Stack", icon="NODETREE")
         op.stack_type = "COLOR"
         op = layout.operator(
@@ -1460,11 +1478,18 @@ def _draw_sidecar_browser(layout, scene, strip) -> None:
         text="All Recipe Nodes",
         icon="NODETREE",
     )
+    quick.operator(
+        VIDEO_TOOLKIT_OT_write_catalog_coverage_report.bl_idname,
+        text="Catalog Coverage Report",
+        icon="TEXT",
+    )
 
     if scene.video_toolkit_last_analysis:
         layout.label(text=scene.video_toolkit_last_analysis, icon="INFO")
     if scene.video_toolkit_last_compositor_nodes:
         layout.label(text=scene.video_toolkit_last_compositor_nodes, icon="NODETREE")
+    if scene.video_toolkit_last_catalog_report:
+        layout.label(text=scene.video_toolkit_last_catalog_report, icon="TEXT")
     if scene.video_toolkit_last_output:
         layout.label(text=scene.video_toolkit_last_output, icon="FILE_MOVIE")
 
@@ -1591,10 +1616,13 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op.stack_type = "RESTORATION"
     box.menu("VIDEO_TOOLKIT_MT_compositor_recipes", text="Color Recipe Nodes", icon="NODETREE")
     box.operator(VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes.bl_idname, text="All Color Recipe Nodes", icon="NODETREE")
+    box.operator(VIDEO_TOOLKIT_OT_write_catalog_coverage_report.bl_idname, text="Catalog Coverage Report", icon="TEXT")
     op = box.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Native Node Library", icon="NODETREE")
     op.stack_type = "NODE_LIBRARY"
     if scene.video_toolkit_last_compositor_nodes:
         box.label(text=scene.video_toolkit_last_compositor_nodes, icon="INFO")
+    if scene.video_toolkit_last_catalog_report:
+        box.label(text=scene.video_toolkit_last_catalog_report, icon="TEXT")
 
 
 def _draw_live_color_tools(layout, scene) -> None:
@@ -2906,6 +2934,66 @@ def _write_diagnostics_text(strip, report: str):
     return text
 
 
+def _write_catalog_coverage_text():
+    name = "VTK Video Effects Catalog Coverage"
+    text = bpy.data.texts.get(name)
+    if text is None:
+        text = bpy.data.texts.new(name)
+    text.clear()
+    text.write(_catalog_coverage_report() + "\n")
+    return text
+
+
+def _catalog_coverage_report() -> str:
+    tools = all_tools()
+    blender_tools = tuple(tool for tool in tools if tool.is_blender_modifier)
+    compositor_tools = tuple(tool for tool in tools if _tool_has_compositor_stack(tool))
+    vse_only_tools = tuple(tool for tool in blender_tools if not _tool_has_compositor_stack(tool))
+    rendered_tools = tuple(tool for tool in tools if tool.is_ffmpeg)
+    modifier_types = sorted({modifier for tool in blender_tools for modifier in _tool_modifier_names(tool)})
+    unsupported_modifier_types = sorted(set(modifier_types) - set(COMPOSITOR_MODIFIER_TYPES))
+
+    lines = [
+        "Open Research Video Toolkit Catalog Coverage",
+        "",
+        f"Total catalog tools: {len(tools)}",
+        f"Blender-native live tools: {len(blender_tools)}",
+        f"Compositor-compatible catalog recipes: {len(compositor_tools)}",
+        f"VSE-only native tools: {len(vse_only_tools)}",
+        f"Rendered fallback tools: {len(rendered_tools)}",
+        f"Color Management presets: {len(COLOR_MANAGEMENT_PRESET_ITEMS)}",
+        f"Tracked native compositor nodes: {len(compositor_node_tools())}",
+        "",
+        "Supported compositor modifier types: " + ", ".join(sorted(COMPOSITOR_MODIFIER_TYPES)),
+        "VSE-only modifier types: " + (", ".join(unsupported_modifier_types) if unsupported_modifier_types else "None"),
+        "",
+        "Compositor-compatible catalog recipes:",
+    ]
+    lines.extend(_tool_report_lines(compositor_tools))
+    lines.extend(["", "VSE-only native tools:"])
+    lines.extend(_tool_report_lines(vse_only_tools))
+    lines.extend(["", "Rendered fallback tools:"])
+    lines.extend(_tool_report_lines(rendered_tools))
+    lines.extend(["", "Blender Color Management presets:"])
+    for preset_id, label, description in COLOR_MANAGEMENT_PRESET_ITEMS:
+        lines.append(f"- {preset_id}: {label} - {description}")
+    lines.extend(["", "Tracked native compositor node library:"])
+    for node in compositor_node_tools():
+        lines.append(f"- {node.node_type}: {node.label} ({node.category})")
+    return "\n".join(lines)
+
+
+def _tool_report_lines(tools) -> list[str]:
+    if not tools:
+        return ["- None"]
+    lines = []
+    for tool in tools:
+        modifiers = _tool_modifier_names(tool)
+        suffix = f" -> {', '.join(modifiers)}" if modifiers else ""
+        lines.append(f"- {tool.id}: {tool.label} [{tool.category}]{suffix}")
+    return lines
+
+
 def _reference_movie_strip(context, active):
     selected = _selected_movie_strips(context)
     for strip in selected:
@@ -3026,6 +3114,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_create_tool_compositor_nodes,
     VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes,
     VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes,
+    VIDEO_TOOLKIT_OT_write_catalog_coverage_report,
     VIDEO_TOOLKIT_OT_apply_color_management_preset,
     VIDEO_TOOLKIT_OT_apply_sampled_color_management,
     VIDEO_TOOLKIT_OT_open_output_folder,
@@ -3113,6 +3202,10 @@ def register() -> None:
     )
     bpy.types.Scene.video_toolkit_last_diagnostics_text = bpy.props.StringProperty(
         name="Last Color Diagnostics Text",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_last_catalog_report = bpy.props.StringProperty(
+        name="Last Catalog Coverage Report",
         default="",
     )
     bpy.types.Scene.video_toolkit_last_diagnostic_grade = bpy.props.StringProperty(
@@ -3225,6 +3318,7 @@ def unregister() -> None:
         "video_toolkit_last_analysis",
         "video_toolkit_last_diagnostics",
         "video_toolkit_last_diagnostics_text",
+        "video_toolkit_last_catalog_report",
         "video_toolkit_last_diagnostic_grade",
         "video_toolkit_last_sampled_white_balance",
         "video_toolkit_last_sampled_levels_gamma",

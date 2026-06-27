@@ -557,6 +557,16 @@ assert all_recipe_ids == expected_all_recipe_ids, (len(all_recipe_ids), len(expe
 assert 'live_pro_color_stack' in all_recipe_ids
 assert 'native_white_balance_editor' in all_recipe_ids
 assert 'native_mask_slot' not in all_recipe_ids
+result = bpy.ops.video_toolkit.write_catalog_coverage_report()
+assert result == {{'FINISHED'}}, result
+catalog_report_name = scene.video_toolkit_last_catalog_report
+assert catalog_report_name == 'VTK Video Effects Catalog Coverage'
+assert catalog_report_name in bpy.data.texts
+catalog_coverage_report = bpy.data.texts[catalog_report_name].as_string()
+assert f'Compositor-compatible catalog recipes: {{len(expected_all_recipe_ids)}}' in catalog_coverage_report
+assert 'VSE-only native tools:' in catalog_coverage_report
+assert 'native_mask_slot: Mask Slot' in catalog_coverage_report
+assert 'Rendered fallback tools:' in catalog_coverage_report
 
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR_MANAGEMENT')
 assert result == {{'FINISHED'}}, result
@@ -899,6 +909,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'all_recipe_summary': all_recipe_summary,
     'all_recipe_ids': all_recipe_ids,
     'all_recipe_count': len(all_recipe_ids),
+    'catalog_coverage_report': catalog_report_name,
+    'catalog_coverage_excerpt': catalog_coverage_report.splitlines()[:18],
     'sampled_cm_compositor_summary': sampled_cm_compositor_summary,
     'sampled_cm_compositor_node_types': sampled_cm_compositor_node_types,
     'sampled_cm_compositor_exposure': sampled_cm_exposure_socket.default_value,

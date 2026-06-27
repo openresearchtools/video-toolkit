@@ -233,6 +233,15 @@ assert created_recipe_ids == expected_recipe_ids
 assert 'live_pro_color_stack' in created_recipe_ids
 assert 'native_white_balance_editor' in created_recipe_ids
 assert 'native_mask_slot' not in created_recipe_ids
+bpy.ops.video_toolkit.write_catalog_coverage_report()
+assert scene.video_toolkit_last_catalog_report == 'VTK Video Effects Catalog Coverage'
+assert scene.video_toolkit_last_catalog_report in bpy.data.texts
+catalog_report = bpy.data.texts[scene.video_toolkit_last_catalog_report].as_string()
+assert f'Compositor-compatible catalog recipes: {{len(expected_recipe_ids)}}' in catalog_report
+assert 'VSE-only native tools:' in catalog_report
+assert 'native_mask_slot: Mask Slot' in catalog_report
+assert 'Rendered fallback tools:' in catalog_report
+assert 'Tracked native compositor node library:' in catalog_report
 for filter_id in (
     'live_pro_color_stack',
     'auto_enhance',
