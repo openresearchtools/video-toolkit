@@ -61,6 +61,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "unpremultiply",
     "shuffleplanes",
     "elbg",
+    "unsharp",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -222,6 +223,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(elbg_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Elbg posterization is translated to Blender compositor Posterize nodes.")
+        elif name == "unsharp":
+            compositor_nodes.extend(unsharp_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Unsharp is approximated with Blender compositor Filter sharpen/soften nodes.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -259,9 +264,6 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             color_management.extend(zscale_to_blender_color_management(**args))
             supported.append(name)
             notes.append("Zscale color metadata is tracked through Blender Sequencer color-management intent; scaling remains a rendered tool.")
-        elif name in {"unsharp"}:
-            unsupported.append(name)
-            notes.append(f"{name} is not a native live VSE color primitive and is omitted from the live stack.")
         else:
             unsupported.append(name)
     return NativeTranslation(
@@ -1166,6 +1168,68 @@ def elbg_to_blender_compositor(
     )
 
 
+def unsharp_to_blender_compositor(
+    *,
+    luma_msize_x: str | int = 5,
+    lx: str | int | None = None,
+    luma_msize_y: str | int = 5,
+    ly: str | int | None = None,
+    luma_amount: str | float = 1.0,
+    la: str | float | None = None,
+    chroma_msize_x: str | int = 5,
+    cx: str | int | None = None,
+    chroma_msize_y: str | int = 5,
+    cy: str | int | None = None,
+    chroma_amount: str | float = 0.0,
+    ca: str | float | None = None,
+    alpha_msize_x: str | int = 5,
+    ax: str | int | None = None,
+    alpha_msize_y: str | int = 5,
+    ay: str | int | None = None,
+    alpha_amount: str | float = 0.0,
+    aa: str | float | None = None,
+    arg0: str | int | None = None,
+    arg1: str | int | None = None,
+    arg2: str | float | None = None,
+    arg3: str | int | None = None,
+    arg4: str | int | None = None,
+    arg5: str | float | None = None,
+    arg6: str | int | None = None,
+    arg7: str | int | None = None,
+    arg8: str | float | None = None,
+    **_unused: str,
+) -> CompositorStack:
+    lx_value = _unsharp_size(arg0 if arg0 is not None else (lx if lx is not None else luma_msize_x))
+    ly_value = _unsharp_size(arg1 if arg1 is not None else (ly if ly is not None else luma_msize_y))
+    la_value = _float(arg2 if arg2 is not None else (la if la is not None else luma_amount), 1.0)
+    cx_value = _unsharp_size(arg3 if arg3 is not None else (cx if cx is not None else chroma_msize_x))
+    cy_value = _unsharp_size(arg4 if arg4 is not None else (cy if cy is not None else chroma_msize_y))
+    ca_value = _float(arg5 if arg5 is not None else (ca if ca is not None else chroma_amount), 0.0)
+    ax_value = _unsharp_size(arg6 if arg6 is not None else (ax if ax is not None else alpha_msize_x))
+    ay_value = _unsharp_size(arg7 if arg7 is not None else (ay if ay is not None else alpha_msize_y))
+    aa_value = _float(arg8 if arg8 is not None else (aa if aa is not None else alpha_amount), 0.0)
+    amount = la_value + ca_value * 0.35 + aa_value * 0.15
+    if abs(amount) < 1e-6:
+        amount = max((la_value, ca_value, aa_value), key=abs)
+    matrix_scale = max(0.2, (lx_value + ly_value) / 10.0)
+    return (
+        (
+            "FILTER",
+            {
+                "filter_type": "Box Sharpen" if amount >= 0.0 else "Soften",
+                "factor": _clamp(abs(amount) * matrix_scale, 0.0, 2.0),
+                "luma_size": (lx_value, ly_value),
+                "luma_amount": la_value,
+                "chroma_size": (cx_value, cy_value),
+                "chroma_amount": ca_value,
+                "alpha_size": (ax_value, ay_value),
+                "alpha_amount": aa_value,
+                "source": "unsharp",
+            },
+        ),
+    )
+
+
 def pseudocolor_to_blender_stack(
     *,
     preset: str | int = "turbo",
@@ -1837,6 +1901,12 @@ def _posterize_steps(codebook_length: str | int | None, use_alpha: bool = False)
     colors = max(1.0, _float(codebook_length, 256.0))
     channels = 4.0 if use_alpha else 3.0
     return float(_clamp(round(colors ** (1.0 / channels)), 2.0, 256.0))
+
+
+def _unsharp_size(value: str | int | None) -> int:
+    parsed = int(round(_float(value, 5.0)))
+    parsed = int(_clamp(float(parsed), 3.0, 23.0))
+    return parsed if parsed % 2 == 1 else min(23, parsed + 1)
 
 
 def _truthy(value: str | int | bool) -> bool:

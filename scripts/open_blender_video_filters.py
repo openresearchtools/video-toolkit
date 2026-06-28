@@ -89,6 +89,7 @@ def _setup_scene() -> None:
         "unpremultiply,"
         "shuffleplanes=map0=2:map1=1:map2=0:map3=3,"
         "elbg=l=64:n=2:seed=17,"
+        "unsharp=5:5:0.45:3:3:0.20,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "histeq=strength=0.20:intensity=0.18,"
         "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"

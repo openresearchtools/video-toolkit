@@ -24,6 +24,7 @@ from video_toolkit.ffmpeg_native import (
     shuffleplanes_to_blender_compositor,
     translate_filter_chain,
     unpremultiply_to_blender_compositor,
+    unsharp_to_blender_compositor,
     vibrance_to_blender_stack,
     zscale_to_blender_color_management,
 )
@@ -135,11 +136,12 @@ def test_selectivecolor_translates_to_hue_zones_and_tonal_balance():
 
 def test_filter_chain_reports_non_native_filters():
     result = translate_filter_chain(
-        "normalize=smoothing=30,eq=contrast=1.08:saturation=1.1:gamma=1.02,unsharp=5:5:0.45"
+        "normalize=smoothing=30,eq=contrast=1.08:saturation=1.1:gamma=1.02,unsharp=5:5:0.45,hqdn3d=1.5:1.5:6:6"
     )
     assert "normalize" in result.supported_filters
     assert "eq" in result.supported_filters
-    assert result.unsupported_filters == ("unsharp",)
+    assert "unsharp" in result.supported_filters
+    assert result.unsupported_filters == ("hqdn3d",)
     assert [modifier_type for modifier_type, _settings in result.stack][:5] == [
         "CURVES",
         "TONEMAP",
@@ -147,6 +149,7 @@ def test_filter_chain_reports_non_native_filters():
         "COLOR_BALANCE",
         "HUE_CORRECT",
     ]
+    assert result.compositor_nodes[0][0] == "FILTER"
 
 
 def test_filter_chain_supports_color_space_metadata():
@@ -318,6 +321,28 @@ def test_elbg_translates_to_posterize_graph_specs():
     assert result.compositor_nodes[1][1]["use_alpha"] is True
 
 
+def test_unsharp_translates_to_native_filter_graph_specs():
+    sharpen = unsharp_to_blender_compositor(lx=7, ly=5, la=0.8, cx=3, cy=3, ca=0.2)
+    assert sharpen[0][0] == "FILTER"
+    sharpen_settings = sharpen[0][1]
+    assert sharpen_settings["filter_type"] == "Box Sharpen"
+    assert sharpen_settings["factor"] > 0.8
+    assert sharpen_settings["luma_size"] == (7, 5)
+    assert sharpen_settings["chroma_amount"] == 0.2
+
+    soften = unsharp_to_blender_compositor(arg0=5, arg1=5, arg2=-0.6)
+    assert soften[0][1]["filter_type"] == "Soften"
+    assert soften[0][1]["factor"] == 0.6
+
+    result = translate_filter_chain("unsharp=5:5:0.45:3:3:0.20,unsharp=lx=7:ly=7:la=-0.40")
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("unsharp", "unsharp")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["FILTER", "FILTER"]
+    assert result.compositor_nodes[0][1]["filter_type"] == "Box Sharpen"
+    assert result.compositor_nodes[1][1]["filter_type"] == "Soften"
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -350,6 +375,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "unpremultiply,"
         "shuffleplanes=map0=2:map1=1:map2=0:map3=3,"
         "elbg=l=64:n=2:seed=17,"
+        "unsharp=5:5:0.45:3:3:0.20,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -387,6 +413,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "unpremultiply",
         "shuffleplanes",
         "elbg",
+        "unsharp",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -395,7 +422,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management
