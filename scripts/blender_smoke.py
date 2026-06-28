@@ -316,12 +316,15 @@ scene.video_toolkit_ffmpeg_chain = (
     'selectivecolor=reds=0.10 -0.04 -0.02 0.00:blues=-0.04 0.02 0.10 0.03:whites=0.02 0.00 -0.08 0.01,'
     'monochrome=cb=0.05:cr=-0.04:high=0.1,'
     'colorize=hue=35:saturation=0.25:lightness=0.55:mix=0.85,'
+    'greyedge=difford=2:minknorm=5:sigma=2,'
     'vibrance=intensity=0.4,'
+    'pseudocolor=preset=viridis:opacity=0.75:index=1,'
     'exposure=exposure=0.25:black=0.02,'
-    'histeq=strength=0.25:intensity=0.22:antibanding=1'
+    'histeq=strength=0.25:intensity=0.22:antibanding=1,'
+    'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
 )
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
-assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, vibrance, exposure, histeq' in scene.video_toolkit_last_translation
+assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, greyedge, vibrance, pseudocolor, exposure, histeq, zscale' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 assert scene.sequencer_colorspace_settings.name in {'sRGB', 'Gamma 2.2 Encoded Rec.709', 'Gamma 2.4 Encoded Rec.709', 'Rec.1886', 'Linear Rec.709'}
 translated_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Chain')]
@@ -351,9 +354,9 @@ for required in [
     'CompositorNodeOutputFile',
 ]:
     assert required in translated_workflow_types, required
-scene.video_toolkit_ffmpeg_chain = 'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=full,setrange=limited'
+scene.video_toolkit_ffmpeg_chain = 'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=full,setrange=limited,zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
-assert 'translated setparams, setrange into 0 live modifier(s)' in scene.video_toolkit_last_translation
+assert 'translated setparams, setrange, zscale into 0 live modifier(s)' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 assert bpy.types.VIDEO_TOOLKIT_PT_video_filters.bl_category == 'Video Effects'
 assert bpy.types.VIDEO_TOOLKIT_MT_tools.bl_label == 'Video Effects'
@@ -438,9 +441,9 @@ assert 'VSE-only native tools:' in catalog_report
 assert 'native_mask_slot: Mask Slot' in catalog_report
 assert 'Rendered fallback tools:' in catalog_report
 assert 'Tracked native compositor node library:' in catalog_report
-assert 'Native-translated FFmpeg filters: 31' in catalog_report
+assert 'Native-translated FFmpeg filters: 34' in catalog_report
 assert 'Native-translated FFmpeg color filters: eq, hue, huesaturation' in catalog_report
-assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange' in catalog_report
+assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_report
 assert 'Rendered fallback FFmpeg filters:' in catalog_report
 assert 'Rendered-only FFmpeg filters:' in catalog_report
 assert 'deflicker' in catalog_report

@@ -138,8 +138,11 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     recommended_recipe_mix = output_dir / "after_recommended_recipe_mix.png"
     professional_workflow = output_dir / "after_professional_color_workflow.png"
     diagnostic_grade = output_dir / "after_diagnostic_grade.png"
+    sampled_white_balance_base = output_dir / "before_sampled_white_balance.png"
     sampled_white_balance = output_dir / "after_sampled_white_balance.png"
+    sampled_levels_gamma_base = output_dir / "before_sampled_levels_gamma.png"
     sampled_levels_gamma = output_dir / "after_sampled_levels_gamma.png"
+    sampled_hue_chroma_base = output_dir / "before_sampled_hue_chroma.png"
     sampled_hue_chroma = output_dir / "after_sampled_hue_chroma.png"
     sampled_pro_grade_base = output_dir / "before_sampled_pro_grade.png"
     sampled_pro_grade = output_dir / "after_sampled_pro_grade.png"
@@ -325,11 +328,14 @@ scene.video_toolkit_ffmpeg_chain = (
     'colorcontrast=rc=0.12:gm=-0.04:by=0.08:rcw=0.5:gmw=0.35:byw=0.45:pl=1,'
     'selectivecolor=reds=0.08 -0.03 -0.02 0.00:blues=-0.03 0.01 0.08 0.02:whites=0.01 0.00 -0.06 0.01,'
     'colortemperature=temperature=5600:mix=0.55,'
-    'histeq=strength=0.22:intensity=0.20:antibanding=1'
+    'greyedge=difford=2:minknorm=5:sigma=2,'
+    'pseudocolor=preset=viridis:opacity=0.75:index=1,'
+    'histeq=strength=0.22:intensity=0.20:antibanding=1,'
+    'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
 )
 result = bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert result == {{'FINISHED'}}, result
-assert 'translated colorspace, normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, histeq' in scene.video_toolkit_last_translation
+assert 'translated colorspace, normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, greyedge, pseudocolor, histeq, zscale' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 translated_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Translated Color Chain')]
 for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'HUE_CORRECT', 'TONEMAP', 'WHITE_BALANCE']:
@@ -350,6 +356,9 @@ translated_workflow_node_count = scene.get('video_toolkit_last_translated_workfl
 assert translated_workflow_node_count >= 10
 assert 'colorspace' in translated_workflow_supported
 assert 'histeq' in translated_workflow_supported
+assert 'greyedge' in translated_workflow_supported
+assert 'pseudocolor' in translated_workflow_supported
+assert 'zscale' in translated_workflow_supported
 translated_workflow_modifier_types = [
     modifier.type
     for modifier in strip.modifiers
@@ -532,6 +541,13 @@ diagnostic_grade_diff = (
 )
 assert diagnostic_grade_diff > 0.001, f'Diagnostic grade did not visibly change preview pixels: {{diagnostic_grade_diff}}'
 
+result = bpy.ops.video_toolkit.clear_live_modifiers()
+assert result == {{'FINISHED'}}, result
+for candidate in editor.strips_all:
+    candidate.select = False
+strip.select = True
+editor.active_strip = strip
+sampled_white_balance_base_stats = render_preview({str(sampled_white_balance_base)!r})
 result = bpy.ops.video_toolkit.apply_sampled_white_balance()
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_sampled_white_balance.startswith('sampled white balance')
@@ -541,12 +557,19 @@ sampled_white_balance_types = [
 assert sampled_white_balance_types == ['WHITE_BALANCE', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'CURVES', 'HUE_CORRECT'], sampled_white_balance_types
 sampled_white_balance_stats = render_preview({str(sampled_white_balance)!r})
 sampled_white_balance_diff = (
-    abs(sampled_white_balance_stats['r'] - diagnostic_grade_stats['r'])
-    + abs(sampled_white_balance_stats['g'] - diagnostic_grade_stats['g'])
-    + abs(sampled_white_balance_stats['b'] - diagnostic_grade_stats['b'])
+    abs(sampled_white_balance_stats['r'] - sampled_white_balance_base_stats['r'])
+    + abs(sampled_white_balance_stats['g'] - sampled_white_balance_base_stats['g'])
+    + abs(sampled_white_balance_stats['b'] - sampled_white_balance_base_stats['b'])
 )
 assert sampled_white_balance_diff > 0.001, f'Sampled white balance did not visibly change preview pixels: {{sampled_white_balance_diff}}'
 
+result = bpy.ops.video_toolkit.clear_live_modifiers()
+assert result == {{'FINISHED'}}, result
+for candidate in editor.strips_all:
+    candidate.select = False
+strip.select = True
+editor.active_strip = strip
+sampled_levels_gamma_base_stats = render_preview({str(sampled_levels_gamma_base)!r})
 result = bpy.ops.video_toolkit.apply_sampled_levels_gamma()
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_sampled_levels_gamma.startswith('sampled levels/gamma')
@@ -556,12 +579,19 @@ sampled_levels_gamma_types = [
 assert sampled_levels_gamma_types == ['CURVES', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'TONEMAP', 'HUE_CORRECT'], sampled_levels_gamma_types
 sampled_levels_gamma_stats = render_preview({str(sampled_levels_gamma)!r})
 sampled_levels_gamma_diff = (
-    abs(sampled_levels_gamma_stats['r'] - sampled_white_balance_stats['r'])
-    + abs(sampled_levels_gamma_stats['g'] - sampled_white_balance_stats['g'])
-    + abs(sampled_levels_gamma_stats['b'] - sampled_white_balance_stats['b'])
+    abs(sampled_levels_gamma_stats['r'] - sampled_levels_gamma_base_stats['r'])
+    + abs(sampled_levels_gamma_stats['g'] - sampled_levels_gamma_base_stats['g'])
+    + abs(sampled_levels_gamma_stats['b'] - sampled_levels_gamma_base_stats['b'])
 )
 assert sampled_levels_gamma_diff > 0.001, f'Sampled levels/gamma did not visibly change preview pixels: {{sampled_levels_gamma_diff}}'
 
+result = bpy.ops.video_toolkit.clear_live_modifiers()
+assert result == {{'FINISHED'}}, result
+for candidate in editor.strips_all:
+    candidate.select = False
+strip.select = True
+editor.active_strip = strip
+sampled_hue_chroma_base_stats = render_preview({str(sampled_hue_chroma_base)!r})
 result = bpy.ops.video_toolkit.apply_sampled_hue_chroma()
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_sampled_hue_chroma.startswith('sampled hue/chroma')
@@ -571,9 +601,9 @@ sampled_hue_chroma_types = [
 assert sampled_hue_chroma_types == ['HUE_CORRECT', 'COLOR_BALANCE', 'CURVES'], sampled_hue_chroma_types
 sampled_hue_chroma_stats = render_preview({str(sampled_hue_chroma)!r})
 sampled_hue_chroma_diff = (
-    abs(sampled_hue_chroma_stats['r'] - sampled_levels_gamma_stats['r'])
-    + abs(sampled_hue_chroma_stats['g'] - sampled_levels_gamma_stats['g'])
-    + abs(sampled_hue_chroma_stats['b'] - sampled_levels_gamma_stats['b'])
+    abs(sampled_hue_chroma_stats['r'] - sampled_hue_chroma_base_stats['r'])
+    + abs(sampled_hue_chroma_stats['g'] - sampled_hue_chroma_base_stats['g'])
+    + abs(sampled_hue_chroma_stats['b'] - sampled_hue_chroma_base_stats['b'])
 )
 assert sampled_hue_chroma_diff > 0.001, f'Sampled hue/chroma did not visibly change preview pixels: {{sampled_hue_chroma_diff}}'
 
@@ -865,8 +895,8 @@ assert f'Compositor-compatible catalog recipes: {{len(expected_all_recipe_ids)}}
 assert 'VSE-only native tools:' in catalog_coverage_report
 assert 'native_mask_slot: Mask Slot' in catalog_coverage_report
 assert 'Rendered fallback tools:' in catalog_coverage_report
-assert 'Native-translated FFmpeg filters: 31' in catalog_coverage_report
-assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange' in catalog_coverage_report
+assert 'Native-translated FFmpeg filters: 34' in catalog_coverage_report
+assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_coverage_report
 assert 'Rendered-only FFmpeg filters:' in catalog_coverage_report
 assert 'deflicker' in catalog_coverage_report
 assert 'vidstabdetect' in catalog_coverage_report

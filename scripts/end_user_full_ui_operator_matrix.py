@@ -154,10 +154,13 @@ scene.video_toolkit_ffmpeg_chain = (
     "vibrance=intensity=0.25,"
     "exposure=exposure=0.18:black=0.02,"
     "grayworld,"
+    "greyedge=difford=2:minknorm=5:sigma=2,"
     "negate=components=r+g+b,"
     "colorhold=color=blue:similarity=0.12:blend=0.2,"
+    "pseudocolor=preset=viridis:opacity=0.75:index=1,"
     "lutrgb=r=negval:g=val*0.9:b=val+12,"
-    "histeq=strength=0.18:intensity=0.14"
+    "histeq=strength=0.18:intensity=0.14,"
+    "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"
 )
 
 target_strip = editor.strips.new_movie(
@@ -802,10 +805,13 @@ def node_stack_operator(stack_type):
                 "colorbalance=rs=0.04:bm=0.03:bh=-0.04:pl=1,"
                 "curves=preset=strong_contrast,"
                 "grayworld,"
+                "greyedge=difford=2:minknorm=5:sigma=2,"
                 "negate=components=r+g+b,"
                 "colorhold=color=blue:similarity=0.12:blend=0.2,"
+                "pseudocolor=preset=viridis:opacity=0.75:index=1,"
                 "lutrgb=r=negval:g=val*0.9:b=val+12,"
-                "histeq=strength=0.20:intensity=0.18"
+                "histeq=strength=0.20:intensity=0.18,"
+                "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"
             )
         result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type=stack_type)
         assert_finished(result)

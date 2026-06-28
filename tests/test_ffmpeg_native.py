@@ -5,13 +5,16 @@ from video_toolkit.ffmpeg_native import (
     curves_to_blender_stack,
     eq_to_blender_stack,
     exposure_to_blender_stack,
+    greyedge_to_blender_stack,
     grayworld_to_blender_stack,
     lut_to_blender_stack,
     negate_to_blender_stack,
     normalize_to_blender_stack,
+    pseudocolor_to_blender_stack,
     selectivecolor_to_blender_stack,
     translate_filter_chain,
     vibrance_to_blender_stack,
+    zscale_to_blender_color_management,
 )
 
 
@@ -80,6 +83,18 @@ def test_grayworld_negate_and_lut_translate_to_live_controls():
     assert points[3][0][1] > 0.0
 
 
+def test_greyedge_and_pseudocolor_translate_to_live_controls():
+    greyedge = greyedge_to_blender_stack(difford=2, minknorm=5, sigma=3)
+    assert [modifier_type for modifier_type, _settings in greyedge] == ["WHITE_BALANCE", "COLOR_BALANCE", "CURVES"]
+    assert greyedge[1][1]["color_balance.correction_method"] == "LIFT_GAMMA_GAIN"
+    assert greyedge[2][1]["__curve_points__"][0][1][1] < 0.25
+
+    pseudocolor = pseudocolor_to_blender_stack(preset="viridis", opacity=0.75, index=2)
+    assert [modifier_type for modifier_type, _settings in pseudocolor] == ["HUE_CORRECT", "CURVES", "COLOR_BALANCE"]
+    assert {0, 1, 2}.issubset(pseudocolor[0][1]["__curve_points__"])
+    assert pseudocolor[2][1]["color_balance.gamma"][1] != 1.0
+
+
 def test_normalize_translates_to_live_curves_and_tonemap():
     stack = normalize_to_blender_stack(blackpt="#101020", whitept="#f0f4ff", smoothing=30, independence=0.8, strength=0.7)
     assert [modifier_type for modifier_type, _settings in stack] == ["CURVES", "TONEMAP"]
@@ -128,15 +143,37 @@ def test_filter_chain_supports_color_space_metadata():
         "colorspace=iall=bt709:all=bt2020:irange=tv:range=pc,"
         "colormatrix=src=smpte170m:dst=bt709,"
         "setparams=color_primaries=bt2020:color_trc=bt2020-10:colorspace=bt2020nc:range=full,"
-        "setrange=limited"
+        "setrange=limited,"
+        "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"
     )
     assert result.stack == ()
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("colorspace", "colormatrix", "setparams", "setrange")
+    assert result.supported_filters == ("colorspace", "colormatrix", "setparams", "setrange", "zscale")
     assert ("sequencer_input", "bt709") in result.color_management
     assert ("output_matrix", "bt2020") in result.color_management
     assert ("output_transfer", "bt2020-10") in result.color_management
     assert ("output_range", "limited") in result.color_management
+    assert ("input_range", "limited") in result.color_management
+
+
+def test_zscale_metadata_translates_to_blender_color_management():
+    pairs = zscale_to_blender_color_management(
+        primariesin="bt709",
+        transferin="bt709",
+        matrixin="bt709",
+        rangein="limited",
+        primaries="bt2020",
+        transfer="bt2020-10",
+        matrix="bt2020nc",
+        range="full",
+    )
+    assert ("sequencer_input", "bt709") in pairs
+    assert ("input_matrix", "bt709") in pairs
+    assert ("output_matrix", "bt2020") in pairs
+    assert ("output_primaries", "bt2020") in pairs
+    assert ("output_transfer", "bt2020-10") in pairs
+    assert ("input_range", "limited") in pairs
+    assert ("output_range", "full") in pairs
 
 
 def test_filter_chain_supports_more_color_grading_filters():
@@ -155,11 +192,14 @@ def test_filter_chain_supports_more_color_grading_filters():
         "monochrome=cb=0.1:cr=-0.1:high=0.2,"
         "colorize=hue=210:saturation=0.45:lightness=0.55:mix=0.65,"
         "grayworld,"
+        "greyedge=difford=2:minknorm=5:sigma=2,"
         "negate=components=r+g+b,"
         "colorhold=color=blue:similarity=0.12:blend=0.2,"
         "hsvhold=hue=210:similarity=0.10,"
+        "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
-        "histeq=strength=0.35:intensity=0.25:antibanding=1"
+        "histeq=strength=0.35:intensity=0.25:antibanding=1,"
+        "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"
     )
     assert result.unsupported_filters == ()
     assert result.supported_filters == (
@@ -177,11 +217,14 @@ def test_filter_chain_supports_more_color_grading_filters():
         "monochrome",
         "colorize",
         "grayworld",
+        "greyedge",
         "negate",
         "colorhold",
         "hsvhold",
+        "pseudocolor",
         "lutrgb",
         "histeq",
+        "zscale",
     )
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}

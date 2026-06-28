@@ -27,10 +27,12 @@ NATIVE_FFMPEG_COLOR_FILTERS = (
     "monochrome",
     "colorize",
     "grayworld",
+    "greyedge",
     "negate",
     "chromahold",
     "colorhold",
     "hsvhold",
+    "pseudocolor",
     "lut",
     "lutrgb",
     "lutyuv",
@@ -42,6 +44,7 @@ NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS = (
     "colormatrix",
     "setparams",
     "setrange",
+    "zscale",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -138,6 +141,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             stack.extend(grayworld_to_blender_stack(**args))
             supported.append(name)
             notes.append("Grayworld is exposed as editable Blender White Balance/Lift-Gamma-Gain controls; use sampled white balance for frame-measured auto values.")
+        elif name == "greyedge":
+            stack.extend(greyedge_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Greyedge is approximated with editable Blender White Balance plus edge-weighted contrast curves; use sampled white balance for frame-measured auto values.")
         elif name == "negate":
             stack.extend(negate_to_blender_stack(**args))
             supported.append(name)
@@ -149,6 +156,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             stack.extend(hsvhold_to_blender_stack(**args))
             supported.append(name)
             notes.append("Hsvhold is approximated with Blender Hue Correct saturation-zone curves.")
+        elif name == "pseudocolor":
+            stack.extend(pseudocolor_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Pseudocolor is approximated with editable Blender Hue Correct curves, RGB curves, and Color Balance palette tinting.")
         elif name in {"lut", "lutrgb", "lutyuv"}:
             lut_stack = lut_to_blender_stack(**args)
             if lut_stack:
@@ -178,6 +189,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             color_management.extend(setrange_to_blender_color_management(**args))
             supported.append(name)
             notes.append("Setrange is tracked as color-range metadata; Blender VSE has no direct range flag modifier.")
+        elif name == "zscale":
+            color_management.extend(zscale_to_blender_color_management(**args))
+            supported.append(name)
+            notes.append("Zscale color metadata is tracked through Blender Sequencer color-management intent; scaling remains a rendered tool.")
         elif name in {"unsharp"}:
             unsupported.append(name)
             notes.append(f"{name} is not a native live VSE color primitive and is omitted from the live stack.")
@@ -735,6 +750,45 @@ def grayworld_to_blender_stack(**_unused: str) -> BlenderStack:
     )
 
 
+def greyedge_to_blender_stack(
+    *,
+    difford: str | int = 1,
+    minknorm: str | float = 1.0,
+    sigma: str | float = 1.0,
+    **_unused: str,
+) -> BlenderStack:
+    edge_order = _clamp(_float(difford, 1.0), 0.0, 2.0)
+    minkowski = _clamp(_float(minknorm, 1.0), 0.0, 20.0)
+    blur_sigma = _clamp(_float(sigma, 1.0), 0.0, 20.0)
+    edge_strength = _clamp(0.035 + edge_order * 0.035 + minkowski * 0.006 + blur_sigma * 0.004, 0.035, 0.24)
+    return (
+        ("WHITE_BALANCE", {"white_value": (1.0, 1.0, 1.0)}),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.lift": _preserve_average((1.0 + edge_strength * 0.18, 1.0, 1.0 - edge_strength * 0.12)),
+                "color_balance.gamma": _preserve_average((1.0 + edge_strength * 0.08, 1.0, 1.0 - edge_strength * 0.08)),
+                "color_balance.gain": _preserve_average((1.0 + edge_strength * 0.10, 1.0, 1.0 - edge_strength * 0.06)),
+            },
+        ),
+        (
+            "CURVES",
+            {
+                "__curve_points__": {
+                    0: [
+                        (0.0, 0.0),
+                        (0.25, _clamp(0.25 - edge_strength * 0.20, 0.0, 1.0)),
+                        (0.50, 0.50),
+                        (0.75, _clamp(0.75 + edge_strength * 0.20, 0.0, 1.0)),
+                        (1.0, 1.0),
+                    ]
+                }
+            },
+        ),
+    )
+
+
 def negate_to_blender_stack(
     *,
     components: str = "y+u+v+r+g+b",
@@ -793,6 +847,76 @@ def hsvhold_to_blender_stack(
         for x, y in saturation_points
     ]
     return (("HUE_CORRECT", {"__curve_points__": {1: saturation_points, 2: value_points}}),)
+
+
+def pseudocolor_to_blender_stack(
+    *,
+    preset: str | int = "turbo",
+    opacity: str | float = 1.0,
+    index: str | int = 0,
+    **_unused: str,
+) -> BlenderStack:
+    opacity_value = _clamp(_float(opacity, 1.0), 0.0, 1.0)
+    key = str(preset).strip().lower()
+    palettes = {
+        "magma": (285.0, 0.76, 0.42),
+        "inferno": (35.0, 0.82, 0.48),
+        "plasma": (300.0, 0.72, 0.52),
+        "viridis": (150.0, 0.56, 0.48),
+        "turbo": (215.0, 0.74, 0.50),
+        "cividis": (215.0, 0.36, 0.52),
+        "range1": (30.0, 0.70, 0.50),
+        "range2": (210.0, 0.70, 0.50),
+        "shadows": (225.0, 0.55, 0.36),
+        "highlights": (45.0, 0.62, 0.62),
+    }
+    base_hue, saturation, lightness = palettes.get(key, palettes["turbo"])
+    if str(index).strip() not in {"", "0"}:
+        base_hue = (base_hue + _float(index, 0.0) * 23.0) % 360.0
+    tint = _hsl_to_rgb(base_hue, saturation, lightness)
+    strength = opacity_value
+    hue_points = [
+        (0.0, _hue_shift_to_curve_y(base_hue - 120.0 * strength)),
+        (0.33, _hue_shift_to_curve_y(base_hue - 20.0 * strength)),
+        (0.66, _hue_shift_to_curve_y(base_hue + 75.0 * strength)),
+        (1.0, _hue_shift_to_curve_y(base_hue + 140.0 * strength)),
+    ]
+    saturation_points = [
+        (0.0, _saturation_to_curve_y(_clamp(0.35 + saturation * strength, 0.0, 2.0))),
+        (0.50, _saturation_to_curve_y(_clamp(0.70 + saturation * strength * 0.65, 0.0, 2.0))),
+        (1.0, _saturation_to_curve_y(_clamp(0.45 + saturation * strength, 0.0, 2.0))),
+    ]
+    value_points = [
+        (0.0, _value_to_curve_y(_clamp(0.82 + (lightness - 0.5) * strength, 0.3, 1.4))),
+        (0.50, _value_to_curve_y(_clamp(1.0 + (lightness - 0.5) * strength * 0.5, 0.3, 1.4))),
+        (1.0, _value_to_curve_y(_clamp(1.08 + (lightness - 0.5) * strength, 0.3, 1.4))),
+    ]
+    white_value = tuple(_clamp(_mix(1.0, channel, strength * 0.50), 0.45, 1.55) for channel in tint)
+    return (
+        ("HUE_CORRECT", {"__curve_points__": {0: hue_points, 1: saturation_points, 2: value_points}}),
+        (
+            "CURVES",
+            {
+                "__curve_points__": {
+                    0: [
+                        (0.0, _clamp(0.02 * strength, 0.0, 0.12)),
+                        (0.35, _clamp(0.28 + strength * 0.08, 0.0, 1.0)),
+                        (0.70, _clamp(0.78 - strength * 0.04, 0.0, 1.0)),
+                        (1.0, 1.0),
+                    ]
+                }
+            },
+        ),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.gamma": white_value,
+                "color_balance.gain": white_value,
+                "color_multiply": _clamp(1.0 + saturation * strength * 0.06, 0.8, 1.25),
+            },
+        ),
+    )
 
 
 def lut_to_blender_stack(
@@ -1001,6 +1125,38 @@ def setrange_to_blender_color_management(
     return (("output_range", normalized),) if normalized else ()
 
 
+def zscale_to_blender_color_management(**args: str | int) -> tuple[tuple[str, str], ...]:
+    input_primaries = _first_arg(args, "primariesin", "pin", "iprimaries")
+    output_primaries = _first_arg(args, "primaries", "p", "primariesout")
+    input_transfer = _first_arg(args, "transferin", "tin", "itrc")
+    output_transfer = _first_arg(args, "transfer", "t", "trc")
+    input_matrix = _first_arg(args, "matrixin", "min", "ispace")
+    output_matrix = _first_arg(args, "matrix", "m", "space")
+    input_range = _first_arg(args, "rangein", "rin", "irange")
+    output_range = _first_arg(args, "range", "r")
+
+    pairs: list[tuple[str, str]] = []
+    sequencer_input = _first_color_value(input_primaries, input_transfer, input_matrix, output_primaries, output_transfer, output_matrix)
+    if sequencer_input:
+        pairs.append(("sequencer_input", sequencer_input))
+    for key, value in (
+        ("input_matrix", input_matrix),
+        ("output_matrix", output_matrix),
+        ("input_primaries", input_primaries),
+        ("output_primaries", output_primaries),
+        ("input_transfer", input_transfer),
+        ("output_transfer", output_transfer),
+    ):
+        normalized = _normalize_color_value(value)
+        if normalized:
+            pairs.append((key, normalized))
+    for key, value in (("input_range", input_range), ("output_range", output_range)):
+        normalized = _normalize_range_value(value)
+        if normalized:
+            pairs.append((key, normalized))
+    return tuple(_dedupe_pairs(pairs))
+
+
 def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
     filters: list[tuple[str, dict[str, str]]] = []
     for item in chain.split(","):
@@ -1110,6 +1266,14 @@ def _first_color_value(*values: str | int) -> str:
         normalized = _normalize_color_value(value)
         if normalized:
             return normalized
+    return ""
+
+
+def _first_arg(args: dict[str, str | int], *keys: str) -> str | int:
+    for key in keys:
+        value = args.get(key)
+        if value not in (None, ""):
+            return value
     return ""
 
 

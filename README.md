@@ -52,8 +52,9 @@ Live Blender color tools update the selected strip immediately in the Sequencer
 preview. The **Native Color Chain Translation** field accepts supported
 FFmpeg-style color chains such as `eq`, `colorbalance`, `colorlevels`, `curves`,
 `normalize`, `colorcorrect`, `colorcontrast`, `selectivecolor`, `vibrance`, `exposure`,
-`colortemperature`, `limiter`, `tonemap`, `histeq`, `colorspace`, `colormatrix`,
-`setparams`, and `setrange`, then adds editable native Blender VSE modifiers
+`colortemperature`, `limiter`, `tonemap`, `grayworld`, `greyedge`,
+`pseudocolor`, `histeq`, `colorspace`, `colormatrix`, `setparams`,
+`setrange`, and `zscale`, then adds editable native Blender VSE modifiers
 and Blender color-management settings instead of rendering a new file.
 
 ## CLI Usage
@@ -83,7 +84,7 @@ FFmpeg must be installed and visible on `PATH`.
 - Native restoration nodes: Stabilize, Movie Distortion, Denoise, Despeckle, Bilateral Blur, Anti-Aliasing, plus broader coverage for Blender matte, transform, alpha, and utility compositor nodes where they are applicable to video finishing.
 - Blender-native color recipes: auto enhance, neutral grade, punchy color, soft contrast, exposure lift, gamma up/down, warm/cool balance.
 - Blender-native Color Management tools: sampled real-frame scene profile plus AgX balanced, AgX punch, Filmic soft, Standard video, warm review, and view-curve contrast presets.
-- FFmpeg-to-Blender translation: supported FFmpeg color intent (`eq`, `hue`, `huesaturation`, `colorchannelmixer`, `curves`, `colorlevels`, `colorbalance`, `normalize`, `colorcorrect`, `colorcontrast`, `selectivecolor`, `monochrome`, `colorize`, `grayworld`, `negate`, `chromahold`, `colorhold`, `hsvhold`, simple `lut`/`lutrgb`/`lutyuv`, `histeq`, `vibrance`, `exposure`, `colortemperature`, `limiter`, `tonemap`, `colorspace`, `colormatrix`, `setparams`, `setrange`) is converted into native live Blender VSE modifier stacks, Blender color-management settings, and compositor color nodes from the **Native Color Chain Translation**, **FFmpeg Color Workflow**, and **Translated** compositor controls; non-native temporal filters stay in rendered restoration.
+- FFmpeg-to-Blender translation: supported FFmpeg color intent (`eq`, `hue`, `huesaturation`, `colorchannelmixer`, `curves`, `colorlevels`, `colorbalance`, `normalize`, `colorcorrect`, `colorcontrast`, `selectivecolor`, `monochrome`, `colorize`, `grayworld`, `greyedge`, `negate`, `chromahold`, `colorhold`, `hsvhold`, `pseudocolor`, simple `lut`/`lutrgb`/`lutyuv`, `histeq`, `vibrance`, `exposure`, `colortemperature`, `limiter`, `tonemap`, `colorspace`, `colormatrix`, `setparams`, `setrange`, `zscale`) is converted into native live Blender VSE modifier stacks, Blender color-management settings, and compositor color nodes from the **Native Color Chain Translation**, **FFmpeg Color Workflow**, and **Translated** compositor controls; non-native temporal filters stay in rendered restoration.
 - Restoration: deflicker, lighting normalizer, denoise, sharpen restoration, deinterlace, quick deshake, two-pass vidstab stabilization.
 - Motion and output: 2x Lanczos upscale, 1080p normalize scale, 60 fps interpolation, temporal smoothing.
 

@@ -76,7 +76,10 @@ def _setup_scene() -> None:
         "eq=contrast=1.08:saturation=1.05:gamma=1.02,"
         "colorbalance=rs=0.05:bh=-0.04,"
         "colorcorrect=rl=0.04:bl=-0.02:saturation=1.04,"
-        "histeq=strength=0.20:intensity=0.18"
+        "greyedge=difford=2:minknorm=5:sigma=2,"
+        "pseudocolor=preset=viridis:opacity=0.75:index=1,"
+        "histeq=strength=0.20:intensity=0.18,"
+        "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"
     )
     try:
         bpy.ops.video_toolkit.color_diagnostics()
