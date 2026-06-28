@@ -203,6 +203,40 @@ _LUT_INVERT_TRANSLATION = translate_filter_chain("lutrgb=r=negval:g=val*0.9:b=va
 _HISTOGRAM_EQUALIZE_TRANSLATION = translate_filter_chain("histeq=strength=0.42:intensity=0.30:antibanding=1")
 _COLOR_HOLD_TRANSLATION = translate_filter_chain("colorhold=color=blue:similarity=0.18:blend=0.15")
 _HSV_HOLD_TRANSLATION = translate_filter_chain("hsvhold=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.08")
+_RGB_GAMMA_BOARD_TRANSLATION = translate_filter_chain(
+    "eq=brightness=0.01:contrast=1.04:saturation=1.04:gamma=1.03:gamma_r=1.09:gamma_g=1.00:gamma_b=0.94:gamma_weight=0.70"
+)
+_CHANNEL_MIXER_BALANCE_TRANSLATION = translate_filter_chain(
+    "colorchannelmixer=rr=1.06:rg=-0.02:rb=-0.01:gr=-0.01:gg=1.04:gb=-0.01:br=-0.04:bg=0.02:bb=1.08"
+)
+_OPPONENT_COLOR_CONTRAST_TRANSLATION = translate_filter_chain(
+    "colorcontrast=rc=0.18:gm=-0.08:by=0.12:rcw=0.70:gmw=0.45:byw=0.55:pl=1"
+)
+_LOW_HIGH_COLORCORRECT_TRANSLATION = translate_filter_chain(
+    "colorcorrect=rl=0.06:bl=-0.04:rh=0.03:bh=-0.03:saturation=1.06"
+)
+_INDEPENDENT_RGB_NORMALIZE_TRANSLATION = translate_filter_chain(
+    "normalize=blackpt=#08080c:whitept=#f4f1e8:smoothing=48:independence=1.0:strength=0.8"
+)
+_HUE_SAT_INTENSITY_TRANSLATION = translate_filter_chain(
+    "huesaturation=hue=3:saturation=0.18:intensity=0.06:strength=0.85"
+)
+_HIGHLIGHT_DESAT_TONEMAP_TRANSLATION = translate_filter_chain(
+    "tonemap=tonemap=mobius:param=0.45:desat=0.55:peak=600"
+)
+_BROADCAST_GAMMA_GUARD_TRANSLATION = translate_filter_chain(
+    "limiter=min=16:max=235,eq=gamma=0.96:contrast=1.03:saturation=0.98"
+)
+_GRAY_WORLD_NEUTRALIZER_TRANSLATION = translate_filter_chain(
+    "grayworld,eq=contrast=1.02:saturation=1.01:gamma=1.0"
+)
+_RGB_LUT_TRIM_TRANSLATION = translate_filter_chain("lutrgb=r=val*1.04:g=val*1.00:b=val*0.96")
+_SELECTIVE_NEUTRAL_BALANCE_TRANSLATION = translate_filter_chain(
+    "selectivecolor=reds=-0.04 0.02 0.02 0.00:yellows=0.02 -0.02 -0.04 0.00:"
+    "greens=0.00 -0.04 0.02 0.00:cyans=0.02 0.00 -0.03 0.00:"
+    "blues=-0.03 0.02 0.05 0.00:magentas=0.03 -0.02 0.00 0.00:"
+    "neutrals=0.00 0.00 0.00 0.02"
+)
 _CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey=color=green:similarity=0.18:blend=0.06")
 _COLOR_KEY_MATTE_TRANSLATION = translate_filter_chain("colorkey=color=blue:similarity=0.16:blend=0.04")
 _HSV_KEY_MATTE_TRANSLATION = translate_filter_chain("hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.03")
@@ -744,6 +778,105 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_BLENDER_MODIFIER,
         description="Live Blender midtone blue-channel gamma trim using Color Balance and White Balance.",
         blender_stack=_BLUE_GAMMA_TRIM_STACK,
+    ),
+    VideoTool(
+        id="rgb_gamma_board",
+        label="RGB Gamma Board",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg eq per-channel gamma, gamma-weight, contrast, and saturation as editable Blender live modifiers plus compositor nodes.",
+        blender_stack=_RGB_GAMMA_BOARD_TRANSLATION.stack,
+        compositor_stack=_RGB_GAMMA_BOARD_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="channel_mixer_balance",
+        label="Channel Mixer Balance",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg colorchannelmixer channel math as Blender Lift/Gamma/Gain and White Balance controls.",
+        blender_stack=_CHANNEL_MIXER_BALANCE_TRANSLATION.stack,
+        compositor_stack=_CHANNEL_MIXER_BALANCE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="opponent_color_contrast",
+        label="Opponent Color Contrast",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg red/cyan, green/magenta, and blue/yellow colorcontrast intent as native Blender color-balance math.",
+        blender_stack=_OPPONENT_COLOR_CONTRAST_TRANSLATION.stack,
+        compositor_stack=_OPPONENT_COLOR_CONTRAST_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="low_high_colorcorrect",
+        label="Low/High Color Correct",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg colorcorrect low/high red-blue balance and saturation as Blender tonal color controls.",
+        blender_stack=_LOW_HIGH_COLORCORRECT_TRANSLATION.stack,
+        compositor_stack=_LOW_HIGH_COLORCORRECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="independent_rgb_normalize",
+        label="Independent RGB Normalize",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg normalize with independent RGB black/white points as Blender RGB Curves and Tone Map.",
+        blender_stack=_INDEPENDENT_RGB_NORMALIZE_TRANSLATION.stack,
+        compositor_stack=_INDEPENDENT_RGB_NORMALIZE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="hue_sat_intensity_board",
+        label="Hue/Sat/Value Board",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg huesaturation hue, saturation, value, and strength controls as Blender Hue Correct and compositor Hue/Saturation nodes.",
+        blender_stack=_HUE_SAT_INTENSITY_TRANSLATION.stack,
+        compositor_stack=_HUE_SAT_INTENSITY_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="highlight_desat_tonemap",
+        label="Highlight Desat Tone Map",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg tonemap highlight compression and desaturation as Blender Tone Map and Hue Correct controls.",
+        blender_stack=_HIGHLIGHT_DESAT_TONEMAP_TRANSLATION.stack,
+        compositor_stack=_HIGHLIGHT_DESAT_TONEMAP_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="broadcast_gamma_guard",
+        label="Broadcast Gamma Guard",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg limiter plus eq gamma guard as Blender RGB Curves, Color Balance, Hue Correct, and Tone Map.",
+        blender_stack=_BROADCAST_GAMMA_GUARD_TRANSLATION.stack,
+        compositor_stack=_BROADCAST_GAMMA_GUARD_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="gray_world_neutralizer",
+        label="Gray World Neutralizer",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg grayworld neutral balance with a light native eq finish for editable color-cast cleanup.",
+        blender_stack=_GRAY_WORLD_NEUTRALIZER_TRANSLATION.stack,
+        compositor_stack=_GRAY_WORLD_NEUTRALIZER_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="rgb_lut_trim",
+        label="RGB LUT Trim",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg lutrgb channel trim as editable Blender RGB Curves and matching compositor curves.",
+        blender_stack=_RGB_LUT_TRIM_TRANSLATION.stack,
+        compositor_stack=_RGB_LUT_TRIM_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="selective_neutral_balance",
+        label="Selective Neutral Balance",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg selectivecolor hue-zone and neutral-zone balance as Blender Hue Correct and Lift/Gamma/Gain controls.",
+        blender_stack=_SELECTIVE_NEUTRAL_BALANCE_TRANSLATION.stack,
+        compositor_stack=_SELECTIVE_NEUTRAL_BALANCE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="magenta_green_tint",

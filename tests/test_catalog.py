@@ -99,6 +99,31 @@ def test_expected_blender_vse_modifiers_are_covered():
     }
 
 
+def test_live_gamma_channel_math_tools_are_exposed():
+    expected = {
+        "rgb_gamma_board": ({"BRIGHT_CONTRAST", "COLOR_BALANCE", "HUE_CORRECT", "TONEMAP"}, {"CompositorNodeBrightContrast", "CompositorNodeColorBalance", "CompositorNodeHueCorrect", "CompositorNodeTonemap"}),
+        "channel_mixer_balance": ({"COLOR_BALANCE", "WHITE_BALANCE"}, {"CompositorNodeColorBalance"}),
+        "opponent_color_contrast": ({"COLOR_BALANCE", "WHITE_BALANCE"}, {"CompositorNodeColorBalance"}),
+        "low_high_colorcorrect": ({"COLOR_BALANCE", "HUE_CORRECT"}, {"CompositorNodeColorCorrection"}),
+        "independent_rgb_normalize": ({"CURVES", "TONEMAP"}, {"CompositorNodeCurveRGB", "CompositorNodeTonemap"}),
+        "hue_sat_intensity_board": ({"HUE_CORRECT"}, {"CompositorNodeHueSat"}),
+        "highlight_desat_tonemap": ({"TONEMAP", "HUE_CORRECT"}, {"CompositorNodeTonemap", "CompositorNodeHueCorrect"}),
+        "broadcast_gamma_guard": ({"CURVES", "BRIGHT_CONTRAST", "COLOR_BALANCE", "HUE_CORRECT", "TONEMAP"}, {"CompositorNodeCurveRGB", "CompositorNodeBrightContrast", "CompositorNodeColorBalance", "CompositorNodeHueCorrect", "CompositorNodeTonemap"}),
+        "gray_world_neutralizer": ({"WHITE_BALANCE", "COLOR_BALANCE", "BRIGHT_CONTRAST", "HUE_CORRECT"}, {"CompositorNodeColorBalance", "CompositorNodeBrightContrast", "CompositorNodeHueCorrect"}),
+        "rgb_lut_trim": ({"CURVES"}, {"CompositorNodeCurveRGB"}),
+        "selective_neutral_balance": ({"HUE_CORRECT", "COLOR_BALANCE"}, {"CompositorNodeHueCorrect", "CompositorNodeColorBalance"}),
+    }
+    for tool_id, (modifier_types, node_classes) in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Live Blender Color"
+        assert tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert not tool.is_compositor
+        assert modifier_types.issubset(set(tool.blender_modifiers))
+        assert tool.compositor_stack
+        assert node_classes.issubset(_tool_compositor_node_classes(tool_id))
+
+
 def test_professional_restoration_tools_are_present():
     expected = {
         "deflicker",
