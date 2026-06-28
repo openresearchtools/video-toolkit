@@ -625,6 +625,38 @@ for required in [
     'CompositorNodeOutputFile',
 ]:
     assert required in primary_board_node_types, required
+scene.video_toolkit_sidecar_group = 'NATIVE_BLENDER_PRIMITIVES'
+scene.video_toolkit_sidecar_tool = 'native_compositor_bright_contrast'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Compositor Brightness/Contrast')
+bright_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_compositor_bright_contrast'
+]
+assert any(node.bl_idname == 'CompositorNodeBrightContrast' for node in bright_nodes)
+bright_control_names = {{
+    control
+    for node in _video_toolkit_compositor_control_nodes(scene, limit=20)
+    if node.bl_idname == 'CompositorNodeBrightContrast'
+    for control in _compositor_node_control_names(node)
+}}
+assert 'Contrast' in bright_control_names
+assert 'Brightness' in bright_control_names or 'Bright' in bright_control_names
+scene.video_toolkit_sidecar_tool = 'native_compositor_combine_color'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Compositor Combine Color')
+combine_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_compositor_combine_color'
+]
+assert any(node.bl_idname == 'CompositorNodeCombineColor' for node in combine_nodes)
+combine_control_names = {{
+    control
+    for node in _video_toolkit_compositor_control_nodes(scene, limit=20)
+    if node.bl_idname == 'CompositorNodeCombineColor'
+    for control in _compositor_node_control_names(node)
+}}
+assert {{'mode', 'ycc_mode', 'Red', 'Green', 'Blue', 'Alpha'}}.issubset(combine_control_names)
 scene.video_toolkit_sidecar_group = 'NATIVE_COLOR_COMPOSITE'
 scene.video_toolkit_sidecar_tool = 'native_rgb_channel_board'
 bpy.ops.video_toolkit.apply_sidecar_tool()

@@ -211,8 +211,13 @@ def test_native_compositor_catalog_tools_are_exposed():
             "PREMUL_KEY",
         },
         "native_compositor_exposure": {"EXPOSURE"},
+        "native_compositor_bright_contrast": {"BRIGHT_CONTRAST"},
+        "native_compositor_color_balance": {"COLOR_BALANCE"},
         "native_compositor_color_correction": {"COLOR_CORRECTION"},
+        "native_compositor_rgb_curves": {"CURVE_RGB"},
         "native_compositor_hue_saturation": {"HUE_SAT"},
+        "native_compositor_hue_correct": {"HUE_CORRECT"},
+        "native_compositor_tone_map": {"TONEMAP"},
         "native_compositor_invert": {"INVERT"},
         "native_compositor_posterize": {"POSTERIZE"},
         "native_compositor_premultiply": {"PREMUL_KEY"},
@@ -229,6 +234,23 @@ def test_native_compositor_catalog_tools_are_exposed():
         assert not tool.is_ffmpeg
         assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
         assert tool.category in {"Native Blender Primitives", "Restoration", "Resolution & Motion"}
+
+
+def test_native_compositor_monitor_and_channel_primitives_are_exposed():
+    expected = {
+        "native_compositor_normalize": "CompositorNodeNormalize",
+        "native_compositor_rgb_to_bw": "CompositorNodeRGBToBW",
+        "native_compositor_separate_color": "CompositorNodeSeparateColor",
+        "native_compositor_combine_color": "CompositorNodeCombineColor",
+    }
+    for tool_id, node_type in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Blender Primitives"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack[0][0] == "NATIVE_NODE"
+        assert tool.compositor_stack[0][1]["node_type"] == node_type
 
 
 def test_native_matte_and_channel_tools_are_exposed():
