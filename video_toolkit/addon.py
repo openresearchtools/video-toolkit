@@ -4469,6 +4469,11 @@ def _translated_compositor_filter_to_node(
         _set_input_default(node, "Size", settings.get("size", 1))
         _set_input_default(node, "Falloff Size", settings.get("falloff_size", 0.0))
         _set_input_default(node, "Falloff", settings.get("falloff", "Smooth"))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "dilate_erode")
+        if settings.get("hardware_filter"):
+            node["video_toolkit_hardware_filter"] = settings.get("hardware_filter")
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "BLUR":
         node = _new_compositor_node(tree, "CompositorNodeBlur", label, index, origin=origin)
@@ -4491,7 +4496,11 @@ def _translated_compositor_filter_to_node(
         _set_input_default(node, "Size", settings.get("size", 1))
         _set_input_default(node, "Threshold", settings.get("threshold", 0.1))
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "smartblur")
+        if settings.get("hardware_filter"):
+            node["video_toolkit_hardware_filter"] = settings.get("hardware_filter")
         node["video_toolkit_blur_strength"] = float(settings.get("strength", 1.0) or 1.0)
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "DIRECTIONAL_BLUR":
         node = _new_compositor_node(tree, "CompositorNodeDBlur", label, index, origin=origin)
@@ -4518,8 +4527,12 @@ def _translated_compositor_filter_to_node(
         _set_input_default(node, "Frame Type", settings.get("frame_type", "Stretch"))
         _set_input_default(node, "Interpolation", settings.get("interpolation", "Bilinear"))
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "scale")
+        if settings.get("hardware_filter"):
+            node["video_toolkit_hardware_filter"] = settings.get("hardware_filter")
         node["video_toolkit_width_expression"] = settings.get("width_expression", "")
         node["video_toolkit_height_expression"] = settings.get("height_expression", "")
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "CROP":
         node = _new_compositor_node(tree, "CompositorNodeCrop", label, index, origin=origin)
@@ -4539,13 +4552,21 @@ def _translated_compositor_filter_to_node(
         _set_input_default(node, "Extension X", settings.get("extension_x", "Clip"))
         _set_input_default(node, "Extension Y", settings.get("extension_y", "Clip"))
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "rotate")
+        if settings.get("hardware_filter"):
+            node["video_toolkit_hardware_filter"] = settings.get("hardware_filter")
         node["video_toolkit_angle_expression"] = settings.get("angle_expression", "")
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "FLIP":
         node = _new_compositor_node(tree, "CompositorNodeFlip", label, index, origin=origin)
         _set_input_default(node, "Flip X", bool(settings.get("flip_x", False)))
         _set_input_default(node, "Flip Y", bool(settings.get("flip_y", False)))
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "flip")
+        if settings.get("hardware_filter"):
+            node["video_toolkit_hardware_filter"] = settings.get("hardware_filter")
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "LENS_DISTORTION":
         node = _new_compositor_node(tree, "CompositorNodeLensdist", label, index, origin=origin)
@@ -4583,6 +4604,8 @@ def _translated_compositor_filter_to_node(
         _set_input_default(node, "Contrast Limit", settings.get("contrast_limit", 2.0))
         _set_input_default(node, "Corner Rounding", settings.get("corner_rounding", 0.25))
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "deblock")
+        if settings.get("hardware_filter"):
+            node["video_toolkit_hardware_filter"] = settings.get("hardware_filter")
         node["video_toolkit_block_size"] = float(settings.get("block", 8.0) or 8.0)
         for key in ("mode", "parity", "deint"):
             if key in settings:

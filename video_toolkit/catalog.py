@@ -361,14 +361,23 @@ _NATIVE_UNSHARP_TRANSLATION = translate_filter_chain("unsharp=5:5:0.55:3:3:0.20"
 _OPENCL_UNSHARP_TRANSLATION = translate_filter_chain("unsharp_opencl=lx=5:ly=5:la=0.55:cx=3:cy=3:ca=0.20")
 _NATIVE_CAS_SHARPEN_TRANSLATION = translate_filter_chain("cas=strength=0.45")
 _NATIVE_SOBEL_TRANSLATION = translate_filter_chain("sobel=scale=1.2:delta=0.02")
+_OPENCL_SOBEL_TRANSLATION = translate_filter_chain("sobel_opencl=scale=1.2:delta=0.02")
 _NATIVE_PREWITT_TRANSLATION = translate_filter_chain("prewitt=scale=0.9:delta=0.01")
+_OPENCL_PREWITT_TRANSLATION = translate_filter_chain("prewitt_opencl=scale=0.9:delta=0.01")
+_OPENCL_ROBERTS_TRANSLATION = translate_filter_chain("roberts_opencl=scale=0.9:delta=0.01")
 _NATIVE_KIRSCH_TRANSLATION = translate_filter_chain("kirsch=scale=0.8")
 _NATIVE_EDGE_DETECT_TRANSLATION = translate_filter_chain("edgedetect=high=0.20:low=0.08:mode=wires")
 _NATIVE_EROSION_TRANSLATION = translate_filter_chain(
     "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000"
 )
+_OPENCL_EROSION_TRANSLATION = translate_filter_chain(
+    "erosion_opencl=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000"
+)
 _NATIVE_DILATION_TRANSLATION = translate_filter_chain(
     "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000"
+)
+_OPENCL_DILATION_TRANSLATION = translate_filter_chain(
+    "dilation_opencl=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000"
 )
 _NATIVE_CONVOLUTION_SHARPEN_TRANSLATION = translate_filter_chain(
     "convolution=0m='0 -1 0 -1 5 -1 0 -1 0':0rdiv=1:0bias=0"
@@ -383,13 +392,18 @@ _NATIVE_BOX_BLUR_TRANSLATION = translate_filter_chain("boxblur=lr=3:lp=2")
 _OPENCL_BOX_BLUR_TRANSLATION = translate_filter_chain("boxblur_opencl=lr=3:lp=2")
 _NATIVE_GAUSSIAN_BLUR_TRANSLATION = translate_filter_chain("gblur=sigma=1.2:steps=2:sigmaV=0.8")
 _VULKAN_GAUSSIAN_BLUR_TRANSLATION = translate_filter_chain("gblur_vulkan=sigma=1.2:steps=2:sigmaV=0.8")
+_NATIVE_BILATERAL_TRANSLATION = translate_filter_chain("bilateral=sigmaS=3:sigmaR=0.12")
+_CUDA_BILATERAL_TRANSLATION = translate_filter_chain("bilateral_cuda=sigmaS=3:sigmaR=0.12")
 _NATIVE_SMART_BLUR_TRANSLATION = translate_filter_chain("smartblur=lr=2:ls=0.8:lt=8")
 _NATIVE_DIRECTIONAL_BLUR_TRANSLATION = translate_filter_chain("dblur=angle=30:radius=12")
 _NATIVE_SHAPE_ADAPTIVE_BLUR_TRANSLATION = translate_filter_chain("sab=lr=3:lpfr=1.2:ls=8:cr=2:cs=0.8:ct=6")
 _NATIVE_EDGE_PRESERVING_BLUR_TRANSLATION = translate_filter_chain("yaepblur=radius=4:sigma=96")
 _NATIVE_HQDN3D_DENOISE_TRANSLATION = translate_filter_chain("hqdn3d=1.5:1.5:6:6")
 _NATIVE_NLMEANS_DENOISE_TRANSLATION = translate_filter_chain("nlmeans=s=2.5:p=7:r=9")
+_OPENCL_NLMEANS_DENOISE_TRANSLATION = translate_filter_chain("nlmeans_opencl=s=2.5:p=7:r=9")
+_VULKAN_NLMEANS_DENOISE_TRANSLATION = translate_filter_chain("nlmeans_vulkan=s=2.5:p=7:r=9")
 _NATIVE_BM3D_DENOISE_TRANSLATION = translate_filter_chain("bm3d=sigma=3:block=4:bstep=2:group=1")
+_NATIVE_DCT_DENOISE_TRANSLATION = translate_filter_chain("dctdnoiz=sigma=4.5:overlap=0.5")
 _NATIVE_WAVELET_DENOISE_TRANSLATION = translate_filter_chain("owdenoise=depth=8:luma_strength=0.8:chroma_strength=0.5")
 _NATIVE_VAGUE_DENOISE_TRANSLATION = translate_filter_chain("vaguedenoiser=threshold=1.5:method=garrote:nsteps=6")
 _NATIVE_ADAPTIVE_TEMPORAL_DENOISE_TRANSLATION = translate_filter_chain(
@@ -401,8 +415,16 @@ _NATIVE_DEBAND_TRANSLATION = translate_filter_chain("deband=1thr=0.03:2thr=0.025
 _NATIVE_DEBLOCK_TRANSLATION = translate_filter_chain("deblock=block=16:alpha=0.12:beta=0.08")
 _NATIVE_DEFLICKER_TRANSLATION = translate_filter_chain("deflicker=s=12:m=median")
 _NATIVE_BWDIF_DEINTERLACE_TRANSLATION = translate_filter_chain("bwdif=mode=send_frame:parity=auto:deint=all")
+_CUDA_BWDIF_DEINTERLACE_TRANSLATION = translate_filter_chain("bwdif_cuda=mode=send_frame:parity=auto:deint=all")
+_VULKAN_BWDIF_DEINTERLACE_TRANSLATION = translate_filter_chain("bwdif_vulkan=mode=send_frame:parity=auto:deint=all")
 _NATIVE_YADIF_DEINTERLACE_TRANSLATION = translate_filter_chain("yadif=mode=send_frame:parity=auto:deint=all")
+_CUDA_YADIF_DEINTERLACE_TRANSLATION = translate_filter_chain("yadif_cuda=mode=send_frame:parity=auto:deint=all")
+_NATIVE_ESTDIF_DEINTERLACE_TRANSLATION = translate_filter_chain("estdif=mode=send_frame:parity=auto:deint=all")
+_NATIVE_W3FDIF_DEINTERLACE_TRANSLATION = translate_filter_chain("w3fdif=mode=send_frame:parity=auto:deint=all")
+_QSV_DEINTERLACE_TRANSLATION = translate_filter_chain("deinterlace_qsv=mode=send_frame:parity=auto:deint=all")
+_VAAPI_DEINTERLACE_TRANSLATION = translate_filter_chain("deinterlace_vaapi=mode=send_frame:parity=auto:deint=all")
 _NATIVE_DESHAKE_TRANSLATION = translate_filter_chain("deshake=rx=16:ry=16")
+_OPENCL_DESHAKE_TRANSLATION = translate_filter_chain("deshake_opencl=rx=16:ry=16")
 _NATIVE_VIDSTAB_DETECT_TRANSLATION = translate_filter_chain("vidstabdetect=shakiness=5:accuracy=15:result=transforms.trf")
 _NATIVE_VIDSTAB_TRANSFORM_TRANSLATION = translate_filter_chain("vidstabtransform=input=transforms.trf:smoothing=30:zoom=2")
 _NATIVE_TEMPORAL_MIX_TRANSLATION = translate_filter_chain("tmix=frames=3:weights='1 2 1'")
@@ -417,11 +439,21 @@ _NATIVE_GRADFUN_DEBAND_TRANSLATION = translate_filter_chain("gradfun=strength=1.
 _VAAPI_SHARPNESS_TRANSLATION = translate_filter_chain("sharpness_vaapi=sharpness=44")
 _NATIVE_XBR_UPSCALE_TRANSLATION = translate_filter_chain("xbr=n=2")
 _NATIVE_SCALE_FIT_TRANSLATION = translate_filter_chain("scale=w=1920:h=1080:flags=lanczos")
+_CUDA_SCALE_FIT_TRANSLATION = translate_filter_chain("scale_cuda=w=1920:h=1080:flags=lanczos")
+_QSV_SCALE_FIT_TRANSLATION = translate_filter_chain("scale_qsv=w=1920:h=1080:flags=lanczos")
+_VAAPI_SCALE_FIT_TRANSLATION = translate_filter_chain("scale_vaapi=w=1920:h=1080:flags=lanczos")
+_VULKAN_SCALE_FIT_TRANSLATION = translate_filter_chain("scale_vulkan=w=1920:h=1080:flags=lanczos")
 _NATIVE_CENTER_CROP_TRANSLATION = translate_filter_chain("crop=w=iw*0.9:h=ih*0.9:x=iw*0.05:y=ih*0.05")
 _NATIVE_ROTATE_LEVEL_TRANSLATION = translate_filter_chain("rotate=angle=2*PI/180:fillcolor=black")
 _NATIVE_TRANSPOSE_CLOCKWISE_TRANSLATION = translate_filter_chain("transpose=dir=clock")
+_OPENCL_TRANSPOSE_CLOCKWISE_TRANSLATION = translate_filter_chain("transpose_opencl=dir=clock")
+_VAAPI_TRANSPOSE_CLOCKWISE_TRANSLATION = translate_filter_chain("transpose_vaapi=dir=clock")
+_VULKAN_TRANSPOSE_CLOCKWISE_TRANSLATION = translate_filter_chain("transpose_vulkan=dir=clock")
 _NATIVE_HORIZONTAL_FLIP_TRANSLATION = translate_filter_chain("hflip")
+_VULKAN_HORIZONTAL_FLIP_TRANSLATION = translate_filter_chain("hflip_vulkan")
 _NATIVE_VERTICAL_FLIP_TRANSLATION = translate_filter_chain("vflip")
+_VULKAN_VERTICAL_FLIP_TRANSLATION = translate_filter_chain("vflip_vulkan")
+_VULKAN_BOTH_FLIP_TRANSLATION = translate_filter_chain("flip_vulkan")
 _NATIVE_LENS_CORRECTION_TRANSLATION = translate_filter_chain("lenscorrection=cx=0.5:cy=0.5:k1=-0.04:k2=0.01")
 _BLACK_POINT_CLEANUP_STACK = (
     _bright_contrast(bright=-0.008, contrast=4.0),
@@ -2225,12 +2257,36 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_SOBEL_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_opencl_sobel_edges",
+        label="OpenCL Sobel Edges",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg sobel_opencl intent as Blender's native compositor Filter graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_SOBEL_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_prewitt_edges",
         label="Native Prewitt Edges",
         category="Native Filter & Blur",
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg prewitt edge intent as Blender's native compositor Filter graph.",
         compositor_stack=_NATIVE_PREWITT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_opencl_prewitt_edges",
+        label="OpenCL Prewitt Edges",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg prewitt_opencl intent as Blender's native compositor Filter graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_PREWITT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_opencl_roberts_edges",
+        label="OpenCL Roberts Edges",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg roberts_opencl intent as an editable Blender-native edge preview graph.",
+        compositor_stack=_OPENCL_ROBERTS_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_kirsch_edges",
@@ -2257,12 +2313,28 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_EROSION_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_opencl_erode_matte",
+        label="OpenCL Erode Matte",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg erosion_opencl intent as Blender's native Dilate/Erode compositor graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_EROSION_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_dilate_matte",
         label="Native Dilate Matte",
         category="Native Filter & Blur",
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg dilation intent as Blender's native Dilate/Erode compositor graph.",
         compositor_stack=_NATIVE_DILATION_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_opencl_dilate_matte",
+        label="OpenCL Dilate Matte",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg dilation_opencl intent as Blender's native Dilate/Erode compositor graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_DILATION_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_convolution_sharpen",
@@ -2351,6 +2423,22 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg gblur_vulkan intent as Blender's native Gaussian Blur compositor graph without requiring Vulkan rendering.",
         compositor_stack=_VULKAN_GAUSSIAN_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_bilateral_filter",
+        label="Native Bilateral Filter",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg bilateral intent as Blender's native Bilateral Blur compositor graph.",
+        compositor_stack=_NATIVE_BILATERAL_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_cuda_bilateral_filter",
+        label="CUDA Bilateral Filter",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg bilateral_cuda intent as Blender's native Bilateral Blur compositor graph without requiring CUDA rendering.",
+        compositor_stack=_CUDA_BILATERAL_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_smart_blur",
@@ -3043,12 +3131,36 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_NLMEANS_DENOISE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_opencl_nlmeans_denoise",
+        label="OpenCL NLMeans Denoise",
+        category="Native Denoise & Cleanup",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg nlmeans_opencl intent as Blender's native compositor Denoise graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_NLMEANS_DENOISE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vulkan_nlmeans_denoise",
+        label="Vulkan NLMeans Denoise",
+        category="Native Denoise & Cleanup",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg nlmeans_vulkan intent as Blender's native compositor Denoise graph without requiring Vulkan rendering.",
+        compositor_stack=_VULKAN_NLMEANS_DENOISE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_bm3d_denoise",
         label="Native BM3D Denoise",
         category="Native Denoise & Cleanup",
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg bm3d intent as Blender's native compositor Denoise graph.",
         compositor_stack=_NATIVE_BM3D_DENOISE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_dct_denoise",
+        label="Native DCT Denoise",
+        category="Native Denoise & Cleanup",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg dctdnoiz frequency-domain denoise intent as Blender's native compositor Denoise graph.",
+        compositor_stack=_NATIVE_DCT_DENOISE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_wavelet_denoise",
@@ -3193,6 +3305,22 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_BWDIF_DEINTERLACE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_cuda_bwdif_deinterlace",
+        label="CUDA BWDIF Deinterlace",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg bwdif_cuda intent as Blender Anti-Aliasing plus vertical field-blend preview nodes without requiring CUDA rendering.",
+        compositor_stack=_CUDA_BWDIF_DEINTERLACE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vulkan_bwdif_deinterlace",
+        label="Vulkan BWDIF Deinterlace",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg bwdif_vulkan intent as Blender Anti-Aliasing plus vertical field-blend preview nodes without requiring Vulkan rendering.",
+        compositor_stack=_VULKAN_BWDIF_DEINTERLACE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_yadif_deinterlace",
         label="Native YADIF Deinterlace",
         category="Restoration",
@@ -3201,12 +3329,60 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_YADIF_DEINTERLACE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_cuda_yadif_deinterlace",
+        label="CUDA YADIF Deinterlace",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg yadif_cuda intent as Blender Anti-Aliasing plus vertical field-blend preview nodes without requiring CUDA rendering.",
+        compositor_stack=_CUDA_YADIF_DEINTERLACE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_estdif_deinterlace",
+        label="Native ESTDIF Deinterlace",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg estdif intent as Blender Anti-Aliasing plus vertical field-blend preview nodes.",
+        compositor_stack=_NATIVE_ESTDIF_DEINTERLACE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_w3fdif_deinterlace",
+        label="Native W3FDIF Deinterlace",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg w3fdif intent as Blender Anti-Aliasing plus vertical field-blend preview nodes.",
+        compositor_stack=_NATIVE_W3FDIF_DEINTERLACE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_qsv_deinterlace",
+        label="QSV Deinterlace Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg deinterlace_qsv intent as Blender Anti-Aliasing plus vertical field-blend preview nodes without requiring QSV rendering.",
+        compositor_stack=_QSV_DEINTERLACE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vaapi_deinterlace",
+        label="VAAPI Deinterlace Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg deinterlace_vaapi intent as Blender Anti-Aliasing plus vertical field-blend preview nodes without requiring VAAPI rendering.",
+        compositor_stack=_VAAPI_DEINTERLACE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_deshake_stabilize",
         label="Native Deshake Stabilize",
         category="Restoration",
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg deshake intent as Blender Stabilize and Transform nodes with rx/ry motion-window metadata.",
         compositor_stack=_NATIVE_DESHAKE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_opencl_deshake_stabilize",
+        label="OpenCL Deshake Stabilize",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg deshake_opencl intent as Blender Stabilize and Transform nodes with rx/ry motion-window metadata.",
+        compositor_stack=_OPENCL_DESHAKE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_vidstab_detect_preview",
@@ -3278,6 +3454,38 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_SCALE_FIT_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_cuda_scale_fit",
+        label="CUDA Scale Fit",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg scale_cuda intent as Blender's native compositor Scale graph without requiring CUDA rendering.",
+        compositor_stack=_CUDA_SCALE_FIT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_qsv_scale_fit",
+        label="QSV Scale Fit",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg scale_qsv intent as Blender's native compositor Scale graph without requiring QSV rendering.",
+        compositor_stack=_QSV_SCALE_FIT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vaapi_scale_fit",
+        label="VAAPI Scale Fit",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg scale_vaapi intent as Blender's native compositor Scale graph without requiring VAAPI rendering.",
+        compositor_stack=_VAAPI_SCALE_FIT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vulkan_scale_fit",
+        label="Vulkan Scale Fit",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg scale_vulkan intent as Blender's native compositor Scale graph without requiring Vulkan rendering.",
+        compositor_stack=_VULKAN_SCALE_FIT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_compositor_center_crop",
         label="Native Center Crop",
         category="Native Geometry & Lens",
@@ -3302,6 +3510,30 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_TRANSPOSE_CLOCKWISE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_opencl_transpose_clockwise",
+        label="OpenCL Transpose Clockwise",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg transpose_opencl intent as Blender's native Rotate/Flip compositor graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_TRANSPOSE_CLOCKWISE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vaapi_transpose_clockwise",
+        label="VAAPI Transpose Clockwise",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg transpose_vaapi intent as Blender's native Rotate/Flip compositor graph without requiring VAAPI rendering.",
+        compositor_stack=_VAAPI_TRANSPOSE_CLOCKWISE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vulkan_transpose_clockwise",
+        label="Vulkan Transpose Clockwise",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg transpose_vulkan intent as Blender's native Rotate/Flip compositor graph without requiring Vulkan rendering.",
+        compositor_stack=_VULKAN_TRANSPOSE_CLOCKWISE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_compositor_flip_horizontal",
         label="Native Flip Horizontal",
         category="Native Geometry & Lens",
@@ -3310,12 +3542,36 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_HORIZONTAL_FLIP_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_vulkan_flip_horizontal",
+        label="Vulkan Flip Horizontal",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg hflip_vulkan intent as Blender's native compositor Flip graph without requiring Vulkan rendering.",
+        compositor_stack=_VULKAN_HORIZONTAL_FLIP_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_compositor_flip_vertical",
         label="Native Flip Vertical",
         category="Native Geometry & Lens",
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg vflip intent as Blender's native compositor Flip graph.",
         compositor_stack=_NATIVE_VERTICAL_FLIP_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vulkan_flip_vertical",
+        label="Vulkan Flip Vertical",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg vflip_vulkan intent as Blender's native compositor Flip graph without requiring Vulkan rendering.",
+        compositor_stack=_VULKAN_VERTICAL_FLIP_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vulkan_flip_both",
+        label="Vulkan Flip Both Axes",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg flip_vulkan intent as Blender's native compositor Flip graph without requiring Vulkan rendering.",
+        compositor_stack=_VULKAN_BOTH_FLIP_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_compositor_lens_correction",

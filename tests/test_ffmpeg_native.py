@@ -623,8 +623,16 @@ def test_temporal_motion_filters_translate_to_blender_graphlets():
     result = translate_filter_chain(
         "deflicker=s=12:m=median,"
         "bwdif=mode=send_frame:parity=auto:deint=all,"
+        "bwdif_cuda=mode=send_frame:parity=auto:deint=all,"
+        "bwdif_vulkan=mode=send_frame:parity=auto:deint=all,"
         "yadif=mode=send_field:parity=tff:deint=interlaced,"
+        "yadif_cuda=mode=send_field:parity=tff:deint=interlaced,"
+        "estdif=mode=send_frame:parity=auto:deint=all,"
+        "w3fdif=mode=send_frame:parity=auto:deint=all,"
+        "deinterlace_qsv=mode=send_frame:parity=auto:deint=all,"
+        "deinterlace_vaapi=mode=send_frame:parity=auto:deint=all,"
         "deshake=rx=16:ry=12,"
+        "deshake_opencl=rx=18:ry=14,"
         "vidstabdetect=shakiness=6:accuracy=12:result=motion.trf,"
         "vidstabtransform=input=motion.trf:smoothing=24:zoom=2,"
         "tmix=frames=5:weights='1 2 3 2 1',"
@@ -636,8 +644,16 @@ def test_temporal_motion_filters_translate_to_blender_graphlets():
     assert result.supported_filters == (
         "deflicker",
         "bwdif",
+        "bwdif_cuda",
+        "bwdif_vulkan",
         "yadif",
+        "yadif_cuda",
+        "estdif",
+        "w3fdif",
+        "deinterlace_qsv",
+        "deinterlace_vaapi",
         "deshake",
+        "deshake_opencl",
         "vidstabdetect",
         "vidstabtransform",
         "tmix",
@@ -647,16 +663,34 @@ def test_temporal_motion_filters_translate_to_blender_graphlets():
     )
     node_types = [node_type for node_type, _settings in result.compositor_nodes]
     assert "TONEMAP" in node_types
-    assert node_types.count("ANTI_ALIASING") == 2
+    assert node_types.count("ANTI_ALIASING") == 9
     assert node_types.count("NATIVE_NODE") >= 4
     assert "BLEND_COMPOSITE" in node_types
     assert node_types[-3:] == ["DIRECTIONAL_BLUR", "DIRECTIONAL_BLUR", "DIRECTIONAL_BLUR"]
+    deinterlace_sources = {
+        settings["source"]
+        for node_type, settings in result.compositor_nodes
+        if node_type == "ANTI_ALIASING"
+    }
+    assert {
+        "bwdif",
+        "bwdif_cuda",
+        "bwdif_vulkan",
+        "yadif",
+        "yadif_cuda",
+        "estdif",
+        "w3fdif",
+        "deinterlace_qsv",
+        "deinterlace_vaapi",
+    }.issubset(deinterlace_sources)
     tmix = next(settings for node_type, settings in result.compositor_nodes if node_type == "BLEND_COMPOSITE" and settings["source"] == "tmix")
     assert tmix["frames"] == 5
     assert tmix["factor"] == 3 / 9
     deshake = next(settings for node_type, settings in result.compositor_nodes if node_type == "NATIVE_NODE" and settings["source"] == "deshake")
     assert deshake["metadata"]["rx"] == 16
     assert deshake["metadata"]["ry"] == 12
+    opencl_deshake = next(settings for node_type, settings in result.compositor_nodes if node_type == "NATIVE_NODE" and settings["source"] == "deshake_opencl")
+    assert opencl_deshake["metadata"]["hardware_filter"] == "deshake_opencl"
     minterpolate = result.compositor_nodes[-1][1]
     assert minterpolate["source"] == "minterpolate"
     assert minterpolate["fps"] == 60
@@ -968,42 +1002,64 @@ def test_edge_filters_translate_to_native_filter_graph_specs():
     assert sobel[0][1]["factor"] > 1.19
 
     prewitt = edge_filter_to_blender_compositor("prewitt", scale=0.9)
+    opencl_sobel = edge_filter_to_blender_compositor("sobel_opencl", scale=1.1)
+    opencl_prewitt = edge_filter_to_blender_compositor("prewitt_opencl", scale=0.9)
+    opencl_roberts = edge_filter_to_blender_compositor("roberts_opencl", scale=0.9)
     kirsch = edge_filter_to_blender_compositor("kirsch", scale=0.8)
     edgedetect = edge_filter_to_blender_compositor("edgedetect", high=0.20, low=0.08, mode="wires")
     assert prewitt[0][1]["filter_type"] == "Prewitt"
+    assert opencl_sobel[0][1]["hardware_filter"] == "sobel_opencl"
+    assert opencl_prewitt[0][1]["filter_type"] == "Prewitt"
+    assert opencl_roberts[0][1]["source"] == "roberts_opencl"
+    assert opencl_roberts[0][1]["filter_type"] == "Sobel"
     assert kirsch[0][1]["filter_type"] == "Kirsch"
     assert edgedetect[0][1]["filter_type"] == "Sobel"
     assert edgedetect[0][1]["label"] == "Edge Detect"
 
     result = translate_filter_chain(
-        "sobel=scale=1.2:delta=0.02,prewitt=scale=0.9,kirsch=scale=0.8,edgedetect=high=0.20:low=0.08:mode=wires"
+        "sobel=scale=1.2:delta=0.02,"
+        "sobel_opencl=scale=1.1,"
+        "prewitt=scale=0.9,"
+        "prewitt_opencl=scale=0.9,"
+        "roberts_opencl=scale=0.9,"
+        "kirsch=scale=0.8,"
+        "edgedetect=high=0.20:low=0.08:mode=wires"
     )
     assert result.stack == ()
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("sobel", "prewitt", "kirsch", "edgedetect")
-    assert [settings["filter_type"] for _node_type, settings in result.compositor_nodes] == ["Sobel", "Prewitt", "Kirsch", "Sobel"]
-    assert [settings["source"] for _node_type, settings in result.compositor_nodes] == ["sobel", "prewitt", "kirsch", "edgedetect"]
+    assert result.supported_filters == ("sobel", "sobel_opencl", "prewitt", "prewitt_opencl", "roberts_opencl", "kirsch", "edgedetect")
+    assert [settings["filter_type"] for _node_type, settings in result.compositor_nodes] == ["Sobel", "Sobel", "Prewitt", "Prewitt", "Sobel", "Kirsch", "Sobel"]
+    assert [settings["source"] for _node_type, settings in result.compositor_nodes] == ["sobel", "sobel_opencl", "prewitt", "prewitt_opencl", "roberts_opencl", "kirsch", "edgedetect"]
 
 
 def test_morphology_filters_translate_to_dilate_erode_graph_specs():
     erosion = morphology_to_blender_compositor("erosion", coordinates=255, threshold0=64000)
     dilation = morphology_to_blender_compositor("dilation", coordinates=255, threshold0=64000)
+    opencl_erosion = morphology_to_blender_compositor("erosion_opencl", coordinates=255, threshold0=64000)
+    opencl_dilation = morphology_to_blender_compositor("dilation_opencl", coordinates=255, threshold0=64000)
     assert erosion[0][0] == "DILATE_ERODE"
     assert dilation[0][0] == "DILATE_ERODE"
+    assert opencl_erosion[0][1]["hardware_filter"] == "erosion_opencl"
+    assert opencl_dilation[0][1]["hardware_filter"] == "dilation_opencl"
     assert erosion[0][1]["size"] == -1
     assert dilation[0][1]["size"] == 1
     assert erosion[0][1]["thresholds"][0] == 64000
     assert dilation[0][1]["label"] == "Dilate"
 
     result = translate_filter_chain(
-        "erosion=coordinates=255:threshold0=64000:threshold1=64000,dilation=coordinates=15:threshold2=32000"
+        "erosion=coordinates=255:threshold0=64000:threshold1=64000,"
+        "erosion_opencl=coordinates=255:threshold0=64000:threshold1=64000,"
+        "dilation=coordinates=15:threshold2=32000,"
+        "dilation_opencl=coordinates=15:threshold2=32000"
     )
     assert result.stack == ()
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("erosion", "dilation")
-    assert [node_type for node_type, _settings in result.compositor_nodes] == ["DILATE_ERODE", "DILATE_ERODE"]
+    assert result.supported_filters == ("erosion", "erosion_opencl", "dilation", "dilation_opencl")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["DILATE_ERODE", "DILATE_ERODE", "DILATE_ERODE", "DILATE_ERODE"]
     assert result.compositor_nodes[0][1]["source"] == "erosion"
-    assert result.compositor_nodes[1][1]["source"] == "dilation"
+    assert result.compositor_nodes[1][1]["source"] == "erosion_opencl"
+    assert result.compositor_nodes[2][1]["source"] == "dilation"
+    assert result.compositor_nodes[3][1]["source"] == "dilation_opencl"
 
 
 def test_convolution_translates_to_native_convolve_graph_specs():
@@ -1062,8 +1118,12 @@ def test_blur_filters_translate_to_native_blender_blur_nodes():
     assert opencl_box[0][1]["source"] == "boxblur_opencl"
     assert vulkan_gaussian[0][1]["source"] == "gblur_vulkan"
 
+    bilateral = edge_preserving_blur_to_blender_compositor("bilateral", sigmaS=3, sigmaR=0.12)
+    cuda_bilateral = edge_preserving_blur_to_blender_compositor("bilateral_cuda", sigmaS=3, sigmaR=0.12)
     smart = edge_preserving_blur_to_blender_compositor("smartblur", lr=2.0, ls=0.8, lt=8)
     assert smart[0][0] == "BILATERAL_BLUR"
+    assert bilateral[0][1]["source"] == "bilateral"
+    assert cuda_bilateral[0][1]["hardware_filter"] == "bilateral_cuda"
     assert smart[0][1]["size"] >= 1
     assert smart[0][1]["threshold"] > 0.05
 
@@ -1086,6 +1146,8 @@ def test_blur_filters_translate_to_native_blender_blur_nodes():
         "boxblur_opencl=lr=3:lp=2,"
         "gblur=sigma=1.2:steps=2:sigmaV=0.8,"
         "gblur_vulkan=sigma=1.2:steps=2:sigmaV=0.8,"
+        "bilateral=sigmaS=3:sigmaR=0.12,"
+        "bilateral_cuda=sigmaS=3:sigmaR=0.12,"
         "smartblur=lr=2:ls=0.8:lt=8,"
         "sab=lr=2:lpfr=1:ls=12,"
         "yaepblur=r=4:s=192,"
@@ -1100,6 +1162,8 @@ def test_blur_filters_translate_to_native_blender_blur_nodes():
         "boxblur_opencl",
         "gblur",
         "gblur_vulkan",
+        "bilateral",
+        "bilateral_cuda",
         "smartblur",
         "sab",
         "yaepblur",
@@ -1113,6 +1177,8 @@ def test_blur_filters_translate_to_native_blender_blur_nodes():
         "BLUR",
         "BLUR",
         "BLUR",
+        "BILATERAL_BLUR",
+        "BILATERAL_BLUR",
         "BILATERAL_BLUR",
         "BILATERAL_BLUR",
         "BILATERAL_BLUR",
@@ -1131,6 +1197,9 @@ def test_geometry_filters_translate_to_native_blender_nodes():
     assert relative[0][1]["type"] == "Relative"
     assert relative[0][1]["x"] == 0.5
     assert relative[0][1]["y"] == 0.5
+    cuda_scale = scale_to_blender_compositor(source="scale_cuda", w=1920, h=1080)
+    assert cuda_scale[0][1]["source"] == "scale_cuda"
+    assert cuda_scale[0][1]["hardware_filter"] == "scale_cuda"
 
     crop = crop_to_blender_compositor(w=1280, h=720, x=320, y=180, exact=1)
     assert crop[0][0] == "CROP"
@@ -1144,26 +1213,27 @@ def test_geometry_filters_translate_to_native_blender_nodes():
     assert 0.52 < rotate[0][1]["angle"] < 0.53
 
     transpose = transpose_to_blender_compositor(arg0="clock")
-    assert transpose == (
-        (
-            "ROTATE",
-            {
-                "label": "Transpose Rotate",
-                "angle": 1.5707963267948966,
-                "angle_expression": "clock",
-                "interpolation": "Bilinear",
-                "passthrough": "none",
-                "source": "transpose",
-            },
-        ),
-    )
+    assert transpose[0][0] == "ROTATE"
+    assert transpose[0][1]["label"] == "Transpose Rotate"
+    assert transpose[0][1]["angle"] == 1.5707963267948966
+    assert transpose[0][1]["source"] == "transpose"
+    vulkan_transpose = transpose_to_blender_compositor(source="transpose_vulkan", arg0="clock")
+    assert vulkan_transpose[0][1]["source"] == "transpose_vulkan"
+    assert vulkan_transpose[0][1]["hardware_filter"] == "transpose_vulkan"
 
     hflip = flip_to_blender_compositor("hflip")
     vflip = flip_to_blender_compositor("vflip")
+    vulkan_hflip = flip_to_blender_compositor("hflip_vulkan")
+    vulkan_vflip = flip_to_blender_compositor("vflip_vulkan")
+    vulkan_flip = flip_to_blender_compositor("flip_vulkan")
     assert hflip[0][1]["flip_x"] is True
     assert hflip[0][1]["flip_y"] is False
     assert vflip[0][1]["flip_x"] is False
     assert vflip[0][1]["flip_y"] is True
+    assert vulkan_hflip[0][1]["hardware_filter"] == "hflip_vulkan"
+    assert vulkan_vflip[0][1]["hardware_filter"] == "vflip_vulkan"
+    assert vulkan_flip[0][1]["flip_x"] is True
+    assert vulkan_flip[0][1]["flip_y"] is True
 
     lens = lenscorrection_to_blender_compositor(k1=-0.12, k2=0.04, cx=0.45, cy=0.55)
     assert lens[0][0] == "LENS_DISTORTION"
@@ -1172,20 +1242,58 @@ def test_geometry_filters_translate_to_native_blender_nodes():
 
     result = translate_filter_chain(
         "scale=960:540,"
+        "scale_cuda=w=1920:h=1080,"
+        "scale_qsv=w=1920:h=1080,"
+        "scale_vaapi=w=1920:h=1080,"
+        "scale_vulkan=w=1920:h=1080,"
         "crop=w=1280:h=720:x=320:y=180,"
         "rotate=angle=PI/6,"
         "transpose=clock,"
+        "transpose_opencl=clock,"
+        "transpose_vaapi=clock,"
+        "transpose_vulkan=clock,"
         "hflip,"
+        "hflip_vulkan,"
         "vflip,"
+        "vflip_vulkan,"
+        "flip_vulkan,"
         "lenscorrection=k1=-0.12:k2=0.04:cx=0.45:cy=0.55"
     )
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("scale", "crop", "rotate", "transpose", "hflip", "vflip", "lenscorrection")
+    assert result.supported_filters == (
+        "scale",
+        "scale_cuda",
+        "scale_qsv",
+        "scale_vaapi",
+        "scale_vulkan",
+        "crop",
+        "rotate",
+        "transpose",
+        "transpose_opencl",
+        "transpose_vaapi",
+        "transpose_vulkan",
+        "hflip",
+        "hflip_vulkan",
+        "vflip",
+        "vflip_vulkan",
+        "flip_vulkan",
+        "lenscorrection",
+    )
     assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "SCALE",
+        "SCALE",
+        "SCALE",
+        "SCALE",
         "SCALE",
         "CROP",
         "ROTATE",
         "ROTATE",
+        "ROTATE",
+        "ROTATE",
+        "ROTATE",
+        "FLIP",
+        "FLIP",
+        "FLIP",
         "FLIP",
         "FLIP",
         "LENS_DISTORTION",
@@ -1199,13 +1307,19 @@ def test_restoration_filters_translate_to_native_blender_nodes():
     assert hq[0][1]["strength"] > 4.0
 
     nlmeans = restoration_filter_to_blender_compositor("nlmeans", s=2.5, p=7, r=9)
+    opencl_nlmeans = restoration_filter_to_blender_compositor("nlmeans_opencl", s=2.5, p=7, r=9)
+    vulkan_nlmeans = restoration_filter_to_blender_compositor("nlmeans_vulkan", s=2.5, p=7, r=9)
     bm3d = restoration_filter_to_blender_compositor("bm3d", sigma=3.0, group=8, range=12)
+    dct = restoration_filter_to_blender_compositor("dctdnoiz", sigma=4.5, overlap=0.5)
     ow = restoration_filter_to_blender_compositor("owdenoise", ls=2.0, cs=1.5)
     vague = restoration_filter_to_blender_compositor("vaguedenoiser", threshold=2.5, percent=80)
     ata = restoration_filter_to_blender_compositor("atadenoise", s=9)
-    assert [item[0][0] for item in (nlmeans, bm3d, ow, vague, ata)] == ["DENOISE"] * 5
+    assert [item[0][0] for item in (nlmeans, opencl_nlmeans, vulkan_nlmeans, bm3d, dct, ow, vague, ata)] == ["DENOISE"] * 8
     assert nlmeans[0][1]["label"] == "Non-Local Means Denoise"
+    assert opencl_nlmeans[0][1]["hardware_filter"] == "nlmeans_opencl"
+    assert vulkan_nlmeans[0][1]["hardware_filter"] == "nlmeans_vulkan"
     assert bm3d[0][1]["label"] == "BM3D Denoise"
+    assert dct[0][1]["label"] == "DCT Denoise"
 
     median = restoration_filter_to_blender_compositor("median", radius=3, radiusV=5, percentile=0.55)
     dedot = restoration_filter_to_blender_compositor("dedot", lt=0.08, tl=0.09, tc=0.06, ct=0.02)
@@ -1222,7 +1336,10 @@ def test_restoration_filters_translate_to_native_blender_nodes():
     result = translate_filter_chain(
         "hqdn3d=1.5:1.5:6:6,"
         "nlmeans=s=2.5:p=7:r=9,"
+        "nlmeans_opencl=s=2.5:p=7:r=9,"
+        "nlmeans_vulkan=s=2.5:p=7:r=9,"
         "bm3d=sigma=3:group=8:range=12,"
+        "dctdnoiz=sigma=4.5:overlap=0.5,"
         "owdenoise=ls=2:cs=1.5,"
         "vaguedenoiser=threshold=2.5:percent=80,"
         "atadenoise=s=9,"
@@ -1235,7 +1352,10 @@ def test_restoration_filters_translate_to_native_blender_nodes():
     assert result.supported_filters == (
         "hqdn3d",
         "nlmeans",
+        "nlmeans_opencl",
+        "nlmeans_vulkan",
         "bm3d",
+        "dctdnoiz",
         "owdenoise",
         "vaguedenoiser",
         "atadenoise",
@@ -1245,6 +1365,9 @@ def test_restoration_filters_translate_to_native_blender_nodes():
         "deblock",
     )
     assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "DENOISE",
+        "DENOISE",
+        "DENOISE",
         "DENOISE",
         "DENOISE",
         "DENOISE",

@@ -92,11 +92,16 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "unsharp_opencl",
     "cas",
     "sobel",
+    "sobel_opencl",
     "prewitt",
+    "prewitt_opencl",
+    "roberts_opencl",
     "kirsch",
     "edgedetect",
     "erosion",
+    "erosion_opencl",
     "dilation",
+    "dilation_opencl",
     "convolution",
     "convolution_opencl",
     "avgblur",
@@ -106,6 +111,8 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "boxblur_opencl",
     "gblur",
     "gblur_vulkan",
+    "bilateral",
+    "bilateral_cuda",
     "smartblur",
     "sab",
     "yaepblur",
@@ -119,18 +126,29 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "lenscorrection",
     "hqdn3d",
     "nlmeans",
+    "nlmeans_opencl",
+    "nlmeans_vulkan",
     "bm3d",
     "owdenoise",
     "vaguedenoiser",
     "atadenoise",
     "median",
     "dedot",
+    "dctdnoiz",
     "deband",
     "deblock",
     "deflicker",
     "bwdif",
+    "bwdif_cuda",
+    "bwdif_vulkan",
     "yadif",
+    "yadif_cuda",
+    "estdif",
+    "w3fdif",
+    "deinterlace_qsv",
+    "deinterlace_vaapi",
     "deshake",
+    "deshake_opencl",
     "vidstabdetect",
     "vidstabtransform",
     "tmix",
@@ -144,6 +162,16 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "gradfun",
     "sharpness_vaapi",
     "xbr",
+    "scale_cuda",
+    "scale_qsv",
+    "scale_vaapi",
+    "scale_vulkan",
+    "transpose_opencl",
+    "transpose_vaapi",
+    "transpose_vulkan",
+    "hflip_vulkan",
+    "vflip_vulkan",
+    "flip_vulkan",
     "histogram",
     "thistogram",
     "waveform",
@@ -429,11 +457,11 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(detail_cleanup_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor detail/cleanup nodes.")
-        elif name in {"sobel", "prewitt", "kirsch", "edgedetect"}:
+        elif name in {"sobel", "sobel_opencl", "prewitt", "prewitt_opencl", "roberts_opencl", "kirsch", "edgedetect"}:
             compositor_nodes.extend(edge_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Filter edge-detection nodes.")
-        elif name in {"erosion", "dilation"}:
+        elif name in {"erosion", "erosion_opencl", "dilation", "dilation_opencl"}:
             compositor_nodes.extend(morphology_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Dilate/Erode matte cleanup nodes.")
@@ -445,7 +473,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(blur_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Blur nodes.")
-        elif name in {"smartblur", "sab", "yaepblur"}:
+        elif name in {"bilateral", "bilateral_cuda", "smartblur", "sab", "yaepblur"}:
             compositor_nodes.extend(edge_preserving_blur_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is approximated with Blender compositor Bilateral Blur nodes.")
@@ -453,10 +481,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(directional_blur_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Dblur is translated to Blender compositor Directional Blur nodes.")
-        elif name == "scale":
-            compositor_nodes.extend(scale_to_blender_compositor(**args))
+        elif name in {"scale", "scale_cuda", "scale_qsv", "scale_vaapi", "scale_vulkan"}:
+            compositor_nodes.extend(scale_to_blender_compositor(source=name, **args))
             supported.append(name)
-            notes.append("Scale is translated to Blender compositor Scale nodes for editable live resize intent.")
+            notes.append(f"{name} is translated to Blender compositor Scale nodes for editable live resize intent.")
         elif name == "crop":
             compositor_nodes.extend(crop_to_blender_compositor(**args))
             supported.append(name)
@@ -465,11 +493,11 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(rotate_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Rotate is translated to Blender compositor Rotate nodes; animated expressions are represented by the initial editable value.")
-        elif name == "transpose":
-            compositor_nodes.extend(transpose_to_blender_compositor(**args))
+        elif name in {"transpose", "transpose_opencl", "transpose_vaapi", "transpose_vulkan"}:
+            compositor_nodes.extend(transpose_to_blender_compositor(source=name, **args))
             supported.append(name)
-            notes.append("Transpose is translated to Blender compositor Rotate/Flip nodes.")
-        elif name in {"hflip", "vflip"}:
+            notes.append(f"{name} is translated to Blender compositor Rotate/Flip nodes.")
+        elif name in {"hflip", "hflip_vulkan", "vflip", "vflip_vulkan", "flip_vulkan"}:
             compositor_nodes.extend(flip_to_blender_compositor(name))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Flip nodes.")
@@ -477,11 +505,11 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(lenscorrection_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Lenscorrection is approximated with Blender compositor Lens Distortion controls.")
-        elif name in {"hqdn3d", "nlmeans", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise", "median", "dedot", "deband", "deblock"}:
+        elif name in {"hqdn3d", "nlmeans", "nlmeans_opencl", "nlmeans_vulkan", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise", "median", "dedot", "dctdnoiz", "deband", "deblock"}:
             compositor_nodes.extend(restoration_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor restoration nodes; temporal behavior is approximated spatially where Blender has no temporal node.")
-        elif name in {"deflicker", "bwdif", "yadif", "deshake", "vidstabdetect", "vidstabtransform", "tmix", "fps", "framerate", "minterpolate"}:
+        elif name in {"deflicker", "bwdif", "bwdif_cuda", "bwdif_vulkan", "yadif", "yadif_cuda", "estdif", "w3fdif", "deinterlace_qsv", "deinterlace_vaapi", "deshake", "deshake_opencl", "vidstabdetect", "vidstabtransform", "tmix", "fps", "framerate", "minterpolate"}:
             compositor_nodes.extend(temporal_motion_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to native Blender compositor temporal/motion graphlets with editable FFmpeg timing metadata; temporal output generation remains a rendered fallback when Blender has no frame-neighborhood node.")
@@ -2365,16 +2393,22 @@ def edge_filter_to_blender_compositor(
     **_unused: str,
 ) -> CompositorStack:
     name = str(source).strip().lower()
+    base_name = {
+        "sobel_opencl": "sobel",
+        "prewitt_opencl": "prewitt",
+        "roberts_opencl": "roberts",
+    }.get(name, name)
     filter_type = {
         "sobel": "Sobel",
         "prewitt": "Prewitt",
+        "roberts": "Sobel",
         "kirsch": "Kirsch",
         "edgedetect": "Sobel",
-    }.get(name, "Sobel")
+    }.get(base_name, "Sobel")
     scale_value = abs(_float(scale, 1.0))
     delta_value = _float(delta, 0.0)
     factor = _clamp(scale_value + abs(delta_value) / 255.0, 0.0, 2.0)
-    if name == "edgedetect":
+    if base_name == "edgedetect":
         high_value = _clamp(_float(high, 0.196078), 0.0, 1.0)
         low_value = _clamp(_float(low, 0.0784314), 0.0, 1.0)
         factor = _clamp(0.65 + high_value + low_value * 0.5, 0.1, 2.0)
@@ -2382,7 +2416,7 @@ def edge_filter_to_blender_compositor(
         (
             "FILTER",
             {
-                "label": "Edge Detect" if name == "edgedetect" else f"{filter_type} Edge",
+                "label": "Edge Detect" if base_name == "edgedetect" else ("Roberts Edge Preview" if base_name == "roberts" else f"{filter_type} Edge"),
                 "filter_type": filter_type,
                 "factor": factor,
                 "planes": str(planes),
@@ -2392,6 +2426,8 @@ def edge_filter_to_blender_compositor(
                 "low": _clamp(_float(low, 0.0784314), 0.0, 1.0),
                 "mode": str(mode),
                 "source": name,
+                "hardware_filter": name if name != base_name else "",
+                "approximation": f"{name} hardware/API edge detection is represented with Blender's native compositor Filter node." if name != base_name else "",
             },
         ),
     )
@@ -2408,6 +2444,10 @@ def morphology_to_blender_compositor(
     **_unused: str,
 ) -> CompositorStack:
     name = str(source).strip().lower()
+    base_name = {
+        "erosion_opencl": "erosion",
+        "dilation_opencl": "dilation",
+    }.get(name, name)
     coordinate_value = int(_clamp(round(_float(coordinates, 255.0)), 0.0, 255.0))
     threshold_values = tuple(
         int(_clamp(round(_float(value, 65535.0)), 0.0, 65535.0))
@@ -2415,13 +2455,13 @@ def morphology_to_blender_compositor(
     )
     active_neighbors = max(1, int(coordinate_value).bit_count())
     size = max(1, min(8, round(active_neighbors / 8.0)))
-    if name == "erosion":
+    if base_name == "erosion":
         size = -size
     return (
         (
             "DILATE_ERODE",
             {
-                "label": "Erode" if name == "erosion" else "Dilate",
+                "label": "Erode" if base_name == "erosion" else "Dilate",
                 "mode": "Steps",
                 "size": size,
                 "falloff_size": 0.0,
@@ -2429,6 +2469,8 @@ def morphology_to_blender_compositor(
                 "coordinates": coordinate_value,
                 "thresholds": threshold_values,
                 "source": name,
+                "hardware_filter": name if name != base_name else "",
+                "approximation": f"{name} OpenCL morphology intent is represented with Blender's native Dilate/Erode node." if name != base_name else "",
             },
         ),
     )
@@ -2538,13 +2580,22 @@ def blur_to_blender_compositor(source: str, **options: str | int | float) -> Com
 
 def edge_preserving_blur_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
     name = str(source).strip().lower()
-    if name == "smartblur":
+    base_name = {
+        "bilateral_cuda": "bilateral",
+    }.get(name, name)
+    if base_name == "bilateral":
+        sigma_s = _clamp(_float(_option(options, "sigmaS", "sigma_spatial", "s", "arg0", default=3.0), 3.0), 0.1, 32.0)
+        sigma_r = _clamp(_float(_option(options, "sigmaR", "sigma_range", "r", "arg1", default=0.1), 0.1), 0.0, 1.0)
+        size = sigma_s
+        strength = sigma_s
+        threshold = sigma_r
+    elif base_name == "smartblur":
         radius = _clamp(_float(_option(options, "luma_radius", "lr", "arg0", default=1), 1.0), 0.1, 5.0)
         strength = _float(_option(options, "luma_strength", "ls", "arg1", default=1), 1.0)
         threshold = abs(_float(_option(options, "luma_threshold", "lt", "arg2", default=0), 0.0)) / 30.0
         size = radius * max(0.25, abs(strength))
         threshold = _clamp(0.05 + threshold * 0.45, 0.0, 1.0)
-    elif name == "sab":
+    elif base_name == "sab":
         radius = _clamp(_float(_option(options, "luma_radius", "lr", "arg0", default=1), 1.0), 0.1, 4.0)
         pre_radius = _clamp(_float(_option(options, "luma_pre_filter_radius", "lpfr", "arg1", default=1), 1.0), 0.1, 2.0)
         strength = _clamp(_float(_option(options, "luma_strength", "ls", "arg2", default=1), 1.0), 0.1, 100.0)
@@ -2561,14 +2612,17 @@ def edge_preserving_blur_to_blender_compositor(source: str, **options: str | int
             "BILATERAL_BLUR",
             {
                 "label": {
+                    "bilateral": "Bilateral Blur",
                     "smartblur": "Smart Blur",
                     "sab": "Shape Adaptive Blur",
                     "yaepblur": "Edge Preserving Blur",
-                }.get(name, "Bilateral Blur"),
+                }.get(base_name, "Bilateral Blur"),
                 "size": int(_clamp(round(size), 1.0, 128.0)),
                 "threshold": threshold,
                 "strength": strength,
                 "source": name,
+                "hardware_filter": name if name != base_name else "",
+                "approximation": f"{name} hardware/API edge-preserving blur is represented with Blender's native Bilateral Blur node." if name != base_name else "",
             },
         ),
     )
@@ -2609,6 +2663,7 @@ def directional_blur_to_blender_compositor(
 
 def scale_to_blender_compositor(
     *,
+    source: str = "scale",
     w: str | float | int = "iw",
     width: str | float | int | None = None,
     h: str | float | int = "ih",
@@ -2621,6 +2676,7 @@ def scale_to_blender_compositor(
     flags: str = "",
     **_unused: str,
 ) -> CompositorStack:
+    source_name = str(source).strip().lower() or "scale"
     size_w, size_h = _parse_size_pair(size or s)
     x_source = arg0 if arg0 is not None else (width if width is not None else (size_w if size_w is not None else w))
     y_source = arg1 if arg1 is not None else (height if height is not None else (size_h if size_h is not None else h))
@@ -2640,7 +2696,9 @@ def scale_to_blender_compositor(
                 "height_expression": str(y_source),
                 "force_original_aspect_ratio": str(force_original_aspect_ratio),
                 "flags": str(flags),
-                "source": "scale",
+                "source": source_name,
+                "hardware_filter": source_name if source_name != "scale" else "",
+                "approximation": f"{source_name} hardware/API scaling is represented with Blender's native compositor Scale node." if source_name != "scale" else "",
             },
         ),
     )
@@ -2715,11 +2773,13 @@ def rotate_to_blender_compositor(
 
 def transpose_to_blender_compositor(
     *,
+    source: str = "transpose",
     dir: str | int = "cclock_flip",
     arg0: str | int | None = None,
     passthrough: str | int = "none",
     **_unused: str,
 ) -> CompositorStack:
+    source_name = str(source).strip().lower() or "transpose"
     direction = _transpose_direction(arg0 if arg0 is not None else dir)
     rotate_angle = {
         "cclock_flip": -pi / 2.0,
@@ -2736,7 +2796,9 @@ def transpose_to_blender_compositor(
                 "angle_expression": direction,
                 "interpolation": "Bilinear",
                 "passthrough": str(passthrough),
-                "source": "transpose",
+                "source": source_name,
+                "hardware_filter": source_name if source_name != "transpose" else "",
+                "approximation": f"{source_name} hardware/API transpose is represented with Blender's native Rotate/Flip nodes." if source_name != "transpose" else "",
             },
         )
     ]
@@ -2749,7 +2811,9 @@ def transpose_to_blender_compositor(
                     "flip_x": False,
                     "flip_y": True,
                     "passthrough": str(passthrough),
-                    "source": "transpose",
+                    "source": source_name,
+                    "hardware_filter": source_name if source_name != "transpose" else "",
+                    "approximation": f"{source_name} hardware/API transpose is represented with Blender's native Rotate/Flip nodes." if source_name != "transpose" else "",
                 },
             )
         )
@@ -2757,14 +2821,26 @@ def transpose_to_blender_compositor(
 
 
 def flip_to_blender_compositor(source: str) -> CompositorStack:
+    source_name = str(source).strip().lower() or "hflip"
+    base_name = {
+        "hflip_vulkan": "hflip",
+        "vflip_vulkan": "vflip",
+        "flip_vulkan": "flip",
+    }.get(source_name, source_name)
     return (
         (
             "FLIP",
             {
-                "label": "Horizontal Flip" if source == "hflip" else "Vertical Flip",
-                "flip_x": source == "hflip",
-                "flip_y": source == "vflip",
-                "source": source,
+                "label": {
+                    "hflip": "Horizontal Flip",
+                    "vflip": "Vertical Flip",
+                    "flip": "Vulkan Flip Both Axes",
+                }.get(base_name, "Flip"),
+                "flip_x": base_name in {"hflip", "flip"},
+                "flip_y": base_name in {"vflip", "flip"},
+                "source": source_name,
+                "hardware_filter": source_name if source_name != base_name else "",
+                "approximation": f"{source_name} hardware/API flip is represented with Blender's native compositor Flip node." if source_name != base_name else "",
             },
         ),
     )
@@ -2802,7 +2878,7 @@ def lenscorrection_to_blender_compositor(
 
 def restoration_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
     name = str(source).strip().lower()
-    if name in {"hqdn3d", "nlmeans", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise"}:
+    if name in {"hqdn3d", "nlmeans", "nlmeans_opencl", "nlmeans_vulkan", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise", "dctdnoiz"}:
         return _denoise_to_blender_compositor(name, options)
     if name in {"median", "dedot"}:
         return _despeckle_to_blender_compositor(name, options)
@@ -2815,6 +2891,16 @@ def restoration_filter_to_blender_compositor(source: str, **options: str | int |
 
 def temporal_motion_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
     name = str(source).strip().lower()
+    base_name = {
+        "bwdif_cuda": "bwdif",
+        "bwdif_vulkan": "bwdif",
+        "deinterlace_qsv": "bwdif",
+        "deinterlace_vaapi": "bwdif",
+        "yadif_cuda": "yadif",
+        "estdif": "bwdif",
+        "w3fdif": "bwdif",
+        "deshake_opencl": "deshake",
+    }.get(name, name)
     if name == "deflicker":
         window = int(_clamp(round(_float(_option(options, "size", "s", "arg0", default=7), 7.0)), 1.0, 129.0))
         method = str(_option(options, "mode", "m", "arg1", default="median"))
@@ -2848,15 +2934,26 @@ def temporal_motion_filter_to_blender_compositor(source: str, **options: str | i
                 },
             ),
         )
-    if name in {"bwdif", "yadif"}:
+    if base_name in {"bwdif", "yadif"}:
         mode = str(_option(options, "mode", "arg0", default="send_frame"))
         parity = str(_option(options, "parity", "arg1", default="auto"))
         deint = str(_option(options, "deint", "arg2", default="all"))
+        label = {
+            "bwdif": "BWDIF Deinterlace",
+            "yadif": "YADIF Deinterlace",
+            "bwdif_cuda": "CUDA BWDIF Deinterlace",
+            "bwdif_vulkan": "Vulkan BWDIF Deinterlace",
+            "yadif_cuda": "CUDA YADIF Deinterlace",
+            "deinterlace_qsv": "QSV Deinterlace Preview",
+            "deinterlace_vaapi": "VAAPI Deinterlace Preview",
+            "estdif": "ESTDIF Deinterlace Preview",
+            "w3fdif": "W3FDIF Deinterlace Preview",
+        }.get(name, "Deinterlace Preview")
         return (
             (
                 "ANTI_ALIASING",
                 {
-                    "label": "BWDIF Deinterlace" if name == "bwdif" else "YADIF Deinterlace",
+                    "label": label,
                     "threshold": 0.16,
                     "contrast_limit": 1.8,
                     "corner_rounding": 0.35,
@@ -2864,6 +2961,7 @@ def temporal_motion_filter_to_blender_compositor(source: str, **options: str | i
                     "parity": parity,
                     "deint": deint,
                     "source": name,
+                    "hardware_filter": name if name != base_name else "",
                     "approximation": "FFmpeg deinterlacers synthesize missing fields over time. Blender's native compositor can only preview edge smoothing, so this graph applies Anti-Aliasing plus a subtle vertical blur and keeps field metadata on the nodes.",
                 },
             ),
@@ -2880,24 +2978,28 @@ def temporal_motion_filter_to_blender_compositor(source: str, **options: str | i
                     "parity": parity,
                     "deint": deint,
                     "source": name,
+                    "hardware_filter": name if name != base_name else "",
                     "approximation": "Subtle vertical smoothing previews field-line cleanup; full field reconstruction remains the rendered FFmpeg fallback.",
                 },
             ),
         )
-    if name == "deshake":
+    if base_name == "deshake":
         rx = _clamp(_float(_option(options, "rx", default=16), 16.0), 0.0, 128.0)
         ry = _clamp(_float(_option(options, "ry", default=16), 16.0), 0.0, 128.0)
         edge = str(_option(options, "edge", default="blank"))
+        metadata = {"rx": rx, "ry": ry, "edge": edge}
+        if name != base_name:
+            metadata["hardware_filter"] = name
         return (
             (
                 "NATIVE_NODE",
                 {
                     "node_type": "CompositorNodeStabilize",
-                    "label": "Deshake Stabilize",
+                    "label": "OpenCL Deshake Stabilize" if name == "deshake_opencl" else "Deshake Stabilize",
                     "assign_source_clip": True,
                     "inputs": {"Frame": 1.0, "Invert": False, "Interpolation": "Bilinear"},
-                    "source": "deshake",
-                    "metadata": {"rx": rx, "ry": ry, "edge": edge},
+                    "source": name,
+                    "metadata": metadata,
                     "approximation": "FFmpeg deshake estimates frame motion internally. Blender's native Stabilize node previews the same stabilization intent when movie tracking data is available; rx/ry are stored as editable metadata.",
                 },
             ),
@@ -2907,8 +3009,8 @@ def temporal_motion_filter_to_blender_compositor(source: str, **options: str | i
                     "node_type": "CompositorNodeTransform",
                     "label": "Deshake Centering Transform",
                     "inputs": {"X": -rx * 0.12, "Y": ry * 0.12, "Angle": 0.0, "Scale": 1.015, "Interpolation": "Bilinear"},
-                    "source": "deshake",
-                    "metadata": {"rx": rx, "ry": ry, "edge": edge},
+                    "source": name,
+                    "metadata": metadata,
                     "approximation": "Small transform offset makes the deshake graph visibly editable even before tracking data is authored in Blender.",
                 },
             ),
@@ -3258,19 +3360,26 @@ def quality_compare_to_blender_compositor(source: str, **options: str | int | fl
 
 
 def _denoise_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
-    if source == "hqdn3d":
+    source_name = str(source).strip().lower()
+    base_name = {
+        "nlmeans_opencl": "nlmeans",
+        "nlmeans_vulkan": "nlmeans",
+    }.get(source_name, source_name)
+    if base_name == "hqdn3d":
         luma_spatial = _float(_option(options, "luma_spatial", "arg0", default=1.5), 1.5)
         chroma_spatial = _float(_option(options, "chroma_spatial", "arg1", default=luma_spatial), luma_spatial)
         luma_tmp = _float(_option(options, "luma_tmp", "arg2", default=0.0), 0.0)
         chroma_tmp = _float(_option(options, "chroma_tmp", "arg3", default=0.0), 0.0)
         strength = luma_spatial + chroma_spatial * 0.75 + luma_tmp * 0.30 + chroma_tmp * 0.20
-    elif source == "nlmeans":
+    elif base_name == "nlmeans":
         strength = _float(_option(options, "s", "arg0", default=1.0), 1.0) + _float(_option(options, "p", "arg1", default=7), 7.0) / 12.0 + _float(_option(options, "r", "arg2", default=15), 15.0) / 24.0
-    elif source == "bm3d":
+    elif base_name == "bm3d":
         strength = _float(_option(options, "sigma", "arg0", default=1.0), 1.0) + _float(_option(options, "group", default=1), 1.0) / 48.0 + _float(_option(options, "range", default=9), 9.0) / 32.0
-    elif source == "owdenoise":
+    elif base_name == "dctdnoiz":
+        strength = _float(_option(options, "sigma", "s", "arg0", default=4.5), 4.5) + _float(_option(options, "overlap", default=0.5), 0.5)
+    elif base_name == "owdenoise":
         strength = (_float(_option(options, "luma_strength", "ls", "arg1", default=1.0), 1.0) + _float(_option(options, "chroma_strength", "cs", "arg2", default=1.0), 1.0)) / 2.0
-    elif source == "vaguedenoiser":
+    elif base_name == "vaguedenoiser":
         threshold = _float(_option(options, "threshold", "arg0", default=2.0), 2.0)
         percent = _float(_option(options, "percent", "arg3", default=85.0), 85.0) / 100.0
         strength = threshold * percent
@@ -3288,17 +3397,21 @@ def _denoise_to_blender_compositor(source: str, options: dict[str, object]) -> C
                 "label": {
                     "hqdn3d": "High Quality Denoise",
                     "nlmeans": "Non-Local Means Denoise",
+                    "nlmeans_opencl": "OpenCL NLMeans Denoise",
+                    "nlmeans_vulkan": "Vulkan NLMeans Denoise",
                     "bm3d": "BM3D Denoise",
+                    "dctdnoiz": "DCT Denoise",
                     "owdenoise": "Wavelet Denoise",
                     "vaguedenoiser": "Wavelet Threshold Denoise",
                     "atadenoise": "Adaptive Temporal Denoise",
-                }.get(source, "Denoise"),
+                }.get(source_name, "Denoise"),
                 "hdr": strength >= 6.0,
                 "prefilter": prefilter,
                 "quality": quality,
                 "strength": strength,
-                "source": source,
-                "approximation": "Blender compositor Denoise is spatial; FFmpeg temporal accumulation is represented as editable spatial denoise strength.",
+                "source": source_name,
+                "hardware_filter": source_name if source_name != base_name else "",
+                "approximation": "Blender compositor Denoise is spatial; FFmpeg temporal/frequency/hardware denoise is represented as editable native denoise strength.",
             },
         ),
     )

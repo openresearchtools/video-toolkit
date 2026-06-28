@@ -668,6 +668,26 @@ opencl_blur_nodes = [
 assert any(node.bl_idname == 'CompositorNodeBlur' for node in opencl_blur_nodes)
 assert any(node.get('video_toolkit_ffmpeg_filter') == 'avgblur_opencl' for node in opencl_blur_nodes)
 assert any(node.get('video_toolkit_hardware_filter') == 'avgblur_opencl' for node in opencl_blur_nodes)
+scene.video_toolkit_sidecar_tool = 'native_opencl_sobel_edges'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor OpenCL Sobel Edges')
+opencl_sobel_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_opencl_sobel_edges'
+]
+assert any(node.bl_idname == 'CompositorNodeFilter' for node in opencl_sobel_nodes)
+assert any(node.get('video_toolkit_ffmpeg_filter') == 'sobel_opencl' for node in opencl_sobel_nodes)
+assert any(node.get('video_toolkit_hardware_filter') == 'sobel_opencl' for node in opencl_sobel_nodes)
+scene.video_toolkit_sidecar_tool = 'native_cuda_bilateral_filter'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor CUDA Bilateral Filter')
+cuda_bilateral_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_cuda_bilateral_filter'
+]
+assert any(node.bl_idname == 'CompositorNodeBilateralblur' for node in cuda_bilateral_nodes)
+assert any(node.get('video_toolkit_ffmpeg_filter') == 'bilateral_cuda' for node in cuda_bilateral_nodes)
+assert any(node.get('video_toolkit_hardware_filter') == 'bilateral_cuda' for node in cuda_bilateral_nodes)
 scene.video_toolkit_sidecar_group = 'NATIVE_DENOISE_CLEANUP'
 scene.video_toolkit_sidecar_tool = 'native_vaapi_denoise'
 bpy.ops.video_toolkit.apply_sidecar_tool()
@@ -679,6 +699,48 @@ vaapi_denoise_nodes = [
 assert any(node.bl_idname == 'CompositorNodeDenoise' for node in vaapi_denoise_nodes)
 assert any(node.get('video_toolkit_ffmpeg_filter') == 'denoise_vaapi' for node in vaapi_denoise_nodes)
 assert any(node.get('video_toolkit_hardware_filter') == 'denoise_vaapi' for node in vaapi_denoise_nodes)
+scene.video_toolkit_sidecar_tool = 'native_opencl_nlmeans_denoise'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor OpenCL NLMeans Denoise')
+opencl_nlmeans_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_opencl_nlmeans_denoise'
+]
+assert any(node.bl_idname == 'CompositorNodeDenoise' for node in opencl_nlmeans_nodes)
+assert any(node.get('video_toolkit_ffmpeg_filter') == 'nlmeans_opencl' for node in opencl_nlmeans_nodes)
+assert any(node.get('video_toolkit_hardware_filter') == 'nlmeans_opencl' for node in opencl_nlmeans_nodes)
+scene.video_toolkit_sidecar_group = 'RESTORATION'
+scene.video_toolkit_sidecar_tool = 'native_cuda_bwdif_deinterlace'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor CUDA BWDIF Deinterlace')
+cuda_bwdif_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_cuda_bwdif_deinterlace'
+]
+assert any(node.bl_idname == 'CompositorNodeAntiAliasing' for node in cuda_bwdif_nodes)
+assert any(node.get('video_toolkit_ffmpeg_filter') == 'bwdif_cuda' for node in cuda_bwdif_nodes)
+assert any(node.get('video_toolkit_hardware_filter') == 'bwdif_cuda' for node in cuda_bwdif_nodes)
+scene.video_toolkit_sidecar_tool = 'native_opencl_deshake_stabilize'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor OpenCL Deshake Stabilize')
+opencl_deshake_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_opencl_deshake_stabilize'
+]
+assert {{'CompositorNodeStabilize', 'CompositorNodeTransform'}}.issubset({{node.bl_idname for node in opencl_deshake_nodes}})
+assert any(node.get('video_toolkit_ffmpeg_filter') == 'deshake_opencl' for node in opencl_deshake_nodes)
+assert any(node.get('video_toolkit_hardware_filter') == 'deshake_opencl' for node in opencl_deshake_nodes)
+scene.video_toolkit_sidecar_group = 'NATIVE_GEOMETRY_LENS'
+scene.video_toolkit_sidecar_tool = 'native_vulkan_flip_both'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Vulkan Flip Both Axes')
+vulkan_flip_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_vulkan_flip_both'
+]
+assert any(node.bl_idname == 'CompositorNodeFlip' for node in vulkan_flip_nodes)
+assert any(node.get('video_toolkit_ffmpeg_filter') == 'flip_vulkan' for node in vulkan_flip_nodes)
+assert any(node.get('video_toolkit_hardware_filter') == 'flip_vulkan' for node in vulkan_flip_nodes)
 scene.video_toolkit_sidecar_group = 'NATIVE_COLOR_COMPOSITE'
 scene.video_toolkit_sidecar_tool = 'native_rgb_channel_board'
 bpy.ops.video_toolkit.apply_sidecar_tool()
