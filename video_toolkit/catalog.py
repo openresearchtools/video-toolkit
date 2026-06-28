@@ -2237,8 +2237,9 @@ TOOLS: tuple[VideoTool, ...] = (
         label="Matrix 601 to 709",
         category="Native Color & Composite",
         engine=ENGINE_COMPOSITOR,
-        description="One-click Blender equivalent for FFmpeg colormatrix=src=smpte170m:dst=bt709 intent with YCbCr review nodes.",
+        description="One-click Blender equivalent for FFmpeg colormatrix=src=smpte170m:dst=bt709 intent with RGB matrix Math nodes and YCbCr review nodes.",
         compositor_stack=(
+            *_COLORMATRIX_601_TO_709_TRANSLATION.compositor_nodes,
             _color_model_board(
                 "YCC",
                 label="Matrix 601 to 709 Board",
@@ -2255,8 +2256,9 @@ TOOLS: tuple[VideoTool, ...] = (
         label="Matrix 709 to 2020",
         category="Native Color & Composite",
         engine=ENGINE_COMPOSITOR,
-        description="One-click Blender color-matrix metadata pipeline for FFmpeg colormatrix=src=bt709:dst=bt2020 intent.",
+        description="One-click Blender color-matrix metadata pipeline for FFmpeg colormatrix=src=bt709:dst=bt2020 intent with RGB matrix Math nodes.",
         compositor_stack=(
+            *_COLORMATRIX_709_TO_2020_TRANSLATION.compositor_nodes,
             _color_model_board(
                 "YCC",
                 label="Matrix 709 to 2020 Board",

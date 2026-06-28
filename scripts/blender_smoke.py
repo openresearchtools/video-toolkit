@@ -567,6 +567,17 @@ metadata_nodes = [
 ]
 assert metadata_nodes
 assert any(node.get('video_toolkit_color_management_output_transfer') == 'bt2020-10' for node in metadata_nodes)
+result = bpy.ops.video_toolkit.apply_filter(filter_id='native_colormatrix_601_to_709_pipeline')
+assert result == {{'FINISHED'}}, result
+colormatrix_nodes = [
+    node for node in metadata_tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_colormatrix_601_to_709_pipeline'
+]
+assert colormatrix_nodes
+assert {{'CompositorNodeSeparateColor', 'ShaderNodeMath', 'CompositorNodeCombineColor'}}.issubset(
+    {{node.bl_idname for node in colormatrix_nodes}}
+)
+assert any('1.0864,-0.072349' in node.get('video_toolkit_rgb_matrix', '') for node in colormatrix_nodes)
 assert bpy.types.VIDEO_TOOLKIT_PT_video_filters.bl_category == 'Video Effects'
 assert bpy.types.VIDEO_TOOLKIT_MT_tools.bl_label == 'Video Effects'
 assert LIVE_COLOR_SIDECAR_CATEGORIES == (

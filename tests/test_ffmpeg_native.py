@@ -17,6 +17,7 @@ from video_toolkit.ffmpeg_native import (
     colorbalance_to_blender_stack,
     colorchannelmixer_to_blender_compositor,
     colorchannelmixer_to_blender_stack,
+    colormatrix_to_blender_compositor,
     colormap_to_blender_stack,
     colorkey_to_blender_compositor,
     convolution_to_blender_compositor,
@@ -993,11 +994,25 @@ def test_filter_chain_supports_color_space_metadata():
     assert result.stack == ()
     assert result.unsupported_filters == ()
     assert result.supported_filters == ("colorspace", "colormatrix", "setparams", "setrange", "zscale")
+    assert result.compositor_nodes[0][0] == "RGB_MATRIX"
+    assert result.compositor_nodes[0][1]["source"] == "colormatrix"
+    assert result.compositor_nodes[0][1]["input_matrix"] == "smpte170m"
+    assert result.compositor_nodes[0][1]["output_matrix"] == "bt709"
+    assert result.compositor_nodes[0][1]["matrix"][0][0] == pytest.approx(1.0864)
     assert ("sequencer_input", "bt709") in result.color_management
     assert ("output_matrix", "bt2020") in result.color_management
     assert ("output_transfer", "bt2020-10") in result.color_management
     assert ("output_range", "limited") in result.color_management
     assert ("input_range", "limited") in result.color_management
+
+
+def test_colormatrix_translates_to_rgb_matrix_compositor():
+    matrix = colormatrix_to_blender_compositor(src="smpte170m", dst="bt709")
+    assert matrix[0][0] == "RGB_MATRIX"
+    assert matrix[0][1]["matrix"][0] == pytest.approx((1.0864, -0.0723492, -0.0140508), abs=1e-6)
+    assert matrix[0][1]["matrix"][1] == pytest.approx((0.0965462, 0.845052, 0.0584022), abs=1e-6)
+    assert matrix[0][1]["matrix"][2] == pytest.approx((-0.0141063, -0.0276937, 1.0418), abs=1e-6)
+    assert colormatrix_to_blender_compositor(src="unknown", dst="bt709") == ()
 
 
 def test_zscale_metadata_translates_to_blender_color_management():

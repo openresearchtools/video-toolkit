@@ -1209,6 +1209,39 @@ channel_mixer_matrix_values = [
 ]
 assert any('1.06,-0.02,-0.01' in matrix for matrix in channel_mixer_matrix_values), channel_mixer_matrix_values[:1]
 
+result = bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id='native_colormatrix_601_to_709_pipeline')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Matrix 601 to 709')
+colormatrix_summary = scene.video_toolkit_last_compositor_nodes
+colormatrix_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Tool Matrix 601 to 709 ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeSeparateColor',
+    'ShaderNodeMath',
+    'CompositorNodeCombineColor',
+    'CompositorNodeConvertToDisplay',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in colormatrix_node_types, required
+colormatrix_matrix_nodes = [
+    node for node in tree.nodes
+    if node.name.startswith('VTK Tool Matrix 601 to 709 Color Matrix smpte170m to bt709')
+    and node.bl_idname == 'ShaderNodeMath'
+]
+assert len(colormatrix_matrix_nodes) >= 15, len(colormatrix_matrix_nodes)
+colormatrix_matrix_values = [
+    node.get('video_toolkit_rgb_matrix', '')
+    for node in colormatrix_matrix_nodes
+]
+assert any('1.0864,-0.072349' in matrix for matrix in colormatrix_matrix_values), colormatrix_matrix_values[:1]
+
 from video_toolkit.addon import _tool_has_compositor_stack
 from video_toolkit.catalog import all_tools
 expected_all_recipe_ids = [tool.id for tool in all_tools() if _tool_has_compositor_stack(tool)]
@@ -1728,6 +1761,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'channel_mixer_summary': channel_mixer_summary,
     'channel_mixer_node_types': channel_mixer_node_types,
     'channel_mixer_matrix_values': channel_mixer_matrix_values[:3],
+    'colormatrix_summary': colormatrix_summary,
+    'colormatrix_node_types': colormatrix_node_types,
+    'colormatrix_matrix_values': colormatrix_matrix_values[:3],
     'all_recipe_summary': all_recipe_summary,
     'all_recipe_ids': all_recipe_ids,
     'all_recipe_count': len(all_recipe_ids),

@@ -873,8 +873,9 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             notes.append("Colorspace_cuda range metadata is applied through Blender color-management intent; CUDA hardware execution is not required for native preview.")
         elif name == "colormatrix":
             color_management.extend(colormatrix_to_blender_color_management(**args))
+            compositor_nodes.extend(colormatrix_to_blender_compositor(**args))
             supported.append(name)
-            notes.append("Colormatrix is tracked as Blender color-management intent; exact YUV matrix conversion is not a VSE modifier.")
+            notes.append("Colormatrix is tracked as Blender color-management intent and represented in compositor nodes with native RGB matrix math for known matrix pairs.")
         elif name == "setparams":
             color_management.extend(setparams_to_blender_color_management(**args))
             supported.append(name)
@@ -6142,6 +6143,65 @@ def colormatrix_to_blender_color_management(
     if destination:
         pairs.append(("output_matrix", destination))
     return tuple(pairs)
+
+
+def colormatrix_to_blender_compositor(
+    *,
+    src: str | int = "",
+    dst: str | int = "",
+    preset: str | int = "",
+    **_unused: str,
+) -> CompositorStack:
+    source = _normalize_color_value(src or preset)
+    destination = _normalize_color_value(dst)
+    matrix = _colormatrix_rgb_transform(source, destination)
+    if matrix is None:
+        return ()
+    label = f"Color Matrix {source or 'input'} to {destination or 'output'}"
+    return (
+        (
+            "RGB_MATRIX",
+            {
+                "label": label,
+                "source": "colormatrix",
+                "matrix": matrix,
+                "input_matrix": source,
+                "output_matrix": destination,
+                "approximation": "Blender compositor RGB matrix nodes reproduce the RGB-domain effect of FFmpeg colormatrix for known luma coefficient pairs; encoded-range and chroma siting metadata stay in Blender color-management fields.",
+            },
+        ),
+    )
+
+
+def _colormatrix_rgb_transform(source: str, destination: str) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]] | None:
+    source_coefficients = _colormatrix_luma_coefficients(source)
+    destination_coefficients = _colormatrix_luma_coefficients(destination)
+    if source_coefficients is None or destination_coefficients is None:
+        return None
+    source_kr, source_kg, source_kb = source_coefficients
+    destination_kr, destination_kg, destination_kb = destination_coefficients
+    rows: list[tuple[float, float, float]] = []
+    for red, green, blue in ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)):
+        y_value = source_kr * red + source_kg * green + source_kb * blue
+        cb_value = (blue - y_value) / (2.0 * (1.0 - source_kb))
+        cr_value = (red - y_value) / (2.0 * (1.0 - source_kr))
+        out_red = y_value + 2.0 * (1.0 - destination_kr) * cr_value
+        out_blue = y_value + 2.0 * (1.0 - destination_kb) * cb_value
+        out_green = (y_value - destination_kr * out_red - destination_kb * out_blue) / destination_kg
+        rows.append((out_red, out_green, out_blue))
+    return tuple(zip(*rows))  # type: ignore[return-value]
+
+
+def _colormatrix_luma_coefficients(matrix: str) -> tuple[float, float, float] | None:
+    normalized = _normalize_color_value(matrix)
+    coefficients = {
+        "bt709": (0.2126, 0.7152, 0.0722),
+        "bt2020": (0.2627, 0.6780, 0.0593),
+        "smpte170m": (0.2990, 0.5870, 0.1140),
+        "bt470bg": (0.2990, 0.5870, 0.1140),
+        "smpte240m": (0.2120, 0.7010, 0.0870),
+    }
+    return coefficients.get(normalized)
 
 
 def setparams_to_blender_color_management(

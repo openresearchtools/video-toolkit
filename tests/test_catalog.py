@@ -354,6 +354,9 @@ def test_native_color_management_pipeline_tools_are_exposed():
         assert tool.compositor_stack
         assert pairs.items() <= color_management.items()
         assert {"CompositorNodeConvertColorSpace", "CompositorNodeConvertToDisplay"} & _tool_compositor_node_classes(tool_id)
+        if tool_id.startswith("native_colormatrix_"):
+            assert "RGB_MATRIX" in {stack_type for stack_type, _settings in tool.compositor_stack}
+            assert {"CompositorNodeSeparateColor", "ShaderNodeMath", "CompositorNodeCombineColor"} <= _tool_compositor_node_classes(tool_id)
     assert dict(get_tool("native_ffmpeg_color_metadata_pipeline").color_management)["output_range"] == "limited"
 
 
