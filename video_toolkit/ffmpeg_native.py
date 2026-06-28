@@ -77,6 +77,13 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "sab",
     "yaepblur",
     "dblur",
+    "scale",
+    "crop",
+    "rotate",
+    "transpose",
+    "hflip",
+    "vflip",
+    "lenscorrection",
     "hqdn3d",
     "nlmeans",
     "bm3d",
@@ -103,12 +110,13 @@ class NativeTranslation:
 
 
 def translate_filter_chain(chain: str) -> NativeTranslation:
-    """Translate supported FFmpeg color filters into Blender VSE modifiers.
+    """Translate supported FFmpeg filter intent into Blender-native tools.
 
-    This intentionally covers color/tone intent that Blender can preview live in
-    the VSE. Temporal filters such as deflicker, denoise, vidstab, and frame
-    interpolation remain render tools because there is no equivalent native VSE
-    live modifier.
+    This intentionally covers color/tone intent that Blender can preview live
+    through VSE modifiers, plus compositor-native matte, channel, restoration,
+    blur, and geometry operations. Temporal filters such as deflicker, vidstab,
+    and frame interpolation remain render tools when there is no equivalent
+    native live Blender operation.
     """
 
     stack: list[tuple[str, dict[str, Any]]] = []
@@ -276,6 +284,30 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(directional_blur_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Dblur is translated to Blender compositor Directional Blur nodes.")
+        elif name == "scale":
+            compositor_nodes.extend(scale_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Scale is translated to Blender compositor Scale nodes for editable live resize intent.")
+        elif name == "crop":
+            compositor_nodes.extend(crop_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Crop is translated to Blender compositor Crop nodes.")
+        elif name == "rotate":
+            compositor_nodes.extend(rotate_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Rotate is translated to Blender compositor Rotate nodes; animated expressions are represented by the initial editable value.")
+        elif name == "transpose":
+            compositor_nodes.extend(transpose_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Transpose is translated to Blender compositor Rotate/Flip nodes.")
+        elif name in {"hflip", "vflip"}:
+            compositor_nodes.extend(flip_to_blender_compositor(name))
+            supported.append(name)
+            notes.append(f"{name} is translated to Blender compositor Flip nodes.")
+        elif name == "lenscorrection":
+            compositor_nodes.extend(lenscorrection_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Lenscorrection is approximated with Blender compositor Lens Distortion controls.")
         elif name in {"hqdn3d", "nlmeans", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise", "median", "dedot", "deband", "deblock"}:
             compositor_nodes.extend(restoration_filter_to_blender_compositor(name, **args))
             supported.append(name)
@@ -1529,6 +1561,199 @@ def directional_blur_to_blender_compositor(
     )
 
 
+def scale_to_blender_compositor(
+    *,
+    w: str | float | int = "iw",
+    width: str | float | int | None = None,
+    h: str | float | int = "ih",
+    height: str | float | int | None = None,
+    size: str | None = None,
+    s: str | None = None,
+    arg0: str | float | int | None = None,
+    arg1: str | float | int | None = None,
+    force_original_aspect_ratio: str | int = "disable",
+    flags: str = "",
+    **_unused: str,
+) -> CompositorStack:
+    size_w, size_h = _parse_size_pair(size or s)
+    x_source = arg0 if arg0 is not None else (width if width is not None else (size_w if size_w is not None else w))
+    y_source = arg1 if arg1 is not None else (height if height is not None else (size_h if size_h is not None else h))
+    x_value = _dimension_or_default(x_source, 1.0)
+    y_value = _dimension_or_default(y_source, 1.0)
+    numeric_absolute = _is_plain_positive_number(x_source) and _is_plain_positive_number(y_source)
+    scale_type = "Absolute" if numeric_absolute and (x_value > 8.0 or y_value > 8.0) else "Relative"
+    return (
+        (
+            "SCALE",
+            {
+                "label": "Scale",
+                "type": scale_type,
+                "x": _clamp(x_value, 0.001, 16384.0),
+                "y": _clamp(y_value, 0.001, 16384.0),
+                "width_expression": str(x_source),
+                "height_expression": str(y_source),
+                "force_original_aspect_ratio": str(force_original_aspect_ratio),
+                "flags": str(flags),
+                "source": "scale",
+            },
+        ),
+    )
+
+
+def crop_to_blender_compositor(
+    *,
+    w: str | float | int = "iw",
+    out_w: str | float | int | None = None,
+    h: str | float | int = "ih",
+    out_h: str | float | int | None = None,
+    x: str | float | int = 0,
+    y: str | float | int = 0,
+    arg0: str | float | int | None = None,
+    arg1: str | float | int | None = None,
+    arg2: str | float | int | None = None,
+    arg3: str | float | int | None = None,
+    keep_aspect: str | int | bool = False,
+    exact: str | int | bool = False,
+    **_unused: str,
+) -> CompositorStack:
+    width_source = arg0 if arg0 is not None else (out_w if out_w is not None else w)
+    height_source = arg1 if arg1 is not None else (out_h if out_h is not None else h)
+    x_source = arg2 if arg2 is not None else x
+    y_source = arg3 if arg3 is not None else y
+    return (
+        (
+            "CROP",
+            {
+                "label": "Crop",
+                "x": int(round(_dimension_or_default(x_source, 0.0))),
+                "y": int(round(_dimension_or_default(y_source, 0.0))),
+                "width": int(round(_clamp(_dimension_or_default(width_source, 1920.0), 1.0, 16384.0))),
+                "height": int(round(_clamp(_dimension_or_default(height_source, 1080.0), 1.0, 16384.0))),
+                "width_expression": str(width_source),
+                "height_expression": str(height_source),
+                "x_expression": str(x_source),
+                "y_expression": str(y_source),
+                "keep_aspect": _truthy(keep_aspect),
+                "exact": _truthy(exact),
+                "source": "crop",
+            },
+        ),
+    )
+
+
+def rotate_to_blender_compositor(
+    *,
+    angle: str | float | int = 0.0,
+    a: str | float | int | None = None,
+    arg0: str | float | int | None = None,
+    fillcolor: str = "black",
+    c: str | None = None,
+    bilinear: str | int | bool = True,
+    **_unused: str,
+) -> CompositorStack:
+    angle_source = arg0 if arg0 is not None else (a if a is not None else angle)
+    return (
+        (
+            "ROTATE",
+            {
+                "label": "Rotate",
+                "angle": _radians_expression(angle_source, 0.0),
+                "angle_expression": str(angle_source),
+                "fillcolor": str(c if c is not None else fillcolor),
+                "interpolation": "Bilinear" if _truthy(bilinear) else "Nearest",
+                "source": "rotate",
+            },
+        ),
+    )
+
+
+def transpose_to_blender_compositor(
+    *,
+    dir: str | int = "cclock_flip",
+    arg0: str | int | None = None,
+    passthrough: str | int = "none",
+    **_unused: str,
+) -> CompositorStack:
+    direction = _transpose_direction(arg0 if arg0 is not None else dir)
+    rotate_angle = {
+        "cclock_flip": -pi / 2.0,
+        "clock": pi / 2.0,
+        "cclock": -pi / 2.0,
+        "clock_flip": pi / 2.0,
+    }.get(direction, -pi / 2.0)
+    nodes: list[tuple[str, dict[str, Any]]] = [
+        (
+            "ROTATE",
+            {
+                "label": "Transpose Rotate",
+                "angle": rotate_angle,
+                "angle_expression": direction,
+                "interpolation": "Bilinear",
+                "passthrough": str(passthrough),
+                "source": "transpose",
+            },
+        )
+    ]
+    if direction in {"cclock_flip", "clock_flip"}:
+        nodes.append(
+            (
+                "FLIP",
+                {
+                    "label": "Transpose Flip",
+                    "flip_x": False,
+                    "flip_y": True,
+                    "passthrough": str(passthrough),
+                    "source": "transpose",
+                },
+            )
+        )
+    return tuple(nodes)
+
+
+def flip_to_blender_compositor(source: str) -> CompositorStack:
+    return (
+        (
+            "FLIP",
+            {
+                "label": "Horizontal Flip" if source == "hflip" else "Vertical Flip",
+                "flip_x": source == "hflip",
+                "flip_y": source == "vflip",
+                "source": source,
+            },
+        ),
+    )
+
+
+def lenscorrection_to_blender_compositor(
+    *,
+    cx: str | float = 0.5,
+    cy: str | float = 0.5,
+    k1: str | float = 0.0,
+    k2: str | float = 0.0,
+    i: str | int = "nearest",
+    fc: str = "black@0",
+    **_unused: str,
+) -> CompositorStack:
+    k1_value = _clamp(_float(k1, 0.0), -1.0, 1.0)
+    k2_value = _clamp(_float(k2, 0.0), -1.0, 1.0)
+    return (
+        (
+            "LENS_DISTORTION",
+            {
+                "label": "Lens Correction",
+                "distortion": _clamp(k1_value + k2_value * 0.5, -1.0, 1.0),
+                "dispersion": _clamp(abs(k2_value) * 0.05, 0.0, 1.0),
+                "fit": True,
+                "center": (_clamp(_float(cx, 0.5), 0.0, 1.0), _clamp(_float(cy, 0.5), 0.0, 1.0)),
+                "interpolation": str(i),
+                "fillcolor": str(fc),
+                "source": "lenscorrection",
+                "approximation": "Blender Lens Distortion exposes radial distortion/dispersion; FFmpeg center and fill color are tracked as editable metadata.",
+            },
+        ),
+    )
+
+
 def restoration_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
     name = str(source).strip().lower()
     if name in {"hqdn3d", "nlmeans", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise"}:
@@ -2348,6 +2573,105 @@ def _option(options: dict[str, object], *keys: str, default=None):
         if value not in (None, ""):
             return value
     return default
+
+
+def _parse_size_pair(value: str | None) -> tuple[str | None, str | None]:
+    if not value:
+        return (None, None)
+    text = str(value).strip().lower()
+    aliases = {
+        "hd720": ("1280", "720"),
+        "hd1080": ("1920", "1080"),
+        "ntsc": ("720", "480"),
+        "pal": ("720", "576"),
+        "vga": ("640", "480"),
+        "qvga": ("320", "240"),
+    }
+    if text in aliases:
+        return aliases[text]
+    for separator in ("x", "X"):
+        if separator in str(value):
+            left, right = str(value).split(separator, 1)
+            return (left.strip(), right.strip())
+    return (None, None)
+
+
+def _dimension_or_default(value: str | float | int | None, default: float) -> float:
+    parsed = _numeric_expression(value, float("nan"))
+    if parsed == parsed and parsed > 0.0:
+        return parsed
+    text = str(value or "").strip().lower()
+    factor = _variable_scale_factor(text)
+    if factor == factor and factor > 0.0:
+        return factor
+    return default
+
+
+def _is_plain_positive_number(value: str | float | int | None) -> bool:
+    parsed = _float(value, float("nan"))
+    return parsed == parsed and parsed > 0.0
+
+
+def _variable_scale_factor(text: str) -> float:
+    normalized = text.replace("in_w", "iw").replace("in_h", "ih").replace("out_w", "ow").replace("out_h", "oh")
+    for token in ("iw", "ih"):
+        if token not in normalized:
+            continue
+        compact = normalized.replace(" ", "")
+        if compact == token:
+            return 1.0
+        if compact.startswith(f"{token}*"):
+            return _numeric_expression(compact.split("*", 1)[1], float("nan"))
+        if compact.endswith(f"*{token}"):
+            return _numeric_expression(compact.rsplit("*", 1)[0], float("nan"))
+        if compact.startswith(f"{token}/"):
+            divisor = _numeric_expression(compact.split("/", 1)[1], float("nan"))
+            if divisor == divisor and abs(divisor) > 1e-9:
+                return 1.0 / divisor
+    return float("nan")
+
+
+def _radians_expression(value: str | float | int | None, default: float) -> float:
+    text = str(value or "").strip().lower()
+    if text.endswith("deg"):
+        return _numeric_expression(text[:-3], 0.0) * pi / 180.0
+    return _numeric_expression(value, default)
+
+
+def _numeric_expression(value: str | float | int | None, default: float) -> float:
+    parsed = _float(value, float("nan"))
+    if parsed == parsed:
+        return parsed
+    text = str(value or "").strip().lower()
+    if not text:
+        return default
+    normalized = text.replace("pi", str(pi))
+    allowed = set("0123456789.+-*/() e")
+    if any(character not in allowed for character in normalized):
+        return default
+    try:
+        return float(eval(normalized, {"__builtins__": {}}, {}))
+    except Exception:
+        return default
+
+
+def _transpose_direction(value: str | int | None) -> str:
+    text = str(value if value is not None else "cclock_flip").strip().lower()
+    aliases = {
+        "0": "cclock_flip",
+        "cclock_flip": "cclock_flip",
+        "ccw_flip": "cclock_flip",
+        "1": "clock",
+        "clock": "clock",
+        "cw": "clock",
+        "2": "cclock",
+        "cclock": "cclock",
+        "ccw": "cclock",
+        "3": "clock_flip",
+        "clock_flip": "clock_flip",
+        "cw_flip": "clock_flip",
+    }
+    return aliases.get(text, "cclock_flip")
 
 
 def _radius_expression(value: str | int | float | None, default: float) -> float:

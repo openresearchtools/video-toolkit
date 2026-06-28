@@ -8,6 +8,7 @@ from video_toolkit.ffmpeg_native import (
     colorlevels_to_blender_stack,
     curves_to_blender_stack,
     blur_to_blender_compositor,
+    crop_to_blender_compositor,
     directional_blur_to_blender_compositor,
     edge_filter_to_blender_compositor,
     edge_preserving_blur_to_blender_compositor,
@@ -26,10 +27,15 @@ from video_toolkit.ffmpeg_native import (
     premultiply_to_blender_compositor,
     pseudocolor_to_blender_stack,
     restoration_filter_to_blender_compositor,
+    flip_to_blender_compositor,
+    lenscorrection_to_blender_compositor,
+    rotate_to_blender_compositor,
     rgbashift_to_blender_compositor,
+    scale_to_blender_compositor,
     selectivecolor_to_blender_stack,
     shuffleplanes_to_blender_compositor,
     translate_filter_chain,
+    transpose_to_blender_compositor,
     unpremultiply_to_blender_compositor,
     unsharp_to_blender_compositor,
     vibrance_to_blender_stack,
@@ -480,6 +486,78 @@ def test_blur_filters_translate_to_native_blender_blur_nodes():
     ]
 
 
+def test_geometry_filters_translate_to_native_blender_nodes():
+    scale = scale_to_blender_compositor(arg0=960, arg1=540)
+    assert scale[0][0] == "SCALE"
+    assert scale[0][1]["type"] == "Absolute"
+    assert scale[0][1]["x"] == 960.0
+    assert scale[0][1]["y"] == 540.0
+
+    relative = scale_to_blender_compositor(arg0="iw*0.5", arg1="ih/2")
+    assert relative[0][1]["type"] == "Relative"
+    assert relative[0][1]["x"] == 0.5
+    assert relative[0][1]["y"] == 0.5
+
+    crop = crop_to_blender_compositor(w=1280, h=720, x=320, y=180, exact=1)
+    assert crop[0][0] == "CROP"
+    assert crop[0][1]["width"] == 1280
+    assert crop[0][1]["height"] == 720
+    assert crop[0][1]["x"] == 320
+    assert crop[0][1]["exact"] is True
+
+    rotate = rotate_to_blender_compositor(angle="PI/6")
+    assert rotate[0][0] == "ROTATE"
+    assert 0.52 < rotate[0][1]["angle"] < 0.53
+
+    transpose = transpose_to_blender_compositor(arg0="clock")
+    assert transpose == (
+        (
+            "ROTATE",
+            {
+                "label": "Transpose Rotate",
+                "angle": 1.5707963267948966,
+                "angle_expression": "clock",
+                "interpolation": "Bilinear",
+                "passthrough": "none",
+                "source": "transpose",
+            },
+        ),
+    )
+
+    hflip = flip_to_blender_compositor("hflip")
+    vflip = flip_to_blender_compositor("vflip")
+    assert hflip[0][1]["flip_x"] is True
+    assert hflip[0][1]["flip_y"] is False
+    assert vflip[0][1]["flip_x"] is False
+    assert vflip[0][1]["flip_y"] is True
+
+    lens = lenscorrection_to_blender_compositor(k1=-0.12, k2=0.04, cx=0.45, cy=0.55)
+    assert lens[0][0] == "LENS_DISTORTION"
+    assert lens[0][1]["distortion"] < -0.09
+    assert lens[0][1]["center"] == (0.45, 0.55)
+
+    result = translate_filter_chain(
+        "scale=960:540,"
+        "crop=w=1280:h=720:x=320:y=180,"
+        "rotate=angle=PI/6,"
+        "transpose=clock,"
+        "hflip,"
+        "vflip,"
+        "lenscorrection=k1=-0.12:k2=0.04:cx=0.45:cy=0.55"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("scale", "crop", "rotate", "transpose", "hflip", "vflip", "lenscorrection")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "SCALE",
+        "CROP",
+        "ROTATE",
+        "ROTATE",
+        "FLIP",
+        "FLIP",
+        "LENS_DISTORTION",
+    ]
+
+
 def test_restoration_filters_translate_to_native_blender_nodes():
     hq = restoration_filter_to_blender_compositor("hqdn3d", arg0=1.5, arg1=1.5, arg2=6, arg3=6)
     assert hq[0][0] == "DENOISE"
@@ -593,6 +671,13 @@ def test_filter_chain_supports_more_color_grading_filters():
         "sab=lr=2:lpfr=1:ls=12,"
         "yaepblur=r=4:s=192,"
         "dblur=angle=30:radius=12,"
+        "scale=960:540,"
+        "crop=w=1280:h=720:x=320:y=180,"
+        "rotate=angle=PI/6,"
+        "transpose=clock,"
+        "hflip,"
+        "vflip,"
+        "lenscorrection=k1=-0.12:k2=0.04:cx=0.45:cy=0.55,"
         "hqdn3d=1.5:1.5:6:6,"
         "nlmeans=s=2.5:p=7:r=9,"
         "bm3d=sigma=3:group=8:range=12,"
@@ -655,6 +740,13 @@ def test_filter_chain_supports_more_color_grading_filters():
         "sab",
         "yaepblur",
         "dblur",
+        "scale",
+        "crop",
+        "rotate",
+        "transpose",
+        "hflip",
+        "vflip",
+        "lenscorrection",
         "hqdn3d",
         "nlmeans",
         "bm3d",
@@ -673,7 +765,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "DENOISE", "DESPECKLE", "ANTI_ALIASING"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

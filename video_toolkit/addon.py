@@ -3564,6 +3564,11 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "BLUR": "Blur",
         "BILATERAL_BLUR": "Bilateral Blur",
         "DIRECTIONAL_BLUR": "Directional Blur",
+        "SCALE": "Scale",
+        "CROP": "Crop",
+        "ROTATE": "Rotate",
+        "FLIP": "Flip",
+        "LENS_DISTORTION": "Lens Distortion",
         "DENOISE": "Denoise",
         "DESPECKLE": "Despeckle",
         "ANTI_ALIASING": "Anti-Aliasing",
@@ -3636,6 +3641,54 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "dblur")
         node["video_toolkit_blur_angle"] = float(settings.get("angle", 0.0) or 0.0)
         node["video_toolkit_blur_radius"] = float(settings.get("radius", 0.0) or 0.0)
+        return node
+    if compositor_type == "SCALE":
+        node = _new_compositor_node(tree, "CompositorNodeScale", label, index, origin=origin)
+        _set_input_default(node, "Type", settings.get("type", "Relative"))
+        _set_input_default(node, "X", settings.get("x", 1.0))
+        _set_input_default(node, "Y", settings.get("y", 1.0))
+        _set_input_default(node, "Frame Type", settings.get("frame_type", "Stretch"))
+        _set_input_default(node, "Interpolation", settings.get("interpolation", "Bilinear"))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "scale")
+        node["video_toolkit_width_expression"] = settings.get("width_expression", "")
+        node["video_toolkit_height_expression"] = settings.get("height_expression", "")
+        return node
+    if compositor_type == "CROP":
+        node = _new_compositor_node(tree, "CompositorNodeCrop", label, index, origin=origin)
+        _set_input_default(node, "X", settings.get("x", 0))
+        _set_input_default(node, "Y", settings.get("y", 0))
+        _set_input_default(node, "Width", settings.get("width", 1920))
+        _set_input_default(node, "Height", settings.get("height", 1080))
+        _set_input_default(node, "Alpha Crop", bool(settings.get("alpha_crop", False)))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "crop")
+        node["video_toolkit_width_expression"] = settings.get("width_expression", "")
+        node["video_toolkit_height_expression"] = settings.get("height_expression", "")
+        return node
+    if compositor_type == "ROTATE":
+        node = _new_compositor_node(tree, "CompositorNodeRotate", label, index, origin=origin)
+        _set_input_default(node, "Angle", settings.get("angle", 0.0))
+        _set_input_default(node, "Interpolation", settings.get("interpolation", "Bilinear"))
+        _set_input_default(node, "Extension X", settings.get("extension_x", "Clip"))
+        _set_input_default(node, "Extension Y", settings.get("extension_y", "Clip"))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "rotate")
+        node["video_toolkit_angle_expression"] = settings.get("angle_expression", "")
+        return node
+    if compositor_type == "FLIP":
+        node = _new_compositor_node(tree, "CompositorNodeFlip", label, index, origin=origin)
+        _set_input_default(node, "Flip X", bool(settings.get("flip_x", False)))
+        _set_input_default(node, "Flip Y", bool(settings.get("flip_y", False)))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "flip")
+        return node
+    if compositor_type == "LENS_DISTORTION":
+        node = _new_compositor_node(tree, "CompositorNodeLensdist", label, index, origin=origin)
+        _set_input_default(node, "Type", settings.get("type", "Radial"))
+        _set_input_default(node, "Distortion", settings.get("distortion", 0.0))
+        _set_input_default(node, "Dispersion", settings.get("dispersion", 0.0))
+        _set_input_default(node, "Fit", bool(settings.get("fit", True)))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "lenscorrection")
+        node["video_toolkit_lens_center"] = tuple(settings.get("center", (0.5, 0.5)))
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "DENOISE":
         node = _new_compositor_node(tree, "CompositorNodeDenoise", label, index, origin=origin)
@@ -4382,6 +4435,13 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "sab=lr=2:lpfr=1:ls=12,"
         "yaepblur=r=4:s=192,"
         "dblur=angle=30:radius=12,"
+        "scale=960:540,"
+        "crop=w=1280:h=720:x=320:y=180,"
+        "rotate=angle=PI/6,"
+        "transpose=clock,"
+        "hflip,"
+        "vflip,"
+        "lenscorrection=k1=-0.12:k2=0.04:cx=0.45:cy=0.55,"
         "hqdn3d=1.5:1.5:6:6,"
         "nlmeans=s=2.5:p=7:r=9,"
         "bm3d=sigma=3:group=8:range=12,"

@@ -344,6 +344,13 @@ scene.video_toolkit_ffmpeg_chain = (
     'sab=lr=2:lpfr=1:ls=12,'
     'yaepblur=r=4:s=192,'
     'dblur=angle=30:radius=12,'
+    'scale=960:540,'
+    'crop=w=1280:h=720:x=320:y=180,'
+    'rotate=angle=PI/6,'
+    'transpose=clock,'
+    'hflip,'
+    'vflip,'
+    'lenscorrection=k1=-0.12:k2=0.04:cx=0.45:cy=0.55,'
     'hqdn3d=1.5:1.5:6:6,'
     'nlmeans=s=2.5:p=7:r=9,'
     'bm3d=sigma=3:group=8:range=12,'
@@ -361,8 +368,8 @@ scene.video_toolkit_ffmpeg_chain = (
     'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
 )
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
-assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur, hqdn3d, nlmeans, bm3d, owdenoise, vaguedenoiser, atadenoise, median, dedot, deband, deblock, vibrance, pseudocolor, exposure, histeq, zscale' in scene.video_toolkit_last_translation
-assert 'compositor-only native node(s): 37' in scene.video_toolkit_last_translation
+assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur, scale, crop, rotate, transpose, hflip, vflip, lenscorrection, hqdn3d, nlmeans, bm3d, owdenoise, vaguedenoiser, atadenoise, median, dedot, deband, deblock, vibrance, pseudocolor, exposure, histeq, zscale' in scene.video_toolkit_last_translation
+assert 'compositor-only native node(s): 44' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 assert scene.sequencer_colorspace_settings.name in {'sRGB', 'Gamma 2.2 Encoded Rec.709', 'Gamma 2.4 Encoded Rec.709', 'Rec.1886', 'Linear Rec.709'}
 translated_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Chain')]
@@ -487,15 +494,15 @@ assert 'VSE-only native tools:' in catalog_report
 assert 'native_mask_slot: Mask Slot' in catalog_report
 assert 'Rendered fallback tools:' in catalog_report
 assert 'Tracked native compositor node library:' in catalog_report
-assert 'Native-translated FFmpeg filters: 71' in catalog_report
+assert 'Native-translated FFmpeg filters: 78' in catalog_report
 assert 'Native-translated FFmpeg color filters: eq, hue, huesaturation' in catalog_report
-assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur, hqdn3d, nlmeans, bm3d, owdenoise, vaguedenoiser, atadenoise, median, dedot, deband, deblock' in catalog_report
+assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur, scale, crop, rotate, transpose, hflip, vflip, lenscorrection, hqdn3d, nlmeans, bm3d, owdenoise, vaguedenoiser, atadenoise, median, dedot, deband, deblock' in catalog_report
 assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_report
 assert 'Rendered fallback FFmpeg filters:' in catalog_report
 assert 'Rendered-only FFmpeg filters:' in catalog_report
 assert 'deflicker' in catalog_report
 assert 'vidstabdetect' in catalog_report
-assert 'Live approximation plus rendered fallback filters: hqdn3d, nlmeans, normalize, unsharp' in catalog_report
+assert 'Live approximation plus rendered fallback filters: hqdn3d, nlmeans, normalize, scale, unsharp' in catalog_report
 assert 'Representative FFmpeg color-chain translation:' in catalog_report
 assert 'Colorcontrast is approximated with Blender opponent-channel Color Balance controls.' in catalog_report
 for filter_id in (
@@ -839,6 +846,13 @@ scene.video_toolkit_ffmpeg_chain = (
     'sab=lr=2:lpfr=1:ls=12,'
     'yaepblur=r=4:s=192,'
     'dblur=angle=30:radius=12,'
+    'scale=960:540,'
+    'crop=w=1280:h=720:x=320:y=180,'
+    'rotate=angle=PI/6,'
+    'transpose=clock,'
+    'hflip,'
+    'vflip,'
+    'lenscorrection=k1=-0.12:k2=0.04:cx=0.45:cy=0.55,'
     'hqdn3d=1.5:1.5:6:6,'
     'nlmeans=s=2.5:p=7:r=9,'
     'bm3d=sigma=3:group=8:range=12,'
@@ -854,7 +868,7 @@ scene.video_toolkit_ffmpeg_chain = (
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_COLOR')
 assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
 assert 'color management:' in scene.video_toolkit_last_compositor_nodes
-assert 'compositor-only filter node(s): 37' in scene.video_toolkit_last_compositor_nodes
+assert 'compositor-only filter node(s): 44' in scene.video_toolkit_last_compositor_nodes
 translated_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Translated ')]
 for required in [
     'CompositorNodeMovieClip',
@@ -878,6 +892,11 @@ for required in [
     'CompositorNodeBlur',
     'CompositorNodeBilateralblur',
     'CompositorNodeDBlur',
+    'CompositorNodeScale',
+    'CompositorNodeCrop',
+    'CompositorNodeRotate',
+    'CompositorNodeFlip',
+    'CompositorNodeLensdist',
     'CompositorNodeDenoise',
     'CompositorNodeDespeckle',
     'CompositorNodeAntiAliasing',
