@@ -254,6 +254,7 @@ _NATIVE_OSCILLOSCOPE_SCOPE_TRANSLATION = translate_filter_chain("oscilloscope=co
 _NATIVE_PIXEL_SCOPE_TRANSLATION = translate_filter_chain("pixscope=x=0.5:y=0.5:w=9:h=9:o=0.65")
 _NATIVE_SIGNAL_STATS_TRANSLATION = translate_filter_chain("signalstats=stat=tout+vrep+brng")
 _NATIVE_COLOR_DETECT_TRANSLATION = translate_filter_chain("colordetect=mode=color_range+alpha_mode+all")
+_NATIVE_IDENTITY_COMPARE_TRANSLATION = translate_filter_chain("identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest")
 _CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey=color=green:similarity=0.18:blend=0.06")
 _COLOR_KEY_MATTE_TRANSLATION = translate_filter_chain("colorkey=color=blue:similarity=0.16:blend=0.04")
 _HSV_KEY_MATTE_TRANSLATION = translate_filter_chain("hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.03")
@@ -2159,6 +2160,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg colordetect intent as Blender RGB/luma Levels, Separate Color, Image Info, and Viewer diagnostic nodes.",
         compositor_stack=_NATIVE_COLOR_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_identity_compare",
+        label="Identity Reference Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg identity two-stream diagnostic intent as a Blender Difference Matte reference-difference overlay graph.",
+        compositor_stack=_NATIVE_IDENTITY_COMPARE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_compositor_image_coordinates",

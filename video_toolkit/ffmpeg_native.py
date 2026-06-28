@@ -129,6 +129,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "pixscope",
     "signalstats",
     "colordetect",
+    "identity",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -424,6 +425,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(scope_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to a Blender compositor diagnostic graph using RGB/luma monitor nodes.")
+        elif name == "identity":
+            compositor_nodes.extend(identity_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Identity is translated to a Blender reference-difference diagnostic graph; FFmpeg's numeric two-stream identity metrics are represented visually with native Difference Matte and overlay nodes.")
         elif name == "pseudocolor":
             pseudocolor_stack = pseudocolor_to_blender_stack(**args)
             stack.extend(pseudocolor_stack)
@@ -2600,6 +2605,31 @@ def scope_filter_to_blender_compositor(source: str, **options: str | int | float
                 "window_y": window_y,
                 "source": name,
                 "approximation": "Blender has no VSE waveform/vectorscope filter output; this creates linked RGB/luma Levels, Separate Color, Image Info, and Viewer monitor nodes beside the selected-strip graph.",
+            },
+        ),
+    )
+
+
+def identity_to_blender_compositor(**options: str | int | float) -> CompositorStack:
+    eof_action = str(_option(options, "eof_action", default="repeat"))
+    ts_sync_mode = str(_option(options, "ts_sync_mode", default="default"))
+    return (
+        (
+            "IDENTITY_COMPARE",
+            {
+                "label": "Identity Reference Difference",
+                "source": "identity",
+                "reference": "selected_strip_derived_branch",
+                "eof_action": eof_action,
+                "shortest": _truthy(_option(options, "shortest", default=False)),
+                "repeatlast": _truthy(_option(options, "repeatlast", default=True)),
+                "ts_sync_mode": ts_sync_mode,
+                "blur_size": _clamp(_float(_option(options, "blur", "radius", default=3.0), 3.0), 0.0, 16.0),
+                "tolerance": _clamp(_float(_option(options, "tolerance", "threshold", default=0.015), 0.015), 0.0, 1.0),
+                "falloff": _clamp(_float(_option(options, "falloff", default=0.025), 0.025), 0.0, 1.0),
+                "factor": _clamp(_float(_option(options, "opacity", "factor", default=0.75), 0.75), 0.0, 1.0),
+                "overlay_color": (1.0, 0.08, 0.0, 1.0),
+                "approximation": "FFmpeg identity compares a main and reference stream and emits numeric frame metrics. This Blender graph builds an editable selected-strip reference branch, computes a native Difference Matte, and overlays differences for visual reference-matching review.",
             },
         ),
     )

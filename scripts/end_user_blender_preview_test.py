@@ -390,6 +390,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,'
     'deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,'
     'deblock=block=16:alpha=0.12:beta=0.08,'
+    'identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,'
     'pseudocolor=preset=viridis:opacity=0.75:index=1,'
     'histeq=strength=0.22:intensity=0.20:antibanding=1,'
     'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
@@ -414,6 +415,7 @@ for required_filter in [
     'rgbashift',
     'chromaber_vulkan',
     'alphamerge',
+    'identity',
     'unsharp',
     'hqdn3d',
     'pseudocolor',
@@ -456,6 +458,7 @@ assert 'chromaber_vulkan' in translated_workflow_supported
 assert 'alphaextract' in translated_workflow_supported
 assert 'alphamerge' in translated_workflow_supported
 assert 'extractplanes' in translated_workflow_supported
+assert 'identity' in translated_workflow_supported
 assert 'premultiply' in translated_workflow_supported
 assert 'unpremultiply' in translated_workflow_supported
 assert 'shuffleplanes' in translated_workflow_supported
@@ -492,7 +495,9 @@ for required in [
     'CompositorNodeColorCorrection',
     'CompositorNodeChromaMatte',
     'CompositorNodeColorMatte',
+    'CompositorNodeDiffMatte',
     'CompositorNodeLumaMatte',
+    'CompositorNodeRGB',
     'CompositorNodeSeparateColor',
     'CompositorNodeTranslate',
     'CompositorNodeCombineColor',

@@ -150,6 +150,7 @@ def _setup_scene() -> None:
         "pixscope=x=0.5:y=0.5:w=9:h=9:o=0.65,"
         "signalstats=stat=tout+vrep+brng,"
         "colordetect=mode=color_range+alpha_mode+all,"
+        "identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "histeq=strength=0.20:intensity=0.18,"
         "midequalizer=planes=7,"

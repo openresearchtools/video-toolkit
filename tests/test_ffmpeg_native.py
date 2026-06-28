@@ -36,6 +36,7 @@ from video_toolkit.ffmpeg_native import (
     huesaturation_to_blender_compositor,
     hue_to_blender_compositor,
     hsvkey_to_blender_compositor,
+    identity_to_blender_compositor,
     limiter_to_blender_compositor,
     lumakey_to_blender_compositor,
     lut_file_filter_to_blender_stack,
@@ -396,6 +397,22 @@ def test_ffmpeg_scope_filters_translate_to_blender_diagnostic_graphlets():
     assert pixscope["pixel_width"] == 11
     assert pixscope["pixel_height"] == 9
     assert pixscope["window_opacity"] == 0.7
+
+
+def test_identity_filter_translates_to_blender_reference_difference_graphlet():
+    identity = identity_to_blender_compositor(eof_action="pass", shortest=1, repeatlast=0, ts_sync_mode="nearest")
+    assert identity[0][0] == "IDENTITY_COMPARE"
+    assert identity[0][1]["source"] == "identity"
+    assert identity[0][1]["reference"] == "selected_strip_derived_branch"
+    assert identity[0][1]["eof_action"] == "pass"
+    assert identity[0][1]["shortest"] is True
+    assert identity[0][1]["repeatlast"] is False
+    assert identity[0][1]["ts_sync_mode"] == "nearest"
+
+    result = translate_filter_chain("identity=eof_action=pass:shortest=1:repeatlast=0:ts_sync_mode=nearest")
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("identity",)
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["IDENTITY_COMPARE"]
 
 
 def test_remaining_live_color_filters_emit_compositor_node_specs():
@@ -1178,6 +1195,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "pixscope=x=0.55:y=0.45:w=11:h=9:o=0.7,"
         "signalstats=stat=tout+vrep+brng,"
         "colordetect=mode=color_range+alpha_mode+all,"
+        "identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -1282,6 +1300,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "pixscope",
         "signalstats",
         "colordetect",
+        "identity",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -1292,7 +1311,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "COLOR_SPILL", "BACKGROUND_KEY", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "ALPHA_MERGE", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR"}.issubset(
+    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "COLOR_SPILL", "BACKGROUND_KEY", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "ALPHA_MERGE", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR", "IDENTITY_COMPARE"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

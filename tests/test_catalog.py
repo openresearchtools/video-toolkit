@@ -63,6 +63,7 @@ SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES = {
         "CompositorNodeDoubleEdgeMask",
         "CompositorNodeSetAlpha",
     },
+    "IDENTITY_COMPARE": {"CompositorNodeAlphaOver", "CompositorNodeBlur", "CompositorNodeDiffMatte", "CompositorNodeRGB"},
     "MASK_TO_SDF_ALPHA": {"CompositorNodeBoxMask", "CompositorNodeMaskToSDF", "CompositorNodeSetAlpha"},
     "MASKED_BLEND_COMPOSITE": {"CompositorNodeAlphaOver", "CompositorNodeLumaMatte"},
     "NORMALIZE_LUMA": {"CompositorNodeCombineColor", "CompositorNodeNormalize", "CompositorNodeRGBToBW"},
@@ -491,6 +492,12 @@ def test_native_analysis_graphlet_tools_are_exposed():
             "CompositorNodeSeparateColor",
             "CompositorNodeViewer",
         },
+        "native_ffmpeg_identity_compare": {
+            "CompositorNodeAlphaOver",
+            "CompositorNodeBlur",
+            "CompositorNodeDiffMatte",
+            "CompositorNodeRGB",
+        },
     }
     for tool_id, node_types in expected.items():
         tool = get_tool(tool_id)
@@ -723,6 +730,7 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "pixscope": "native_ffmpeg_pixel_scope",
         "signalstats": "native_ffmpeg_signal_stats",
         "colordetect": "native_ffmpeg_color_detect",
+        "identity": "native_ffmpeg_identity_compare",
     }
     assert set(NATIVE_FFMPEG_COMPOSITOR_FILTERS) == set(filter_to_tool)
     for tool_id in filter_to_tool.values():
