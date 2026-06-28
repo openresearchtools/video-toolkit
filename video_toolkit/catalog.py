@@ -200,6 +200,10 @@ _COLORIZE_TRANSLATION = translate_filter_chain("colorize=hue=210:saturation=0.50
 _GREY_EDGE_TRANSLATION = translate_filter_chain("greyedge=difford=2:minknorm=5:sigma=2")
 _PSEUDOCOLOR_TRANSLATION = translate_filter_chain("pseudocolor=preset=viridis:opacity=0.85:index=1")
 _LUT_INVERT_TRANSLATION = translate_filter_chain("lutrgb=r=negval:g=val*0.9:b=val+24")
+_LUT1D_FILM_LOOK_TRANSLATION = translate_filter_chain("lut1d=file=warm_print.spi1d:interp=cubic")
+_LUT3D_SCENE_LOOK_TRANSLATION = translate_filter_chain("lut3d=file=teal_orange.cube:interp=tetrahedral")
+_HALDCLUT_DISPLAY_MATCH_TRANSLATION = translate_filter_chain("haldclut=interp=tetrahedral:clut=all")
+_COLORMAP_PALETTE_MATCH_TRANSLATION = translate_filter_chain("colormap=patch_size=64x64:nb_patches=32:type=absolute:kernel=weuclidean")
 _HISTOGRAM_EQUALIZE_TRANSLATION = translate_filter_chain("histeq=strength=0.42:intensity=0.30:antibanding=1")
 _COLOR_HOLD_TRANSLATION = translate_filter_chain("colorhold=color=blue:similarity=0.18:blend=0.15")
 _HSV_HOLD_TRANSLATION = translate_filter_chain("hsvhold=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.08")
@@ -253,6 +257,8 @@ _CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey=color=green:si
 _COLOR_KEY_MATTE_TRANSLATION = translate_filter_chain("colorkey=color=blue:similarity=0.16:blend=0.04")
 _HSV_KEY_MATTE_TRANSLATION = translate_filter_chain("hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.03")
 _LUMA_KEY_MATTE_TRANSLATION = translate_filter_chain("lumakey=threshold=0.20:tolerance=0.10:softness=0.04")
+_THRESHOLD_MATTE_TRANSLATION = translate_filter_chain("threshold=planes=7")
+_MASKED_THRESHOLD_MATTE_TRANSLATION = translate_filter_chain("maskedthreshold=threshold=2048:planes=7:mode=abs")
 _RGBA_CHANNEL_SHIFT_TRANSLATION = translate_filter_chain("rgbashift=rh=5:rv=-2:bh=-4:bv=2")
 _CHROMA_CHANNEL_SHIFT_TRANSLATION = translate_filter_chain("chromashift=cbh=3:cbv=-1:crh=-3:crv=1")
 _LUMA_PLANE_EXTRACT_TRANSLATION = translate_filter_chain("extractplanes=planes=y")
@@ -1046,6 +1052,42 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_LUT_INVERT_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="lut1d_film_curve",
+        label="1D LUT Film Curve",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg lut1d look intent as editable Blender RGB Curves and Lift/Gamma/Gain controls.",
+        blender_stack=_LUT1D_FILM_LOOK_TRANSLATION.stack,
+        compositor_stack=_LUT1D_FILM_LOOK_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="lut3d_scene_look",
+        label="3D LUT Scene Look",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg lut3d look intent as Blender curves, color balance, and tone mapping.",
+        blender_stack=_LUT3D_SCENE_LOOK_TRANSLATION.stack,
+        compositor_stack=_LUT3D_SCENE_LOOK_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="haldclut_display_match",
+        label="Hald CLUT Display Match",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg haldclut display-match intent as live Blender curves, color balance, and tone mapping.",
+        blender_stack=_HALDCLUT_DISPLAY_MATCH_TRANSLATION.stack,
+        compositor_stack=_HALDCLUT_DISPLAY_MATCH_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="colormap_palette_match",
+        label="Colormap Palette Match",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg colormap palette-match intent as Blender Hue Correct, RGB Curves, and Color Balance controls.",
+        blender_stack=_COLORMAP_PALETTE_MATCH_TRANSLATION.stack,
+        compositor_stack=_COLORMAP_PALETTE_MATCH_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="histogram_equalize",
         label="Histogram Equalize",
         category="Live Blender Color",
@@ -1333,6 +1375,22 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg lumakey intent as Blender's native Luma Matte compositor graph.",
         compositor_stack=_LUMA_KEY_MATTE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_threshold_matte",
+        label="Native Threshold Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg threshold intent as a native Blender Luma Matte threshold graph.",
+        compositor_stack=_THRESHOLD_MATTE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_masked_threshold_matte",
+        label="Native Masked Threshold Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg maskedthreshold intent as a native Blender Luma Matte threshold graph for selected-strip matte work.",
+        compositor_stack=_MASKED_THRESHOLD_MATTE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_rgba_channel_shift",

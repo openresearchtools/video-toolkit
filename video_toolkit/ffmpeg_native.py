@@ -36,6 +36,10 @@ NATIVE_FFMPEG_COLOR_FILTERS = (
     "hsvhold",
     "pseudocolor",
     "geq",
+    "lut1d",
+    "lut3d",
+    "haldclut",
+    "colormap",
     "lut",
     "lutrgb",
     "lutyuv",
@@ -57,6 +61,8 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "colorkey",
     "hsvkey",
     "lumakey",
+    "threshold",
+    "maskedthreshold",
     "rgbashift",
     "chromashift",
     "alphaextract",
@@ -275,6 +281,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(lumakey_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Lumakey is translated to Blender compositor Luma Matte nodes.")
+        elif name in {"threshold", "maskedthreshold"}:
+            compositor_nodes.extend(threshold_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is represented with Blender compositor Luma Matte threshold nodes; secondary-stream comparison is approximated for the selected strip.")
         elif name == "rgbashift":
             compositor_nodes.extend(rgbashift_to_blender_compositor(**args))
             supported.append(name)
@@ -377,6 +387,18 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(_stack_to_compositor_nodes(pseudocolor_stack, "pseudocolor", "Pseudocolor"))
             supported.append(name)
             notes.append("Pseudocolor is approximated with editable Blender Hue Correct curves, RGB curves, and Color Balance palette tinting.")
+        elif name in {"lut1d", "lut3d", "haldclut"}:
+            lut_file_stack = lut_file_filter_to_blender_stack(name, **args)
+            stack.extend(lut_file_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(lut_file_stack, name, name.upper()))
+            supported.append(name)
+            notes.append(f"{name} file/CLUT look intent is represented as editable Blender curves, color balance, and tone mapping because this Blender build has no arbitrary live LUT compositor node.")
+        elif name == "colormap":
+            colormap_stack = colormap_to_blender_stack(**args)
+            stack.extend(colormap_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(colormap_stack, "colormap", "Color Map"))
+            supported.append(name)
+            notes.append("Colormap multi-input palette matching is approximated with Blender hue-zone curves, RGB curves, and color balance.")
         elif name == "geq":
             geq_stack = geq_to_blender_stack(**args)
             if geq_stack:
@@ -1473,6 +1495,32 @@ def lumakey_to_blender_compositor(
     )
 
 
+def threshold_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    if name == "maskedthreshold":
+        raw_threshold = _float(_option(options, "threshold", "t", "arg0", default=1024), 1024.0)
+        normalized = raw_threshold / 65535.0 if raw_threshold > 1.0 else raw_threshold
+        width = _clamp(normalized, 0.005, 0.25)
+        center = _clamp(0.5 + normalized * 0.25, 0.05, 0.95)
+    else:
+        raw_threshold = _float(_option(options, "threshold", "arg0", default=0.5), 0.5)
+        normalized = raw_threshold / 65535.0 if raw_threshold > 1.0 else raw_threshold
+        width = _clamp(_float(_option(options, "tolerance", "tol", default=0.02), 0.02), 0.005, 0.35)
+        center = _clamp(normalized, 0.05, 0.95)
+    return (
+        (
+            "LUMA_MATTE",
+            {
+                "minimum": _clamp(center - width, 0.0, 1.0),
+                "maximum": _clamp(center + width, 0.0, 1.0),
+                "source": name,
+                "planes": str(_option(options, "planes", "p", default="7")),
+                "mode": str(_option(options, "mode", default="diff" if name == "threshold" else "abs")),
+            },
+        ),
+    )
+
+
 def rgbashift_to_blender_compositor(
     *,
     rh: str | float = 0.0,
@@ -2531,6 +2579,132 @@ def lut_to_blender_stack(
     return (("CURVES", {"__curve_points__": curves}),) if curves else ()
 
 
+def lut_file_filter_to_blender_stack(source: str, **options: str | int | float) -> BlenderStack:
+    name = str(source).strip().lower()
+    file_text = str(_option(options, "file", "f", "arg0", default="")).strip().lower()
+    interp_default = "tetrahedral" if name in {"lut3d", "haldclut"} else "linear"
+    interp_text = str(_option(options, "interp", "i", default=interp_default)).strip().lower()
+    strength = _clamp(0.20 + _lut_interp_weight(interp_text) * 0.18, 0.12, 0.48)
+    if any(token in file_text for token in ("warm", "print", "kodak", "gold")):
+        gamma = (1.0 + strength * 0.22, 1.0 + strength * 0.08, 1.0 - strength * 0.16)
+        gain = (1.0 + strength * 0.24, 1.0 + strength * 0.08, 1.0 - strength * 0.18)
+        multiply = 1.0 + strength * 0.05
+    elif any(token in file_text for token in ("cool", "bleach", "cyan", "moon")):
+        gamma = (1.0 - strength * 0.14, 1.0 + strength * 0.03, 1.0 + strength * 0.20)
+        gain = (1.0 - strength * 0.18, 1.0 + strength * 0.03, 1.0 + strength * 0.24)
+        multiply = 1.0 - strength * 0.02
+    elif any(token in file_text for token in ("teal", "orange", "cinema", "film")):
+        gamma = (1.0 + strength * 0.14, 1.0, 1.0 - strength * 0.10)
+        gain = (1.0 + strength * 0.17, 1.0 + strength * 0.04, 1.0 - strength * 0.12)
+        multiply = 1.0 + strength * 0.04
+    else:
+        gamma = (1.0 + strength * 0.06, 1.0 + strength * 0.04, 1.0 + strength * 0.02)
+        gain = (1.0 + strength * 0.08, 1.0 + strength * 0.05, 1.0 + strength * 0.02)
+        multiply = 1.0 + strength * 0.02
+    curve_points = [
+        (0.0, 0.0),
+        (0.22, _clamp(0.22 - strength * 0.18, 0.0, 1.0)),
+        (0.50, 0.50),
+        (0.78, _clamp(0.78 + strength * 0.16, 0.0, 1.0)),
+        (1.0, 1.0),
+    ]
+    stack: list[tuple[str, dict[str, Any]]] = [
+        ("CURVES", {"__curve_points__": {0: curve_points}}),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.gamma": tuple(_clamp(value, 0.55, 1.65) for value in gamma),
+                "color_balance.gain": tuple(_clamp(value, 0.55, 1.65) for value in gain),
+                "color_multiply": _clamp(multiply, 0.75, 1.35),
+            },
+        ),
+    ]
+    if name in {"lut3d", "haldclut"}:
+        stack.append(
+            (
+                "TONEMAP",
+                {
+                    "tonemap_type": "RD_PHOTORECEPTOR",
+                    "intensity": _clamp(strength * 0.10, 0.0, 0.20),
+                    "contrast": _clamp(strength * 0.12, 0.0, 0.24),
+                    "gamma": _clamp(1.0 - strength * 0.04, 0.92, 1.08),
+                },
+            )
+        )
+    return tuple(stack)
+
+
+def colormap_to_blender_stack(**options: str | int | float) -> BlenderStack:
+    patch_size_text = str(_option(options, "patch_size", "s", default="32x32"))
+    width_text, height_text = _parse_size_pair(patch_size_text)
+    patch_scale = (_float(width_text, 32.0) + _float(height_text, 32.0)) / 128.0 if width_text and height_text else 0.5
+    patches = _clamp(_float(_option(options, "nb_patches", "n", default=16), 16.0), 1.0, 512.0)
+    mode = str(_option(options, "type", "t", default="relative")).strip().lower()
+    kernel = str(_option(options, "kernel", "k", default="euclidean")).strip().lower()
+    strength = _clamp(
+        0.18 + min(patches, 64.0) / 160.0 + patch_scale * 0.06 + (0.04 if kernel == "weuclidean" else 0.0) + (0.02 if mode == "absolute" else 0.0),
+        0.12,
+        0.82,
+    )
+    hue_points = [
+        (0.0, _hue_shift_to_curve_y(-18.0 * strength)),
+        (1.0 / 6.0, _hue_shift_to_curve_y(12.0 * strength)),
+        (2.0 / 6.0, _hue_shift_to_curve_y(8.0 * strength)),
+        (3.0 / 6.0, _hue_shift_to_curve_y(-14.0 * strength)),
+        (4.0 / 6.0, _hue_shift_to_curve_y(-10.0 * strength)),
+        (5.0 / 6.0, _hue_shift_to_curve_y(14.0 * strength)),
+        (1.0, _hue_shift_to_curve_y(-18.0 * strength)),
+    ]
+    saturation_points = [
+        (0.0, _saturation_to_curve_y(1.0 + strength * 0.20)),
+        (0.33, _saturation_to_curve_y(1.0 + strength * 0.08)),
+        (0.66, _saturation_to_curve_y(1.0 + strength * 0.16)),
+        (1.0, _saturation_to_curve_y(1.0 + strength * 0.20)),
+    ]
+    value_points = [
+        (0.0, _value_to_curve_y(1.0 - strength * 0.08)),
+        (0.50, _value_to_curve_y(1.0 + strength * 0.04)),
+        (1.0, _value_to_curve_y(1.0 + strength * 0.10)),
+    ]
+    low = _clamp(0.26 - strength * 0.07, 0.08, 0.36)
+    high = _clamp(0.74 + strength * 0.07, 0.64, 0.92)
+    return (
+        ("HUE_CORRECT", {"__curve_points__": {0: hue_points, 1: saturation_points, 2: value_points}}),
+        (
+            "CURVES",
+            {
+                "__curve_points__": {
+                    0: [
+                        (0.0, 0.0),
+                        (low, _clamp(low - strength * 0.10, 0.0, 1.0)),
+                        (0.50, 0.50),
+                        (high, _clamp(high + strength * 0.10, 0.0, 1.0)),
+                        (1.0, 1.0),
+                    ]
+                }
+            },
+        ),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.gamma": (
+                    _clamp(1.0 + strength * 0.06, 0.55, 1.65),
+                    _clamp(1.0 + strength * 0.03, 0.55, 1.65),
+                    _clamp(1.0 - strength * 0.04, 0.55, 1.65),
+                ),
+                "color_balance.gain": (
+                    _clamp(1.0 + strength * 0.08, 0.55, 1.65),
+                    _clamp(1.0 + strength * 0.05, 0.55, 1.65),
+                    _clamp(1.0 - strength * 0.03, 0.55, 1.65),
+                ),
+                "color_multiply": _clamp(1.0 + strength * 0.04, 0.75, 1.35),
+            },
+        ),
+    )
+
+
 def midwayequalizer_to_blender_stack(source: str, **options: str | int | float) -> BlenderStack:
     name = str(source).strip().lower()
     radius = _clamp(_float(_option(options, "radius", "r", "arg0", default=5), 5.0), 1.0, 127.0)
@@ -3162,6 +3336,24 @@ def _lut_offset(value: str) -> float:
     if abs(parsed) > 1.0:
         return parsed / 255.0
     return parsed
+
+
+def _lut_interp_weight(value: str | int | float | None) -> float:
+    text = str(value or "").strip().lower()
+    weights = {
+        "nearest": 0.0,
+        "linear": 0.25,
+        "cosine": 0.38,
+        "cubic": 0.52,
+        "spline": 0.62,
+        "trilinear": 0.54,
+        "tetrahedral": 0.72,
+        "pyramid": 0.58,
+        "prism": 0.58,
+    }
+    if text in weights:
+        return weights[text]
+    return _clamp(_float(value, 0.35), 0.0, 1.0)
 
 
 def _shift_pixels(value: str | float | int | None) -> float:

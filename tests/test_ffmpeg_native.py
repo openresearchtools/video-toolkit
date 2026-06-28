@@ -3,6 +3,7 @@ from video_toolkit.ffmpeg_native import (
     chromakey_to_blender_compositor,
     colorbalance_to_blender_stack,
     colorchannelmixer_to_blender_stack,
+    colormap_to_blender_stack,
     colorkey_to_blender_compositor,
     convolution_to_blender_compositor,
     colorlevels_to_blender_stack,
@@ -32,6 +33,7 @@ from video_toolkit.ffmpeg_native import (
     hsvkey_to_blender_compositor,
     limiter_to_blender_compositor,
     lumakey_to_blender_compositor,
+    lut_file_filter_to_blender_stack,
     lut_to_blender_stack,
     midwayequalizer_to_blender_stack,
     morphology_to_blender_compositor,
@@ -50,6 +52,7 @@ from video_toolkit.ffmpeg_native import (
     selectivecolor_to_blender_stack,
     shuffleplanes_to_blender_compositor,
     scope_filter_to_blender_compositor,
+    threshold_to_blender_compositor,
     translate_filter_chain,
     transpose_to_blender_compositor,
     tonemap_to_blender_compositor,
@@ -154,6 +157,38 @@ def test_geq_and_midway_equalizers_translate_to_live_controls():
     unsupported = translate_filter_chain("geq=r='sin(X)'")
     assert unsupported.supported_filters == ()
     assert unsupported.unsupported_filters == ("geq",)
+
+
+def test_lut_clut_and_colormap_filters_translate_to_live_controls():
+    lut1d = lut_file_filter_to_blender_stack("lut1d", file="warm_print.spi1d", interp="cubic")
+    assert [modifier_type for modifier_type, _settings in lut1d] == ["CURVES", "COLOR_BALANCE"]
+    assert "file" not in lut1d[0][1]
+    assert lut1d[1][1]["color_balance.gain"][0] > lut1d[1][1]["color_balance.gain"][2]
+
+    lut3d = lut_file_filter_to_blender_stack("lut3d", file="teal_orange.cube", interp="tetrahedral")
+    hald = lut_file_filter_to_blender_stack("haldclut", clut="all", interp="tetrahedral")
+    assert [modifier_type for modifier_type, _settings in lut3d] == ["CURVES", "COLOR_BALANCE", "TONEMAP"]
+    assert [modifier_type for modifier_type, _settings in hald] == ["CURVES", "COLOR_BALANCE", "TONEMAP"]
+
+    colormap = colormap_to_blender_stack(patch_size="64x64", nb_patches=32, type="absolute", kernel="weuclidean")
+    assert [modifier_type for modifier_type, _settings in colormap] == ["HUE_CORRECT", "CURVES", "COLOR_BALANCE"]
+    assert {0, 1, 2}.issubset(colormap[0][1]["__curve_points__"])
+
+    result = translate_filter_chain(
+        "lut1d=file=warm_print.spi1d:interp=cubic,"
+        "lut3d=file=teal_orange.cube:interp=tetrahedral,"
+        "haldclut=interp=tetrahedral:clut=all,"
+        "colormap=patch_size=64x64:nb_patches=32:type=absolute:kernel=weuclidean"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("lut1d", "lut3d", "haldclut", "colormap")
+    sources = [settings["source"] for _node_type, settings in result.compositor_nodes]
+    for source in ("lut1d", "lut3d", "haldclut", "colormap"):
+        assert source in sources
+    assert sources.count("lut1d") == 2
+    assert sources.count("lut3d") == 3
+    assert sources.count("haldclut") == 3
+    assert sources.count("colormap") == 3
 
 
 def test_greyedge_and_pseudocolor_translate_to_live_controls():
@@ -359,6 +394,10 @@ def test_remaining_live_color_filters_emit_compositor_node_specs():
         "grayworld,"
         "greyedge=difford=2:minknorm=5:sigma=2,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
+        "lut1d=file=warm_print.spi1d:interp=cubic,"
+        "lut3d=file=teal_orange.cube:interp=tetrahedral,"
+        "haldclut=interp=tetrahedral:clut=all,"
+        "colormap=patch_size=64x64:nb_patches=32:type=absolute:kernel=weuclidean,"
         "geq=r='r(X,Y)*1.04':g='g(X,Y)+4':b='b(X,Y)-6',"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -379,6 +418,10 @@ def test_remaining_live_color_filters_emit_compositor_node_specs():
         "grayworld",
         "greyedge",
         "pseudocolor",
+        "lut1d",
+        "lut3d",
+        "haldclut",
+        "colormap",
         "geq",
         "lutrgb",
         "histeq",
@@ -388,6 +431,10 @@ def test_remaining_live_color_filters_emit_compositor_node_specs():
         assert source in sources
     node_types = {node_type for node_type, _settings in result.compositor_nodes}
     assert {"BRIGHT_CONTRAST", "COLOR_BALANCE", "CURVE_RGB", "HUE_CORRECT", "TONEMAP"}.issubset(node_types)
+    assert sources.count("lut1d") == 2
+    assert sources.count("lut3d") == 3
+    assert sources.count("haldclut") == 3
+    assert sources.count("colormap") == 3
     assert sources.count("lutrgb") == 1
 
 
@@ -474,19 +521,31 @@ def test_key_filters_translate_to_compositor_only_nodes():
     assert luma[0][0] == "LUMA_MATTE"
     assert luma[0][1]["minimum"] < 0.20 < luma[0][1]["maximum"]
 
+    threshold = threshold_to_blender_compositor("threshold", planes=7)
+    masked_threshold = threshold_to_blender_compositor("maskedthreshold", threshold=2048, planes=7, mode="abs")
+    assert threshold[0][0] == "LUMA_MATTE"
+    assert threshold[0][1]["minimum"] < 0.5 < threshold[0][1]["maximum"]
+    assert masked_threshold[0][0] == "LUMA_MATTE"
+    assert masked_threshold[0][1]["source"] == "maskedthreshold"
+    assert masked_threshold[0][1]["mode"] == "abs"
+
     result = translate_filter_chain(
         "chromakey=color=green:similarity=0.12:blend=0.04,"
         "colorkey=color=blue:similarity=0.10:blend=0.03,"
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
-        "lumakey=threshold=0.20:tolerance=0.08:softness=0.02"
+        "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
+        "threshold=planes=7,"
+        "maskedthreshold=threshold=2048:planes=7:mode=abs"
     )
     assert result.stack == ()
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("chromakey", "colorkey", "hsvkey", "lumakey")
+    assert result.supported_filters == ("chromakey", "colorkey", "hsvkey", "lumakey", "threshold", "maskedthreshold")
     assert [node_type for node_type, _settings in result.compositor_nodes] == [
         "CHROMA_MATTE",
         "COLOR_MATTE",
         "COLOR_MATTE",
+        "LUMA_MATTE",
+        "LUMA_MATTE",
         "LUMA_MATTE",
     ]
 
@@ -932,6 +991,10 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colorize=hue=210:saturation=0.45:lightness=0.55:mix=0.65,"
         "grayworld,"
         "greyedge=difford=2:minknorm=5:sigma=2,"
+        "lut1d=file=warm_print.spi1d:interp=cubic,"
+        "lut3d=file=teal_orange.cube:interp=tetrahedral,"
+        "haldclut=interp=tetrahedral:clut=all,"
+        "colormap=patch_size=64x64:nb_patches=32:type=absolute:kernel=weuclidean,"
         "geq=r='r(X,Y)*1.04':g='g(X,Y)+4':b='b(X,Y)-6',"
         "negate=components=r+g+b,"
         "colorhold=color=blue:similarity=0.12:blend=0.2,"
@@ -940,6 +1003,8 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colorkey=color=blue:similarity=0.10:blend=0.03,"
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
+        "threshold=planes=7,"
+        "maskedthreshold=threshold=2048:planes=7:mode=abs,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "alphaextract,"
@@ -1019,6 +1084,10 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colorize",
         "grayworld",
         "greyedge",
+        "lut1d",
+        "lut3d",
+        "haldclut",
+        "colormap",
         "geq",
         "negate",
         "colorhold",
@@ -1027,6 +1096,8 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colorkey",
         "hsvkey",
         "lumakey",
+        "threshold",
+        "maskedthreshold",
         "rgbashift",
         "chromashift",
         "alphaextract",
