@@ -75,6 +75,7 @@ import sys
 sys.path.insert(0, {str(ROOT)!r})
 import bpy
 import video_toolkit
+from video_toolkit.addon import LIVE_COLOR_SIDECAR_CATEGORIES
 from video_toolkit.compositor import compositor_node_types
 
 video_toolkit.register()
@@ -564,6 +565,12 @@ assert metadata_nodes
 assert any(node.get('video_toolkit_color_management_output_transfer') == 'bt2020-10' for node in metadata_nodes)
 assert bpy.types.VIDEO_TOOLKIT_PT_video_filters.bl_category == 'Video Effects'
 assert bpy.types.VIDEO_TOOLKIT_MT_tools.bl_label == 'Video Effects'
+assert LIVE_COLOR_SIDECAR_CATEGORIES == (
+    'Live Blender Color',
+    'Native Blender Primitives',
+    'Native Color & Composite',
+    'Live Blender Modifiers',
+)
 assert scene.video_toolkit_sidecar_section == 'BROWSER'
 for sidecar_section in ['ENHANCE', 'ANALYSIS', 'COLOR', 'COMPOSITOR', 'LIVE', 'STRIP', 'MODIFIERS', 'RENDER', 'BROWSER']:
     result = bpy.ops.video_toolkit.set_sidecar_section(section=sidecar_section)
@@ -614,6 +621,28 @@ for required in [
     'CompositorNodeOutputFile',
 ]:
     assert required in primary_board_node_types, required
+scene.video_toolkit_sidecar_group = 'NATIVE_COLOR_COMPOSITE'
+scene.video_toolkit_sidecar_tool = 'native_rgb_channel_board'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor RGB Channel Board')
+rgb_board_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_rgb_channel_board'
+]
+assert rgb_board_nodes
+assert {{'CompositorNodeSeparateColor', 'CompositorNodeCombineColor', 'CompositorNodeColorBalance'}}.issubset(
+    {{node.bl_idname for node in rgb_board_nodes}}
+)
+scene.video_toolkit_sidecar_tool = 'native_ffmpeg_color_metadata_pipeline'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor FFmpeg Metadata Pipeline')
+assert 'color management:' in scene.video_toolkit_last_compositor_nodes
+metadata_sidecar_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_ffmpeg_color_metadata_pipeline'
+]
+assert metadata_sidecar_nodes
+assert any(node.get('video_toolkit_color_management_output_transfer') == 'bt2020-10' for node in metadata_sidecar_nodes)
 from video_toolkit.addon import _tool_has_compositor_stack
 from video_toolkit.catalog import all_tools
 from video_toolkit.ffmpeg_native import NATIVE_FFMPEG_COMPOSITOR_FILTERS, NATIVE_FFMPEG_FILTERS

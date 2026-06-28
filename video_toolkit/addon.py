@@ -117,6 +117,13 @@ SIDECAR_SECTION_ITEMS = (
     ("RENDER", "Render", "Rendered restoration, scaling, motion, and output settings", "RENDER_ANIMATION", 8),
 )
 
+LIVE_COLOR_SIDECAR_CATEGORIES = (
+    "Live Blender Color",
+    "Native Blender Primitives",
+    "Native Color & Composite",
+    "Live Blender Modifiers",
+)
+
 
 def _enum_key(value: str) -> str:
     cleaned = "".join(ch.upper() if ch.isalnum() else "_" for ch in value).strip("_")
@@ -2142,6 +2149,12 @@ def _draw_one_click_video_effects(layout, scene, strip) -> None:
     _draw_operator(row, "broadcast_safe_finish", icon="MODIFIER")
     _draw_operator(row, "match_prep_neutralizer", icon="EYEDROPPER")
     row = controls.row(align=True)
+    _draw_operator(row, "native_ffmpeg_color_metadata_pipeline", icon="WORLD")
+    _draw_operator(row, "native_compositor_all_color_primitives", icon="NODETREE")
+    row = controls.row(align=True)
+    _draw_operator(row, "native_rgb_channel_board", icon="COLOR")
+    _draw_operator(row, "native_ycc_709_video_board", icon="COLOR")
+    row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Pro Grade", icon="MODIFIER")
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_board.bl_idname, text="Color Board", icon="COLOR")
     row = controls.row(align=True)
@@ -2388,7 +2401,7 @@ def _draw_live_color_tools(layout, scene) -> None:
         translation.label(text=scene.video_toolkit_last_translation, icon="INFO")
     if scene.video_toolkit_last_translated_workflow:
         translation.label(text=scene.video_toolkit_last_translated_workflow, icon="NODETREE")
-    for category in ("Live Blender Color", "Native Blender Primitives", "Live Blender Modifiers"):
+    for category in LIVE_COLOR_SIDECAR_CATEGORIES:
         section = box.box()
         section.label(text=category)
         grid = section.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=False, align=True)
