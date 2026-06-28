@@ -43,6 +43,10 @@ def test_full_ui_operator_matrix_on_real_video():
     assert report["target_strip"] == "UI MATRIX TARGET REAL VIDEO"
     assert report["reference_strip"] == "UI MATRIX REFERENCE REAL VIDEO"
     assert Path(report["target_filepath"]).exists()
+    assert report["sidecar_apply_checked_tools"] == report["total_catalog_tools"]
+    assert report["sidecar_apply_checked_tools"] == sum(
+        1 for result in report["results"] if result["group"] == "sidecar_apply_tool"
+    )
     assert report["live_preview_checked_tools"] == len(blender_modifier_tools())
     assert report["live_preview_checked_tools"] == sum(
         1 for result in report["results"] if result["group"] == "catalog_live_preview_pixels"
@@ -51,6 +55,7 @@ def test_full_ui_operator_matrix_on_real_video():
     assert report["live_preview_structural_tools"] > 0
     assert "# Open Research Video Toolkit Full UI Matrix" in markdown
     assert "Real Sequencer Strip Proof" in markdown
+    assert "Sidecar Every Tool Proof" in markdown
     assert "Translated Color Workflow" in markdown
     assert "Preview Pixel Proof" in markdown
     assert "Live Tool Preview Pixel Proof" in markdown
@@ -69,11 +74,27 @@ def test_full_ui_operator_matrix_on_real_video():
             assert evidence["modifier_count"] > 0
             assert evidence["live_sequencer_strip"] == target_strip
 
+    sidecar_apply = _passed_results(report, "sidecar_apply_tool")
+    assert len(sidecar_apply) == report["total_catalog_tools"]
+    for result in sidecar_apply:
+        evidence = result["evidence"]
+        _assert_selected_target(evidence, target_strip)
+        assert evidence["sidecar_tool"] == evidence["tool_id"]
+        assert evidence["applied_via"] == "video_toolkit.apply_sidecar_tool"
+        if evidence.get("output"):
+            assert Path(evidence["output"]).exists()
+            assert evidence["bytes"] > 0
+        else:
+            assert evidence["modifier_count"] > 0
+            assert evidence["live_sequencer_strip"] == target_strip
+
     live_previews = _passed_results(report, "catalog_live_preview_pixels")
     assert len(live_previews) == report["live_preview_checked_tools"]
     for result in live_previews:
         evidence = result["evidence"]
         _assert_selected_target(evidence, target_strip)
+        assert evidence["sidecar_tool"] == evidence["tool_id"]
+        assert evidence["applied_via"] == "video_toolkit.apply_sidecar_tool"
         assert evidence["modifier_count"] > 0
         assert Path(evidence["baseline_png"]).exists()
         assert Path(evidence["after_png"]).exists()
@@ -103,6 +124,7 @@ def test_full_ui_operator_matrix_on_real_video():
 
     assert report["selected_strip_evidence_checks"] >= (
         len(catalog_apply)
+        + len(sidecar_apply)
         + len(live_previews)
         + len(catalog_nodes)
         + len(_passed_results(report, "sidecar_apply"))

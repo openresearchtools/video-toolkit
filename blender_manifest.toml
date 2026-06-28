@@ -8,4 +8,4 @@ type = "add-on"
 website = "https://github.com/openresearchtools/video-toolkit"
 tags = ["Sequencer", "Video", "Compositing"]
 blender_version_min = "4.2.0"
-license = ["SPDX:MIT"]
+license = ["SPDX:GPL-3.0-or-later"]

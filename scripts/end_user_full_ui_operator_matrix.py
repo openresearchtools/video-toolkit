@@ -448,7 +448,20 @@ def compact_evidence(result):
     if not isinstance(evidence, dict):
         return md_cell(evidence)
     pieces = []
-    for key in ("tool_id", "category", "engine", "selected_strip", "active_strip", "selected_tool", "stack_type", "section", "preset"):
+    for key in (
+        "tool_id",
+        "category",
+        "engine",
+        "selected_strip",
+        "active_strip",
+        "sidecar_group",
+        "sidecar_tool",
+        "selected_tool",
+        "applied_via",
+        "stack_type",
+        "section",
+        "preset",
+    ):
         if key in evidence and evidence[key] not in (None, ""):
             pieces.append(f"{key}={md_cell(evidence[key])}")
     if "modifier_count" in evidence:
@@ -485,6 +498,7 @@ def write_markdown_report(report):
 
     catalog_apply = Counter()
     catalog_nodes = Counter()
+    sidecar_apply_all = Counter()
     rendered_outputs = []
     live_modifier_tools = 0
     live_preview_results = [result for result in report["results"] if result["group"] == "catalog_live_preview_pixels"]
@@ -509,6 +523,8 @@ def write_markdown_report(report):
                 live_modifier_tools += 1
         if result["group"] == "catalog_tool_nodes" and result["status"] == "passed":
             catalog_nodes[evidence.get("category", "Unknown")] += 1
+        if result["group"] == "sidecar_apply_tool" and result["status"] == "passed":
+            sidecar_apply_all[evidence.get("category", "Unknown")] += 1
 
     ui_registration = find_result("sequencer_sidecar_registration")
     color_controls = find_result("color_management_controls")
@@ -542,6 +558,7 @@ def write_markdown_report(report):
         f"| Failed checks | {report['failed']} |",
         f"| Headless notes | {report['noted']} |",
         f"| Catalog tools applied | {report['total_catalog_tools']} |",
+        f"| Catalog tools applied through sidecar selector | {sum(sidecar_apply_all.values())} |",
         f"| Compositor-compatible catalog tools | {report['compositor_compatible_catalog_tools']} |",
         f"| Live modifier catalog tools | {live_modifier_tools} |",
         f"| Rendered-output catalog tools | {len(rendered_outputs)} |",
@@ -562,11 +579,26 @@ def write_markdown_report(report):
         "",
         "## Catalog Apply Coverage",
         "",
-        "| Category | Apply checks | Node checks |",
-        "| --- | ---: | ---: |",
+        "| Category | Catalog Apply checks | Sidecar Apply checks | Node checks |",
+        "| --- | ---: | ---: | ---: |",
     ])
     for category in sorted(report["categories"]):
-        lines.append(f"| {md_cell(category)} | {catalog_apply.get(category, 0)} | {catalog_nodes.get(category, 0)} |")
+        lines.append(
+            f"| {md_cell(category)} | {catalog_apply.get(category, 0)} | "
+            f"{sidecar_apply_all.get(category, 0)} | {catalog_nodes.get(category, 0)} |"
+        )
+
+    lines.extend([
+        "",
+        "## Sidecar Every Tool Proof",
+        "",
+        "Every catalog tool is selected by its sidecar group/tool properties and applied through the same sidecar Apply operator used by the docked Video Effects UI.",
+        "",
+        "| Category | Tools applied through sidecar |",
+        "| --- | ---: |",
+    ])
+    for category in sorted(report["categories"]):
+        lines.append(f"| {md_cell(category)} | {sidecar_apply_all.get(category, 0)} |")
 
     if ui_registration:
         evidence = ui_registration["evidence"]
@@ -643,6 +675,7 @@ def write_markdown_report(report):
             "",
             "## Live Tool Preview Pixel Proof",
             "",
+            "These PNGs are rendered after selecting each live tool in the sidecar and invoking the sidecar Apply operator on the active real movie strip.",
             f"- Baseline PNG: `{md_cell(LIVE_PREVIEW_BASELINE)}`",
             f"- Tools checked against real Sequencer preview renders: `{len(live_preview_results)}`",
             f"- Tools required to change pixels: `{len(live_preview_pixel_results)}`",
@@ -748,13 +781,70 @@ def exercise_catalog_tool(tool):
     record(tool.id, "catalog_apply_filter", run)
 
 
+def select_sidecar_tool(tool):
+    scene.video_toolkit_sidecar_group = _enum_key(tool.category)
+    scene.video_toolkit_sidecar_tool = tool.id
+    selected = scene.video_toolkit_sidecar_tool
+    if selected != tool.id:
+        raise AssertionError(f"sidecar selected {selected!r}, expected {tool.id!r}")
+    return {
+        "sidecar_group": scene.video_toolkit_sidecar_group,
+        "sidecar_tool": selected,
+    }
+
+
+def exercise_sidecar_tool(tool):
+    def run():
+        clear_modifiers()
+        select_target()
+        strip_evidence = assert_target_is_active()
+        scene.video_toolkit_apply_target = "ACTIVE"
+        scene.video_toolkit_last_output = ""
+        sidecar_evidence = select_sidecar_tool(tool)
+        result = bpy.ops.video_toolkit.apply_sidecar_tool()
+        assert_finished(result)
+        if tool.is_blender_modifier:
+            prefix = f"VTK {tool.label}"
+            mods = modifier_evidence(prefix)
+            expected = len(tool.blender_stack) if tool.blender_stack else 1
+            if len(mods) < expected:
+                raise AssertionError(f"expected at least {expected} modifiers, found {len(mods)}")
+            return {
+                "tool_id": tool.id,
+                "category": tool.category,
+                "engine": tool.engine,
+                "applied_via": "video_toolkit.apply_sidecar_tool",
+                "modifier_count": len(mods),
+                "modifier_types": [item["type"] for item in mods],
+                "live_sequencer_strip": target_strip.name,
+                **sidecar_evidence,
+                **strip_evidence,
+            }
+        output = Path(scene.video_toolkit_last_output)
+        if not output.exists() or output.stat().st_size <= 0:
+            raise AssertionError(f"rendered output missing: {output}")
+        return {
+            "tool_id": tool.id,
+            "category": tool.category,
+            "engine": tool.engine,
+            "applied_via": "video_toolkit.apply_sidecar_tool",
+            "output": str(output),
+            "bytes": output.stat().st_size,
+            **sidecar_evidence,
+            **strip_evidence,
+        }
+    record(tool.id, "sidecar_apply_tool", run)
+
+
 def exercise_live_tool_preview_pixels(tool):
     def run():
         baseline = ensure_live_preview_baseline()
         clear_modifiers()
         select_target()
         strip_evidence = assert_target_is_active()
-        result = bpy.ops.video_toolkit.apply_filter(filter_id=tool.id, target="ACTIVE")
+        scene.video_toolkit_apply_target = "ACTIVE"
+        sidecar_evidence = select_sidecar_tool(tool)
+        result = bpy.ops.video_toolkit.apply_sidecar_tool()
         assert_finished(result)
         mods = modifier_evidence(f"VTK {tool.label}")
         expected = len(tool.blender_stack) if tool.blender_stack else 1
@@ -774,12 +864,14 @@ def exercise_live_tool_preview_pixels(tool):
             "tool_id": tool.id,
             "category": tool.category,
             "engine": tool.engine,
+            "applied_via": "video_toolkit.apply_sidecar_tool",
             "visual_requirement": "structural_only" if structural_only else "pixel_delta",
             "modifier_count": len(mods),
             "modifier_types": [item["type"] for item in mods],
             "baseline_png": str(LIVE_PREVIEW_BASELINE),
             "after_png": str(after_png),
             "after": after,
+            **sidecar_evidence,
             **strip_evidence,
             **delta,
         }
@@ -1148,6 +1240,9 @@ for tool in all_tools():
     exercise_catalog_tool(tool)
 
 for tool in all_tools():
+    exercise_sidecar_tool(tool)
+
+for tool in all_tools():
     if tool.is_blender_modifier:
         exercise_live_tool_preview_pixels(tool)
 
@@ -1273,6 +1368,9 @@ report = {
     "total_catalog_tools": len(all_tools()),
     "categories": {category: sum(1 for tool in all_tools() if tool.category == category) for category in categories()},
     "compositor_compatible_catalog_tools": sum(1 for tool in all_tools() if _tool_has_compositor_stack(tool)),
+    "sidecar_apply_checked_tools": sum(
+        1 for result in results if result["group"] == "sidecar_apply_tool"
+    ),
     "live_preview_checked_tools": sum(
         1 for result in results if result["group"] == "catalog_live_preview_pixels"
     ),
