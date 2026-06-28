@@ -549,6 +549,19 @@ scene.video_toolkit_ffmpeg_chain = 'setparams=color_primaries=bt709:color_trc=bt
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert 'translated setparams, setrange, zscale into 0 live modifier(s)' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
+result = bpy.ops.video_toolkit.apply_filter(filter_id='native_ffmpeg_color_metadata_pipeline')
+assert result == {{'FINISHED'}}, result
+assert scene['video_toolkit_color_management_output_transfer'] == 'bt2020-10'
+assert scene['video_toolkit_color_management_output_range'] == 'limited'
+assert 'FFmpeg Metadata Pipeline' in scene.video_toolkit_last_color_management
+assert 'color management:' in scene.video_toolkit_last_compositor_nodes
+metadata_tree = scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree
+metadata_nodes = [
+    node for node in metadata_tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_ffmpeg_color_metadata_pipeline'
+]
+assert metadata_nodes
+assert any(node.get('video_toolkit_color_management_output_transfer') == 'bt2020-10' for node in metadata_nodes)
 assert bpy.types.VIDEO_TOOLKIT_PT_video_filters.bl_category == 'Video Effects'
 assert bpy.types.VIDEO_TOOLKIT_MT_tools.bl_label == 'Video Effects'
 assert scene.video_toolkit_sidecar_section == 'BROWSER'

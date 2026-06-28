@@ -249,6 +249,7 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
                 target = self.target
                 if target == "SCENE":
                     target = context.scene.video_toolkit_apply_target
+                color_management = _apply_tool_color_management(context, tool)
                 if target == "ADJUSTMENT":
                     adjustment = _create_adjustment_strip(context, tool.label)
                     modifiers = _add_blender_tool(adjustment, tool)
@@ -265,6 +266,8 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
                 else:
                     modifiers = _add_blender_tool(strip, tool)
                     self.report({"INFO"}, f"Added {len(modifiers)} live Blender modifier(s) to {strip.name}")
+                if color_management:
+                    self.report({"INFO"}, f"{tool.label} color management: {', '.join(color_management)}")
                 return {"FINISHED"}
             if tool.is_compositor:
                 if strip.type != "MOVIE":
@@ -274,9 +277,14 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
                 stack = _tool_compositor_stack(tool)
                 compositor_stack = _tool_compositor_filter_stack(tool)
                 created = _create_tool_compositor_color_stack(context.scene, strip, tool, stack, compositor_stack)
+                color_management = _apply_tool_color_management(context, tool)
                 context.scene.video_toolkit_last_compositor_nodes = (
                     f"tool compositor {tool.label}: {_compositor_node_summary(created)}"
                 )
+                if color_management:
+                    context.scene.video_toolkit_last_compositor_nodes += (
+                        f"; color management: {', '.join(color_management)}"
+                    )
                 self.report({"INFO"}, f"Created {len(created)} Blender compositor {tool.label} node(s)")
                 return {"FINISHED"}
             output_path = _render_ffmpeg_tool(context, strip, tool)
@@ -1317,10 +1325,13 @@ class VIDEO_TOOLKIT_OT_create_tool_compositor_nodes(Operator):
             if not supported_count and not compositor_stack:
                 raise RuntimeError(f"{tool.label} does not have a compositor-compatible Blender color stack")
             created = _create_tool_compositor_color_stack(scene, strip, tool, stack, compositor_stack)
+            color_management = _apply_tool_color_management(context, tool)
             skipped = len(stack) - supported_count
             summary = f"tool compositor {tool.label}: {_compositor_node_summary(created)}"
             if skipped:
                 summary = f"{summary}; skipped {skipped} VSE-only modifier(s)"
+            if color_management:
+                summary = f"{summary}; color management: {', '.join(color_management)}"
             scene.video_toolkit_last_compositor_nodes = summary
             self.report({"INFO"}, f"Created {len(created)} Blender compositor {tool.label} recipe node(s)")
             return {"FINISHED"}
@@ -2709,10 +2720,26 @@ def _translated_compositor_summary(translation, node_count: int, color_managemen
     return summary
 
 
+def _apply_tool_color_management(context, tool) -> tuple[str, ...]:
+    color_management_pairs = getattr(tool, "color_management", ())
+    if not color_management_pairs:
+        return ()
+    applied = _apply_color_management_pairs(context, color_management_pairs)
+    if applied:
+        context.scene.video_toolkit_last_color_management = f"{tool.label}: {', '.join(applied)}"
+    return applied
+
+
 def _apply_translation_color_management(context, translation) -> tuple[str, ...]:
+    return _apply_color_management_pairs(context, translation.color_management)
+
+
+def _apply_color_management_pairs(context, color_management_pairs) -> tuple[str, ...]:
     scene = context.scene
     applied: list[str] = []
-    values = {key: value for key, value in translation.color_management}
+    values = {key: value for key, value in color_management_pairs}
+    for key, value in values.items():
+        scene[f"video_toolkit_color_management_{key}"] = value
     if "sequencer_input" in values and hasattr(scene, "sequencer_colorspace_settings"):
         selected = _set_sequencer_input_colorspace(scene, values["sequencer_input"])
         if selected:
@@ -3304,6 +3331,10 @@ def _create_tool_compositor_color_stack(scene, strip, tool, stack=(), compositor
     for node in created:
         node["video_toolkit_filter_id"] = tool.id
         node["video_toolkit_tool_label"] = tool.label
+        if getattr(tool, "color_management", ()):
+            node["video_toolkit_color_management"] = _format_pairs(tool.color_management)
+            for key, value in tool.color_management:
+                node[f"video_toolkit_color_management_{key}"] = value
     return created
 
 

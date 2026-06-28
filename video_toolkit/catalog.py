@@ -27,6 +27,7 @@ class VideoTool:
     blender_settings: dict[str, Any] = field(default_factory=dict)
     blender_stack: tuple[tuple[str, dict[str, Any]], ...] = ()
     compositor_stack: tuple[tuple[str, dict[str, Any]], ...] = ()
+    color_management: tuple[tuple[str, str], ...] = ()
     ffmpeg_filter: str | None = None
     ffmpeg_filter_after_stabilize: str | None = None
     two_pass_stabilize: bool = False
@@ -216,6 +217,38 @@ _HDR_TONE_COMPRESS_STACK = translate_filter_chain("tonemap=tonemap=mobius:param=
 _PROCAMP_VAAPI_TRANSLATION = translate_filter_chain("procamp_vaapi=brightness=8:contrast=1.18:saturation=1.14:hue=4")
 _TONEMAP_OPENCL_TRANSLATION = translate_filter_chain("tonemap_opencl=tonemap=mobius:param=0.35:desat=0.45:peak=600:transfer=bt709:matrix=bt709:primaries=bt709:range=pc")
 _TONEMAP_VAAPI_TRANSLATION = translate_filter_chain("tonemap_vaapi=transfer=bt709:matrix=bt709:primaries=bt709:range=pc")
+_COLORSPACE_BT709_FULL_TRANSLATION = translate_filter_chain("colorspace=iall=bt709:all=bt709:irange=tv:range=pc")
+_COLORSPACE_BT709_TO_BT2020_TRANSLATION = translate_filter_chain("colorspace=iall=bt709:all=bt2020:irange=tv:range=pc")
+_COLORSPACE_SRGB_REVIEW_TRANSLATION = translate_filter_chain("colorspace=iall=bt709:all=srgb:irange=tv:range=pc")
+_COLORMATRIX_601_TO_709_TRANSLATION = translate_filter_chain("colormatrix=src=smpte170m:dst=bt709")
+_COLORMATRIX_709_TO_2020_TRANSLATION = translate_filter_chain("colormatrix=src=bt709:dst=bt2020")
+_SETPARAMS_REC2020_PQ_TRANSLATION = translate_filter_chain("setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc:range=full")
+_SETRANGE_FULL_TRANSLATION = translate_filter_chain("setrange=full")
+_SETRANGE_LIMITED_TRANSLATION = translate_filter_chain("setrange=limited")
+_ZSCALE_709_TO_2020_HDR_TRANSLATION = translate_filter_chain(
+    "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:"
+    "primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"
+)
+_COLOR_PIPELINE_METADATA_TRANSLATION = translate_filter_chain(
+    "colorspace=iall=bt709:all=bt709:irange=tv:range=pc,"
+    "colorspace_cuda=range=pc,"
+    "colormatrix=src=smpte170m:dst=bt709,"
+    "setparams=color_primaries=bt2020:color_trc=bt2020-10:colorspace=bt2020nc:range=full,"
+    "setrange=limited,"
+    "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:"
+    "primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"
+)
+_COLOR_PIPELINE_METADATA_PROFILE = (
+    ("sequencer_input", "bt709"),
+    ("input_matrix", "bt709"),
+    ("input_primaries", "bt709"),
+    ("input_transfer", "bt709"),
+    ("input_range", "limited"),
+    ("output_matrix", "bt2020"),
+    ("output_primaries", "bt2020"),
+    ("output_transfer", "bt2020-10"),
+    ("output_range", "limited"),
+)
 _SELECTIVE_COLOR_TRANSLATION = translate_filter_chain(
     "selectivecolor=reds=0.10 -0.04 -0.02 0.00:blues=-0.04 0.02 0.10 0.03:whites=0.02 0.00 -0.08 0.01"
 )
@@ -842,6 +875,7 @@ TOOLS: tuple[VideoTool, ...] = (
         description="Translated FFmpeg tonemap_opencl HDR/SDR intent into Blender Tone Map, Hue Correct, and color-management metadata.",
         blender_stack=_TONEMAP_OPENCL_TRANSLATION.stack,
         compositor_stack=_TONEMAP_OPENCL_TRANSLATION.compositor_nodes,
+        color_management=_TONEMAP_OPENCL_TRANSLATION.color_management,
     ),
     VideoTool(
         id="vaapi_tone_map",
@@ -851,6 +885,7 @@ TOOLS: tuple[VideoTool, ...] = (
         description="Translated FFmpeg tonemap_vaapi output color metadata into Blender Tone Map and editable native color-management intent.",
         blender_stack=_TONEMAP_VAAPI_TRANSLATION.stack,
         compositor_stack=_TONEMAP_VAAPI_TRANSLATION.compositor_nodes,
+        color_management=_TONEMAP_VAAPI_TRANSLATION.color_management,
     ),
     VideoTool(
         id="black_point_cleanup",
@@ -1415,6 +1450,147 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=(
             _native_node("CompositorNodeConvertToDisplay", label="Convert to Display", inputs={"Invert": False}),
         ),
+    ),
+    VideoTool(
+        id="native_colorspace_bt709_full_pipeline",
+        label="BT.709 Full-Range Pipeline",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="One-click native Blender pipeline for FFmpeg colorspace=iall=bt709:all=bt709:irange=tv:range=pc metadata.",
+        compositor_stack=(
+            _native_node("CompositorNodeConvertColorSpace", label="BT.709 Input Convert"),
+            _native_node("CompositorNodeConvertToDisplay", label="BT.709 Display Review", inputs={"Invert": False}),
+        ),
+        color_management=_COLORSPACE_BT709_FULL_TRANSLATION.color_management,
+    ),
+    VideoTool(
+        id="native_colorspace_bt709_to_bt2020_pipeline",
+        label="BT.709 to BT.2020 Pipeline",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="One-click Blender color-management and compositor review graph for FFmpeg BT.709 to BT.2020 colorspace intent.",
+        compositor_stack=(
+            _native_node("CompositorNodeConvertColorSpace", label="BT.709 to BT.2020 Convert"),
+            _native_node("CompositorNodeConvertToDisplay", label="BT.2020 Display Review", inputs={"Invert": False}),
+        ),
+        color_management=_COLORSPACE_BT709_TO_BT2020_TRANSLATION.color_management,
+    ),
+    VideoTool(
+        id="native_colorspace_srgb_review_pipeline",
+        label="sRGB Review Pipeline",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="One-click Blender review pipeline for FFmpeg colorspace metadata targeting sRGB display review.",
+        compositor_stack=(
+            _native_node("CompositorNodeConvertColorSpace", label="sRGB Review Convert"),
+            _native_node("CompositorNodeConvertToDisplay", label="sRGB Display Review", inputs={"Invert": False}),
+        ),
+        color_management=_COLORSPACE_SRGB_REVIEW_TRANSLATION.color_management,
+    ),
+    VideoTool(
+        id="native_colormatrix_601_to_709_pipeline",
+        label="Matrix 601 to 709",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="One-click Blender equivalent for FFmpeg colormatrix=src=smpte170m:dst=bt709 intent with YCbCr review nodes.",
+        compositor_stack=(
+            _color_model_board(
+                "YCC",
+                label="Matrix 601 to 709 Board",
+                ycc_mode="ITUBT601",
+                grade_type="COLOR_CORRECTION",
+                grade={"saturation": 1.035, "contrast": 1.025, "gamma": 1.0, "gain": 1.012, "offset": 0.0},
+            ),
+            _native_node("CompositorNodeConvertToDisplay", label="709 Display Review", inputs={"Invert": False}),
+        ),
+        color_management=_COLORMATRIX_601_TO_709_TRANSLATION.color_management,
+    ),
+    VideoTool(
+        id="native_colormatrix_709_to_2020_pipeline",
+        label="Matrix 709 to 2020",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="One-click Blender color-matrix metadata pipeline for FFmpeg colormatrix=src=bt709:dst=bt2020 intent.",
+        compositor_stack=(
+            _color_model_board(
+                "YCC",
+                label="Matrix 709 to 2020 Board",
+                ycc_mode="ITUBT709",
+                grade_type="COLOR_CORRECTION",
+                grade={"saturation": 1.04, "contrast": 1.03, "gamma": 0.998, "gain": 1.014, "offset": 0.0},
+            ),
+            _native_node("CompositorNodeConvertToDisplay", label="BT.2020 Display Review", inputs={"Invert": False}),
+        ),
+        color_management=_COLORMATRIX_709_TO_2020_TRANSLATION.color_management,
+    ),
+    VideoTool(
+        id="native_setparams_rec2020_pq_pipeline",
+        label="Rec.2020 PQ Metadata",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="One-click Blender color-management metadata pipeline for FFmpeg setparams Rec.2020/PQ/full-range intent.",
+        compositor_stack=(
+            _native_node("CompositorNodeConvertColorSpace", label="Rec.2020 PQ Metadata Convert"),
+            _native_node("CompositorNodeConvertToDisplay", label="Rec.2020 PQ Display Review", inputs={"Invert": False}),
+        ),
+        color_management=_SETPARAMS_REC2020_PQ_TRANSLATION.color_management,
+    ),
+    VideoTool(
+        id="native_setrange_full_pipeline",
+        label="Full Range Metadata",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="One-click Blender color-management metadata tool for FFmpeg setrange=full intent.",
+        compositor_stack=(
+            _native_node("CompositorNodeConvertColorSpace", label="Full Range Metadata Convert"),
+            _native_node("CompositorNodeConvertToDisplay", label="Full Range Display Review", inputs={"Invert": False}),
+        ),
+        color_management=_SETRANGE_FULL_TRANSLATION.color_management,
+    ),
+    VideoTool(
+        id="native_setrange_limited_pipeline",
+        label="Limited Range Metadata",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="One-click Blender color-management metadata tool for FFmpeg setrange=limited intent.",
+        compositor_stack=(
+            _native_node("CompositorNodeConvertColorSpace", label="Limited Range Metadata Convert"),
+            _native_node("CompositorNodeConvertToDisplay", label="Limited Range Display Review", inputs={"Invert": False}),
+        ),
+        color_management=_SETRANGE_LIMITED_TRANSLATION.color_management,
+    ),
+    VideoTool(
+        id="native_zscale_709_to_2020_hdr_pipeline",
+        label="Zscale 709 to 2020 HDR",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="One-click Blender metadata and node-review pipeline for FFmpeg zscale BT.709 limited to BT.2020 full HDR intent.",
+        compositor_stack=(
+            _native_node("CompositorNodeConvertColorSpace", label="Zscale Input Convert"),
+            _native_node("CompositorNodeTonemap", label="Zscale HDR Tone Review", inputs={"Type": "RD_PHOTORECEPTOR", "Intensity": 0.10, "Contrast": 0.06, "Gamma": 1.0}),
+            _native_node("CompositorNodeConvertToDisplay", label="Zscale Display Review", inputs={"Invert": False}),
+        ),
+        color_management=_ZSCALE_709_TO_2020_HDR_TRANSLATION.color_management,
+    ),
+    VideoTool(
+        id="native_ffmpeg_color_metadata_pipeline",
+        label="FFmpeg Metadata Pipeline",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="One-click Blender sidecar tool covering colorspace, colorspace_cuda, colormatrix, setparams, setrange, and zscale metadata intent.",
+        compositor_stack=(
+            _native_node("CompositorNodeConvertColorSpace", label="Metadata Input Convert"),
+            _color_model_board(
+                "YCC",
+                label="Metadata Matrix Review",
+                ycc_mode="ITUBT709",
+                grade_type="COLOR_CORRECTION",
+                grade={"saturation": 1.035, "contrast": 1.025, "gamma": 1.0, "gain": 1.012, "offset": 0.0},
+            ),
+            _native_node("CompositorNodeTonemap", label="Metadata Tone Review", inputs={"Type": "RD_PHOTORECEPTOR", "Intensity": 0.08, "Contrast": 0.05, "Gamma": 1.0}),
+            _native_node("CompositorNodeConvertToDisplay", label="Metadata Display Review", inputs={"Invert": False}),
+        ),
+        color_management=_COLOR_PIPELINE_METADATA_PROFILE,
     ),
     VideoTool(
         id="native_compositor_set_alpha",

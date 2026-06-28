@@ -283,6 +283,32 @@ def test_native_color_and_composite_node_tools_are_exposed():
         assert tool.compositor_stack[0][1]["node_type"] == node_type
 
 
+def test_native_color_management_pipeline_tools_are_exposed():
+    expected = {
+        "native_colorspace_bt709_full_pipeline": {"sequencer_input": "bt709", "output_range": "full"},
+        "native_colorspace_bt709_to_bt2020_pipeline": {"sequencer_input": "bt709", "output_matrix": "bt2020"},
+        "native_colorspace_srgb_review_pipeline": {"output_matrix": "srgb"},
+        "native_colormatrix_601_to_709_pipeline": {"input_matrix": "smpte170m", "output_matrix": "bt709"},
+        "native_colormatrix_709_to_2020_pipeline": {"input_matrix": "bt709", "output_matrix": "bt2020"},
+        "native_setparams_rec2020_pq_pipeline": {"sequencer_input": "bt2020", "output_transfer": "pq"},
+        "native_setrange_full_pipeline": {"output_range": "full"},
+        "native_setrange_limited_pipeline": {"output_range": "limited"},
+        "native_zscale_709_to_2020_hdr_pipeline": {"input_matrix": "bt709", "output_transfer": "bt2020-10"},
+        "native_ffmpeg_color_metadata_pipeline": {"sequencer_input": "bt709", "output_transfer": "bt2020-10"},
+    }
+    for tool_id, pairs in expected.items():
+        tool = get_tool(tool_id)
+        color_management = dict(tool.color_management)
+        assert tool.category == "Native Color & Composite"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack
+        assert pairs.items() <= color_management.items()
+        assert {"CompositorNodeConvertColorSpace", "CompositorNodeConvertToDisplay"} & _tool_compositor_node_classes(tool_id)
+    assert dict(get_tool("native_ffmpeg_color_metadata_pipeline").color_management)["output_range"] == "limited"
+
+
 def test_native_color_model_boards_are_exposed():
     expected = {
         "native_rgb_channel_board": ("RGB", "ITUBT709", {"CompositorNodeSeparateColor", "CompositorNodeCombineColor", "CompositorNodeColorBalance"}),
