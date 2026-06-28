@@ -4,6 +4,7 @@ from video_toolkit.ffmpeg_native import (
     colorbalance_to_blender_stack,
     colorchannelmixer_to_blender_stack,
     colorkey_to_blender_compositor,
+    convolution_to_blender_compositor,
     colorlevels_to_blender_stack,
     curves_to_blender_stack,
     edge_filter_to_blender_compositor,
@@ -390,6 +391,38 @@ def test_morphology_filters_translate_to_dilate_erode_graph_specs():
     assert result.compositor_nodes[1][1]["source"] == "dilation"
 
 
+def test_convolution_translates_to_native_convolve_graph_specs():
+    sharpen = convolution_to_blender_compositor(
+        **{
+            "0m": "0 -1 0 -1 5 -1 0 -1 0",
+            "0rdiv": 1,
+            "0bias": 0,
+        }
+    )
+    assert sharpen[0][0] == "CONVOLVE"
+    sharpen_settings = sharpen[0][1]
+    assert sharpen_settings["kernel_size"] == (3, 3)
+    assert sharpen_settings["kernel"] == (0.0, -1.0, 0.0, -1.0, 5.0, -1.0, 0.0, -1.0, 0.0)
+    assert sharpen_settings["kernel_channels"]["red"] == sharpen_settings["kernel_channels"]["green"]
+    assert sharpen_settings["rdiv"] == 1.0
+    assert sharpen_settings["bias"] == 0.0
+
+    blur = convolution_to_blender_compositor(**{"0m": "1 1 1 1 1 1 1 1 1"})
+    assert blur[0][1]["kernel"][0] == 1.0 / 9.0
+    assert blur[0][1]["kernel"][4] == 1.0 / 9.0
+
+    row = convolution_to_blender_compositor(**{"0m": "-1 2 -1", "0mode": "row", "0bias": 16})
+    assert row[0][1]["kernel_size"] == (3, 1)
+    assert row[0][1]["mode"] == "row"
+    assert row[0][1]["bias"] > 0.06
+
+    result = translate_filter_chain("convolution=0m='0 -1 0 -1 5 -1 0 -1 0':0rdiv=1:0bias=0")
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("convolution",)
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["CONVOLVE"]
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -429,6 +462,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "edgedetect=high=0.20:low=0.08:mode=wires,"
         "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
+        "convolution=0m='0 -1 0 -1 5 -1 0 -1 0':0rdiv=1:0bias=0,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -473,6 +507,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "edgedetect",
         "erosion",
         "dilation",
+        "convolution",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -481,7 +516,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

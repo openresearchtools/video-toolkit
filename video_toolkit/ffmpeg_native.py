@@ -68,6 +68,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "edgedetect",
     "erosion",
     "dilation",
+    "convolution",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -241,6 +242,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(morphology_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Dilate/Erode matte cleanup nodes.")
+        elif name == "convolution":
+            compositor_nodes.extend(convolution_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Convolution is translated to Blender compositor Convolve nodes with generated kernel images.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -1325,6 +1330,54 @@ def morphology_to_blender_compositor(
     )
 
 
+def convolution_to_blender_compositor(**options: str | int | float) -> CompositorStack:
+    mode = _convolution_mode(options.get("0mode", options.get("mode", "square")))
+    primary_matrix = options.get("arg0", options.get("m", options.get("0m")))
+    plane_specs = []
+    for plane in range(4):
+        matrix = options.get(f"{plane}m", primary_matrix)
+        values = _parse_convolution_values(matrix)
+        width, height, shaped = _shape_convolution_kernel(values, mode)
+        rdiv = _convolution_rdiv(options.get(f"{plane}rdiv", options.get("rdiv", options.get("0rdiv"))), shaped)
+        bias = _normalize_convolution_bias(options.get(f"{plane}bias", options.get("bias", options.get("0bias"))))
+        plane_specs.append(
+            {
+                "values": tuple(_clamp(value * rdiv, -64.0, 64.0) for value in shaped),
+                "raw_values": tuple(shaped),
+                "rdiv": rdiv,
+                "bias": bias,
+                "width": width,
+                "height": height,
+            }
+        )
+    width = int(plane_specs[0]["width"])
+    height = int(plane_specs[0]["height"])
+    primary_count = width * height
+    kernel_channels = {
+        "red": tuple(plane_specs[0]["values"][:primary_count]),
+        "green": tuple(_fit_convolution_values(plane_specs[1]["values"], primary_count, plane_specs[0]["values"])),
+        "blue": tuple(_fit_convolution_values(plane_specs[2]["values"], primary_count, plane_specs[0]["values"])),
+        "alpha": tuple(_fit_convolution_values(plane_specs[3]["values"], primary_count, plane_specs[0]["values"])),
+    }
+    return (
+        (
+            "CONVOLVE",
+            {
+                "label": "Convolve",
+                "kernel": kernel_channels["red"],
+                "kernel_channels": kernel_channels,
+                "kernel_size": (width, height),
+                "normalize": False,
+                "rdiv": plane_specs[0]["rdiv"],
+                "bias": plane_specs[0]["bias"],
+                "plane_bias": tuple(spec["bias"] for spec in plane_specs),
+                "mode": mode,
+                "source": "convolution",
+            },
+        ),
+    )
+
+
 def pseudocolor_to_blender_stack(
     *,
     preset: str | int = "turbo",
@@ -2002,6 +2055,64 @@ def _unsharp_size(value: str | int | None) -> int:
     parsed = int(round(_float(value, 5.0)))
     parsed = int(_clamp(float(parsed), 3.0, 23.0))
     return parsed if parsed % 2 == 1 else min(23, parsed + 1)
+
+
+def _parse_convolution_values(value: str | int | float | None) -> tuple[float, ...]:
+    text = str(value or "").replace(",", " ").replace(";", " ").replace("|", " ")
+    values = tuple(_float(part, 0.0) for part in text.split())
+    return values or (0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0)
+
+
+def _convolution_mode(value: str | int | float | None) -> str:
+    text = str(value or "square").strip().lower()
+    return {"0": "square", "1": "row", "2": "column"}.get(text, text if text in {"square", "row", "column"} else "square")
+
+
+def _shape_convolution_kernel(values: tuple[float, ...], mode: str) -> tuple[int, int, tuple[float, ...]]:
+    if mode == "row":
+        width = max(1, min(31, len(values)))
+        return width, 1, _fit_convolution_values(values, width)
+    if mode == "column":
+        height = max(1, min(31, len(values)))
+        return 1, height, _fit_convolution_values(values, height)
+    size = int(round(len(values) ** 0.5))
+    if size * size != len(values):
+        size = 3
+    size = int(_clamp(float(size), 1.0, 31.0))
+    if size % 2 == 0:
+        size = max(1, size - 1)
+    return size, size, _fit_convolution_values(values, size * size)
+
+
+def _fit_convolution_values(
+    values: tuple[float, ...],
+    count: int,
+    fallback: tuple[float, ...] | None = None,
+) -> tuple[float, ...]:
+    source = values or fallback or ()
+    fitted = list(source[:count])
+    while len(fitted) < count:
+        fitted.append(0.0)
+    if not values and count:
+        fitted[count // 2] = 1.0
+    return tuple(fitted)
+
+
+def _convolution_rdiv(value: str | int | float | None, kernel: tuple[float, ...]) -> float:
+    parsed = _float(value, 0.0)
+    if parsed > 0.0:
+        return parsed
+    total = sum(kernel)
+    if abs(total) > 1e-6:
+        return 1.0 / total
+    return 1.0
+
+
+def _normalize_convolution_bias(value: str | int | float | None) -> float:
+    parsed = _float(value, 0.0)
+    if abs(parsed) > 1.0:
+        return _clamp(parsed / 255.0, -1.0, 1.0)
+    return _clamp(parsed, -1.0, 1.0)
 
 
 def _truthy(value: str | int | bool) -> bool:

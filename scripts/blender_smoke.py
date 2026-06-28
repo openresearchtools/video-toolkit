@@ -336,6 +336,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'edgedetect=high=0.20:low=0.08:mode=wires,'
     'erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
+    'convolution=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
     'vibrance=intensity=0.4,'
     'pseudocolor=preset=viridis:opacity=0.75:index=1,'
     'exposure=exposure=0.25:black=0.02,'
@@ -343,8 +344,8 @@ scene.video_toolkit_ffmpeg_chain = (
     'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
 )
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
-assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, vibrance, pseudocolor, exposure, histeq, zscale' in scene.video_toolkit_last_translation
-assert 'compositor-only native node(s): 19' in scene.video_toolkit_last_translation
+assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, vibrance, pseudocolor, exposure, histeq, zscale' in scene.video_toolkit_last_translation
+assert 'compositor-only native node(s): 20' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 assert scene.sequencer_colorspace_settings.name in {'sRGB', 'Gamma 2.2 Encoded Rec.709', 'Gamma 2.4 Encoded Rec.709', 'Rec.1886', 'Linear Rec.709'}
 translated_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Chain')]
@@ -469,9 +470,9 @@ assert 'VSE-only native tools:' in catalog_report
 assert 'native_mask_slot: Mask Slot' in catalog_report
 assert 'Rendered fallback tools:' in catalog_report
 assert 'Tracked native compositor node library:' in catalog_report
-assert 'Native-translated FFmpeg filters: 53' in catalog_report
+assert 'Native-translated FFmpeg filters: 54' in catalog_report
 assert 'Native-translated FFmpeg color filters: eq, hue, huesaturation' in catalog_report
-assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation' in catalog_report
+assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution' in catalog_report
 assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_report
 assert 'Rendered fallback FFmpeg filters:' in catalog_report
 assert 'Rendered-only FFmpeg filters:' in catalog_report
@@ -813,12 +814,13 @@ scene.video_toolkit_ffmpeg_chain = (
     'edgedetect=high=0.20:low=0.08:mode=wires,'
     'erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
+    'convolution=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
     'histeq=strength=0.20:intensity=0.18'
 )
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_COLOR')
 assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
 assert 'color management:' in scene.video_toolkit_last_compositor_nodes
-assert 'compositor-only filter node(s): 19' in scene.video_toolkit_last_compositor_nodes
+assert 'compositor-only filter node(s): 20' in scene.video_toolkit_last_compositor_nodes
 translated_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Translated ')]
 for required in [
     'CompositorNodeMovieClip',
@@ -838,11 +840,24 @@ for required in [
     'CompositorNodePosterize',
     'CompositorNodeFilter',
     'CompositorNodeDilateErode',
+    'CompositorNodeConvolve',
     'CompositorNodeTonemap',
     'CompositorNodeViewer',
     'CompositorNodeOutputFile',
 ]:
     assert required in translated_node_types, required
+translated_convolve = next(node for node in tree.nodes if node.name == 'VTK Translated Convolve')
+translated_kernel_socket = next(
+    socket
+    for socket in translated_convolve.inputs
+    if getattr(socket, 'identifier', '') == 'Color Kernel'
+)
+assert translated_kernel_socket.is_linked
+translated_kernel_node = next(node for node in tree.nodes if node.name == 'VTK Translated Convolve Kernel')
+assert tuple(translated_kernel_node.image.size[:]) == (3, 3)
+translated_kernel_pixels = list(translated_kernel_node.image.pixels[:20])
+assert translated_kernel_pixels[4] < 0.0
+assert translated_kernel_pixels[16] > 4.0
 translated_bright = next(node for node in tree.nodes if node.name == 'VTK Translated Bright Contrast')
 translated_contrast = next(socket for socket in translated_bright.inputs if socket.name == 'Contrast')
 assert translated_contrast.default_value > 0.0

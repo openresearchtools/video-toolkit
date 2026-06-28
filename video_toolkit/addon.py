@@ -3335,6 +3335,8 @@ def _translated_modifier_to_compositor_node(tree, modifier_type: str, settings: 
 
 
 def _append_translated_compositor_filter(tree, input_socket, compositor_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    if compositor_type == "CONVOLVE":
+        return _append_convolve_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "CHANNEL_SHIFT":
         return _append_channel_shift_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "PLANE_EXTRACT":
@@ -3346,6 +3348,89 @@ def _append_translated_compositor_filter(tree, input_socket, compositor_type: st
         return input_socket, []
     _link_socket(tree, input_socket, _image_input(node))
     return _image_output(node), [node]
+
+
+def _append_convolve_compositor_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Convolve'}"
+    kernel_node = _new_compositor_node(tree, "CompositorNodeImage", f"{label} Kernel", index, y_offset=-220, origin=origin)
+    kernel_image = _create_convolution_kernel_image(settings, f"{label} Kernel Image")
+    kernel_node.image = kernel_image
+    convolve = _new_compositor_node(tree, "CompositorNodeConvolve", label, index + 1, origin=origin)
+    _set_input_default(convolve, "Kernel Data Type", "Color")
+    _set_input_default(convolve, "Normalize Kernel", bool(settings.get("normalize", False)))
+    _link_socket(tree, input_socket, _image_input(convolve))
+    kernel_input = _socket_by_name(convolve.inputs, "Color Kernel")
+    if kernel_input is None:
+        kernel_input = next((socket for socket in convolve.inputs if socket.name == "Kernel" and socket.bl_idname == "NodeSocketColor"), None)
+    _link_socket(tree, _image_output(kernel_node), kernel_input)
+    convolve["video_toolkit_ffmpeg_filter"] = settings.get("source", "convolution")
+    convolve["video_toolkit_kernel_size"] = tuple(settings.get("kernel_size", (3, 3)))
+    convolve["video_toolkit_kernel_rdiv"] = float(settings.get("rdiv", 1.0) or 1.0)
+    convolve["video_toolkit_kernel_bias"] = float(settings.get("bias", 0.0) or 0.0)
+    convolve["video_toolkit_kernel_mode"] = str(settings.get("mode", "square"))
+    created = [kernel_node, convolve]
+    final_socket = _image_output(convolve)
+    bias = float(settings.get("bias", 0.0) or 0.0)
+    if abs(bias) > 1e-6:
+        bias_node = _new_compositor_node(tree, "CompositorNodeBrightContrast", f"{label} Bias", index + 2, y_offset=120, origin=origin)
+        _set_input_default_candidates(bias_node, ("Brightness", "Bright"), bias)
+        _set_input_default(bias_node, "Contrast", 0.0)
+        _link_socket(tree, final_socket, _image_input(bias_node))
+        final_socket = _image_output(bias_node)
+        created.append(bias_node)
+    return final_socket, created
+
+
+def _create_convolution_kernel_image(settings: dict[str, object], name: str):
+    width, height = _kernel_size(settings.get("kernel_size", (3, 3)))
+    image = bpy.data.images.new(name, width=width, height=height, alpha=True, float_buffer=True)
+    if hasattr(image, "use_fake_user"):
+        image.use_fake_user = True
+    pixels = _convolution_kernel_pixels(settings, width * height)
+    image.pixels.foreach_set(pixels)
+    image.update()
+    return image
+
+
+def _kernel_size(value) -> tuple[int, int]:
+    if isinstance(value, (tuple, list)) and len(value) >= 2:
+        width = int(max(1, min(31, round(float(value[0] or 3)))))
+        height = int(max(1, min(31, round(float(value[1] or 3)))))
+        return width, height
+    return (3, 3)
+
+
+def _convolution_kernel_pixels(settings: dict[str, object], count: int) -> list[float]:
+    channels = settings.get("kernel_channels") or {}
+    if not isinstance(channels, dict):
+        channels = {}
+    fallback = _kernel_channel_values(settings.get("kernel"), count, None)
+    red = _kernel_channel_values(channels.get("red"), count, fallback)
+    green = _kernel_channel_values(channels.get("green"), count, red)
+    blue = _kernel_channel_values(channels.get("blue"), count, red)
+    alpha = _kernel_channel_values(channels.get("alpha"), count, red)
+    pixels: list[float] = []
+    for index in range(count):
+        pixels.extend([red[index], green[index], blue[index], alpha[index]])
+    return pixels
+
+
+def _kernel_channel_values(value, count: int, fallback) -> list[float]:
+    values = []
+    if isinstance(value, (tuple, list)):
+        for item in value[:count]:
+            try:
+                values.append(float(item))
+            except Exception:
+                values.append(0.0)
+    if not values and fallback is not None:
+        values = list(fallback[:count])
+    while len(values) < count:
+        values.append(0.0)
+    if not values and count:
+        values = [0.0] * count
+        values[count // 2] = 1.0
+    return values[:count]
 
 
 def _append_channel_shift_compositor_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
@@ -3475,6 +3560,7 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "PREMUL_KEY": "Premul Key",
         "FILTER": "Filter",
         "DILATE_ERODE": "Dilate/Erode",
+        "CONVOLVE": "Convolve",
     }
     node_label = str(settings.get("label") or labels.get(compositor_type, compositor_type.title()))
     label = f"VTK {label_prefix} {node_label}"
@@ -4229,6 +4315,7 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "edgedetect=high=0.20:low=0.08:mode=wires,"
         "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
+        "convolution=0m=\"0 -1 0 -1 5 -1 0 -1 0\":0rdiv=1:0bias=0,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"
