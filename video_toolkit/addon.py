@@ -3981,6 +3981,11 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "selectivecolor=reds=0.08 -0.03 -0.02 0.00:blues=-0.03 0.01 0.08 0.02:whites=0.01 0.00 -0.06 0.01,"
         "monochrome=cb=0.05:cr=-0.04:high=0.1,"
         "colorize=hue=35:saturation=0.25:lightness=0.55:mix=0.85,"
+        "grayworld,"
+        "negate=components=r+g+b,"
+        "colorhold=color=blue:similarity=0.12:blend=0.2,"
+        "hsvhold=hue=210:similarity=0.10,"
+        "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"
     )
 

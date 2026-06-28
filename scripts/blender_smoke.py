@@ -438,7 +438,7 @@ assert 'VSE-only native tools:' in catalog_report
 assert 'native_mask_slot: Mask Slot' in catalog_report
 assert 'Rendered fallback tools:' in catalog_report
 assert 'Tracked native compositor node library:' in catalog_report
-assert 'Native-translated FFmpeg filters: 23' in catalog_report
+assert 'Native-translated FFmpeg filters: 31' in catalog_report
 assert 'Native-translated FFmpeg color filters: eq, hue, huesaturation' in catalog_report
 assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange' in catalog_report
 assert 'Rendered fallback FFmpeg filters:' in catalog_report

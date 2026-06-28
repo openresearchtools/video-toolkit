@@ -5,6 +5,9 @@ from video_toolkit.ffmpeg_native import (
     curves_to_blender_stack,
     eq_to_blender_stack,
     exposure_to_blender_stack,
+    grayworld_to_blender_stack,
+    lut_to_blender_stack,
+    negate_to_blender_stack,
     normalize_to_blender_stack,
     selectivecolor_to_blender_stack,
     translate_filter_chain,
@@ -58,6 +61,23 @@ def test_vibrance_and_exposure_are_live_blender_stacks():
 
     exposure = exposure_to_blender_stack(exposure=0.5, black=0.05)
     assert [modifier_type for modifier_type, _settings in exposure] == ["BRIGHT_CONTRAST", "CURVES", "TONEMAP"]
+
+
+def test_grayworld_negate_and_lut_translate_to_live_controls():
+    grayworld = grayworld_to_blender_stack()
+    assert [modifier_type for modifier_type, _settings in grayworld] == ["WHITE_BALANCE", "COLOR_BALANCE"]
+
+    negate = negate_to_blender_stack(components="r+g+b")
+    assert negate[0][0] == "CURVES"
+    assert negate[0][1]["__curve_points__"][1] == [(0.0, 1.0), (1.0, 0.0)]
+    assert negate[0][1]["__curve_points__"][3] == [(0.0, 1.0), (1.0, 0.0)]
+
+    lut = lut_to_blender_stack(r="negval", g="val*0.8", b="val+16")
+    assert lut[0][0] == "CURVES"
+    points = lut[0][1]["__curve_points__"]
+    assert points[1] == [(0.0, 1.0), (1.0, 0.0)]
+    assert points[2][-1][1] == 0.8
+    assert points[3][0][1] > 0.0
 
 
 def test_normalize_translates_to_live_curves_and_tonemap():
@@ -134,6 +154,11 @@ def test_filter_chain_supports_more_color_grading_filters():
         "selectivecolor=reds=0.10 -0.04 -0.02 0.00:blues=-0.04 0.02 0.10 0.03:whites=0.02 0.00 -0.08 0.01,"
         "monochrome=cb=0.1:cr=-0.1:high=0.2,"
         "colorize=hue=210:saturation=0.45:lightness=0.55:mix=0.65,"
+        "grayworld,"
+        "negate=components=r+g+b,"
+        "colorhold=color=blue:similarity=0.12:blend=0.2,"
+        "hsvhold=hue=210:similarity=0.10,"
+        "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1"
     )
     assert result.unsupported_filters == ()
@@ -151,6 +176,11 @@ def test_filter_chain_supports_more_color_grading_filters():
         "selectivecolor",
         "monochrome",
         "colorize",
+        "grayworld",
+        "negate",
+        "colorhold",
+        "hsvhold",
+        "lutrgb",
         "histeq",
     )
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(

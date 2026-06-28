@@ -150,6 +150,10 @@ scene.video_toolkit_ffmpeg_chain = (
     "colorbalance=rs=0.03:bm=0.02:bh=-0.03:pl=1,"
     "vibrance=intensity=0.25,"
     "exposure=exposure=0.18:black=0.02,"
+    "grayworld,"
+    "negate=components=r+g+b,"
+    "colorhold=color=blue:similarity=0.12:blend=0.2,"
+    "lutrgb=r=negval:g=val*0.9:b=val+12,"
     "histeq=strength=0.18:intensity=0.14"
 )
 
@@ -507,6 +511,10 @@ def node_stack_operator(stack_type):
                 "eq=contrast=1.12:saturation=1.08:gamma=1.02,"
                 "colorbalance=rs=0.04:bm=0.03:bh=-0.04:pl=1,"
                 "curves=preset=strong_contrast,"
+                "grayworld,"
+                "negate=components=r+g+b,"
+                "colorhold=color=blue:similarity=0.12:blend=0.2,"
+                "lutrgb=r=negval:g=val*0.9:b=val+12,"
                 "histeq=strength=0.20:intensity=0.18"
             )
         result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type=stack_type)

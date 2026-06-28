@@ -26,6 +26,14 @@ NATIVE_FFMPEG_COLOR_FILTERS = (
     "selectivecolor",
     "monochrome",
     "colorize",
+    "grayworld",
+    "negate",
+    "chromahold",
+    "colorhold",
+    "hsvhold",
+    "lut",
+    "lutrgb",
+    "lutyuv",
     "histeq",
 )
 
@@ -126,6 +134,30 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             stack.extend(colorize_to_blender_stack(**args))
             supported.append(name)
             notes.append("Colorize is approximated with Blender Hue Correct and Color Balance tinting.")
+        elif name == "grayworld":
+            stack.extend(grayworld_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Grayworld is exposed as editable Blender White Balance/Lift-Gamma-Gain controls; use sampled white balance for frame-measured auto values.")
+        elif name == "negate":
+            stack.extend(negate_to_blender_stack(**args))
+            supported.append(name)
+        elif name in {"chromahold", "colorhold"}:
+            stack.extend(colorhold_to_blender_stack(**args))
+            supported.append(name)
+            notes.append(f"{name} is approximated with Blender Hue Correct saturation-zone curves.")
+        elif name == "hsvhold":
+            stack.extend(hsvhold_to_blender_stack(**args))
+            supported.append(name)
+            notes.append("Hsvhold is approximated with Blender Hue Correct saturation-zone curves.")
+        elif name in {"lut", "lutrgb", "lutyuv"}:
+            lut_stack = lut_to_blender_stack(**args)
+            if lut_stack:
+                stack.extend(lut_stack)
+                supported.append(name)
+                notes.append(f"{name} linear/identity/negation expressions are approximated with Blender RGB Curves.")
+            else:
+                unsupported.append(name)
+                notes.append(f"{name} uses expressions that do not map safely to native Blender live curves.")
         elif name == "histeq":
             stack.extend(histeq_to_blender_stack(**args))
             supported.append(name)
@@ -688,6 +720,105 @@ def colorize_to_blender_stack(
     )
 
 
+def grayworld_to_blender_stack(**_unused: str) -> BlenderStack:
+    return (
+        ("WHITE_BALANCE", {"white_value": (1.0, 1.0, 1.0)}),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.lift": (1.0, 1.0, 1.0),
+                "color_balance.gamma": (1.0, 1.0, 1.0),
+                "color_balance.gain": (1.0, 1.0, 1.0),
+            },
+        ),
+    )
+
+
+def negate_to_blender_stack(
+    *,
+    components: str = "y+u+v+r+g+b",
+    negate_alpha: str | int | bool = False,
+    **_unused: str,
+) -> BlenderStack:
+    curve_points: dict[int, list[tuple[float, float]]] = {}
+    component_set = {part.strip().lower() for part in str(components or "").replace("|", "+").split("+") if part.strip()}
+    if not component_set:
+        component_set = {"y", "u", "v", "r", "g", "b"}
+    invert = [(0.0, 1.0), (1.0, 0.0)]
+    if component_set & {"y", "u", "v"}:
+        curve_points[0] = invert
+    if "r" in component_set:
+        curve_points[1] = invert
+    if "g" in component_set:
+        curve_points[2] = invert
+    if "b" in component_set:
+        curve_points[3] = invert
+    if _truthy(negate_alpha):
+        curve_points[0] = invert
+    if not curve_points:
+        curve_points[0] = invert
+    return (("CURVES", {"__curve_points__": curve_points}),)
+
+
+def colorhold_to_blender_stack(
+    *,
+    color: str = "black",
+    similarity: str | float = 0.01,
+    blend: str | float = 0.0,
+    **_unused: str,
+) -> BlenderStack:
+    hue = _rgb_to_hue(_parse_color(color, (0.0, 0.0, 0.0)))
+    return (
+        (
+            "HUE_CORRECT",
+            {"__curve_points__": {1: _hold_saturation_curve_points(hue, _float(similarity, 0.01), _float(blend, 0.0))}},
+        ),
+    )
+
+
+def hsvhold_to_blender_stack(
+    *,
+    hue: str | float = 0.0,
+    sat: str | float = 0.0,
+    val: str | float = 0.0,
+    similarity: str | float = 0.01,
+    blend: str | float = 0.0,
+    **_unused: str,
+) -> BlenderStack:
+    hue_value = (_float(hue, 0.0) % 360.0) / 360.0
+    saturation_points = _hold_saturation_curve_points(hue_value, _float(similarity, 0.01), _float(blend, 0.0))
+    value_points = [
+        (x, _clamp(y + _float(val, 0.0) * 0.08 + _float(sat, 0.0) * 0.04, 0.0, 1.0))
+        for x, y in saturation_points
+    ]
+    return (("HUE_CORRECT", {"__curve_points__": {1: saturation_points, 2: value_points}}),)
+
+
+def lut_to_blender_stack(
+    *,
+    c0: str = "clipval",
+    c1: str = "clipval",
+    c2: str = "clipval",
+    y: str = "",
+    r: str = "",
+    g: str = "",
+    b: str = "",
+    **_unused: str,
+) -> BlenderStack:
+    curves: dict[int, list[tuple[float, float]]] = {}
+    master = _simple_lut_expression_curve(y)
+    if master:
+        curves[0] = master
+    for index, expression in ((1, r or c0), (2, g or c1), (3, b or c2)):
+        points = _simple_lut_expression_curve(expression)
+        if points:
+            curves[index] = points
+    identity = [(0.0, 0.0), (1.0, 1.0)]
+    curves = {index: points for index, points in curves.items() if points != identity}
+    return (("CURVES", {"__curve_points__": curves}),) if curves else ()
+
+
 def histeq_to_blender_stack(
     *,
     strength: str | float = 0.2,
@@ -1104,6 +1235,75 @@ def _parse_color(value: str, default: tuple[float, float, float]) -> tuple[float
         except ValueError:
             return default
     return default
+
+
+def _rgb_to_hue(color: tuple[float, float, float]) -> float:
+    red, green, blue = color
+    maximum = max(color)
+    minimum = min(color)
+    delta = maximum - minimum
+    if delta <= 1e-9:
+        return 0.0
+    if maximum == red:
+        hue = ((green - blue) / delta) % 6.0
+    elif maximum == green:
+        hue = ((blue - red) / delta) + 2.0
+    else:
+        hue = ((red - green) / delta) + 4.0
+    return (hue / 6.0) % 1.0
+
+
+def _hold_saturation_curve_points(hue: float, similarity: float, blend: float) -> list[tuple[float, float]]:
+    hue = hue % 1.0
+    width = _clamp(similarity, 1e-5, 1.0) * 0.35
+    outside = _clamp(0.5 * _clamp(blend, 0.0, 1.0), 0.0, 0.5)
+    points: list[tuple[float, float]] = []
+    for index in range(25):
+        x = index / 24.0
+        distance = abs(x - hue)
+        distance = min(distance, 1.0 - distance)
+        edge = _clamp((distance - width) / max(width, 1e-5), 0.0, 1.0)
+        points.append((x, _mix(0.5, outside, edge)))
+    return points
+
+
+def _simple_lut_expression_curve(expression: str | None) -> list[tuple[float, float]]:
+    text = str(expression or "clipval").strip().lower().replace(" ", "")
+    if text in {"", "clipval", "val", "clip(val)", "clipval*1", "1*clipval"}:
+        return [(0.0, 0.0), (1.0, 1.0)]
+    if text in {"negval", "maxval-val", "255-val", "1-val"}:
+        return [(0.0, 1.0), (1.0, 0.0)]
+    for token in ("clipval", "val"):
+        if text.startswith(f"{token}*"):
+            return _linear_curve(_float(text.split("*", 1)[1], 1.0), 0.0)
+        if text.endswith(f"*{token}"):
+            return _linear_curve(_float(text.rsplit("*", 1)[0], 1.0), 0.0)
+        if text.startswith(f"{token}+"):
+            return _linear_curve(1.0, _lut_offset(text.split("+", 1)[1]))
+        if text.startswith(f"{token}-"):
+            return _linear_curve(1.0, -_lut_offset(text.split("-", 1)[1]))
+    return []
+
+
+def _linear_curve(scale: float, offset: float) -> list[tuple[float, float]]:
+    return [
+        (0.0, _clamp(offset, 0.0, 1.0)),
+        (0.5, _clamp(0.5 * scale + offset, 0.0, 1.0)),
+        (1.0, _clamp(scale + offset, 0.0, 1.0)),
+    ]
+
+
+def _lut_offset(value: str) -> float:
+    parsed = _float(value, 0.0)
+    if abs(parsed) > 1.0:
+        return parsed / 255.0
+    return parsed
+
+
+def _truthy(value: str | int | bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"", "0", "false", "no", "off"}
 
 
 def _opponent_weight(value: str | float) -> float:
