@@ -59,6 +59,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "extractplanes",
     "premultiply",
     "unpremultiply",
+    "shuffleplanes",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -212,6 +213,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(unpremultiply_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Unpremultiply is translated to Blender compositor Premul Key alpha conversion nodes.")
+        elif name == "shuffleplanes":
+            compositor_nodes.extend(shuffleplanes_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Shuffleplanes is translated to Blender compositor Separate/Combine channel routing nodes.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -1084,6 +1089,40 @@ def unpremultiply_to_blender_compositor(**_unused: str) -> CompositorStack:
     return (("PREMUL_KEY", {"mode": "To Straight", "source": "unpremultiply"}),)
 
 
+def shuffleplanes_to_blender_compositor(
+    *,
+    map0: str | int = 0,
+    map1: str | int = 1,
+    map2: str | int = 2,
+    map3: str | int = 3,
+    arg0: str | int | None = None,
+    arg1: str | int | None = None,
+    arg2: str | int | None = None,
+    arg3: str | int | None = None,
+    **_unused: str,
+) -> CompositorStack:
+    maps = (
+        map0 if arg0 is None else arg0,
+        map1 if arg1 is None else arg1,
+        map2 if arg2 is None else arg2,
+        map3 if arg3 is None else arg3,
+    )
+    return (
+        (
+            "PLANE_SHUFFLE",
+            {
+                "outputs": {
+                    "red": _shuffle_plane_name(maps[0]),
+                    "green": _shuffle_plane_name(maps[1]),
+                    "blue": _shuffle_plane_name(maps[2]),
+                    "alpha": _shuffle_plane_name(maps[3]),
+                },
+                "source": "shuffleplanes",
+            },
+        ),
+    )
+
+
 def pseudocolor_to_blender_stack(
     *,
     preset: str | int = "turbo",
@@ -1403,6 +1442,7 @@ def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
             continue
         name, arg_text = item.split("=", 1)
         args: dict[str, str] = {}
+        positional_index = 0
         for part in arg_text.split(":"):
             if not part:
                 continue
@@ -1410,7 +1450,10 @@ def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
                 key, value = part.split("=", 1)
                 args[key.strip()] = value.strip().strip("'\"")
             else:
-                args.setdefault("preset", part.strip().strip("'\""))
+                value = part.strip().strip("'\"")
+                args.setdefault("preset", value)
+                args[f"arg{positional_index}"] = value
+                positional_index += 1
         filters.append((name.strip(), args))
     return filters
 
@@ -1726,6 +1769,25 @@ def _extract_plane_name(value: str | int | None) -> str:
         if key in {"y", "u", "v", "r", "g", "b"}:
             return key
     return "r"
+
+
+def _shuffle_plane_name(value: str | int | None) -> str:
+    text = str(value if value is not None else "0").strip().lower()
+    aliases = {
+        "0": "red",
+        "1": "green",
+        "2": "blue",
+        "3": "alpha",
+        "r": "red",
+        "red": "red",
+        "g": "green",
+        "green": "green",
+        "b": "blue",
+        "blue": "blue",
+        "a": "alpha",
+        "alpha": "alpha",
+    }
+    return aliases.get(text, "red")
 
 
 def _truthy(value: str | int | bool) -> bool:

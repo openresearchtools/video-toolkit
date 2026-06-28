@@ -20,6 +20,7 @@ from video_toolkit.ffmpeg_native import (
     pseudocolor_to_blender_stack,
     rgbashift_to_blender_compositor,
     selectivecolor_to_blender_stack,
+    shuffleplanes_to_blender_compositor,
     translate_filter_chain,
     unpremultiply_to_blender_compositor,
     vibrance_to_blender_stack,
@@ -268,6 +269,27 @@ def test_alpha_premultiply_filters_translate_to_premul_key_nodes():
     assert [settings["mode"] for _node_type, settings in result.compositor_nodes] == ["To Premultiplied", "To Straight"]
 
 
+def test_shuffleplanes_translates_to_plane_shuffle_graph_specs():
+    shuffle = shuffleplanes_to_blender_compositor(map0=2, map1=1, map2=0, map3=3)
+    assert shuffle == (
+        (
+            "PLANE_SHUFFLE",
+            {
+                "outputs": {"red": "blue", "green": "green", "blue": "red", "alpha": "alpha"},
+                "source": "shuffleplanes",
+            },
+        ),
+    )
+
+    result = translate_filter_chain("shuffleplanes=2:1:0:3,shuffleplanes=map0=1:map1=2:map2=0:map3=3")
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("shuffleplanes", "shuffleplanes")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["PLANE_SHUFFLE", "PLANE_SHUFFLE"]
+    assert result.compositor_nodes[0][1]["outputs"]["red"] == "blue"
+    assert result.compositor_nodes[1][1]["outputs"]["green"] == "blue"
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -298,6 +320,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "extractplanes=planes=y,"
         "premultiply,"
         "unpremultiply,"
+        "shuffleplanes=map0=2:map1=1:map2=0:map3=3,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -333,6 +356,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "extractplanes",
         "premultiply",
         "unpremultiply",
+        "shuffleplanes",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -341,7 +365,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

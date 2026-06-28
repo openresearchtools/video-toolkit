@@ -3339,6 +3339,8 @@ def _append_translated_compositor_filter(tree, input_socket, compositor_type: st
         return _append_channel_shift_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "PLANE_EXTRACT":
         return _append_plane_extract_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "PLANE_SHUFFLE":
+        return _append_plane_shuffle_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     node = _translated_compositor_filter_to_node(tree, compositor_type, settings, index, origin, label_prefix)
     if node is None:
         return input_socket, []
@@ -3443,6 +3445,24 @@ def _plane_extract_output_name(plane: str) -> str:
     }.get(plane, "Red")
 
 
+def _append_plane_shuffle_compositor_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    outputs = settings.get("outputs") or {}
+    if not isinstance(outputs, dict):
+        return input_socket, []
+    label = f"VTK {label_prefix} Plane Shuffle"
+    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", f"{label} Separate", index, y_offset=-140, origin=origin)
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", f"{label} Combine", index + 1, y_offset=-140, origin=origin)
+    _link_socket(tree, input_socket, _image_input(separate))
+    for output_name, input_name in (
+        (_plane_extract_output_name(str(outputs.get("red", "red"))), "Red"),
+        (_plane_extract_output_name(str(outputs.get("green", "green"))), "Green"),
+        (_plane_extract_output_name(str(outputs.get("blue", "blue"))), "Blue"),
+        (_plane_extract_output_name(str(outputs.get("alpha", "alpha"))), "Alpha"),
+    ):
+        _link_socket(tree, _socket_by_name(separate.outputs, output_name), _socket_by_name(combine.inputs, input_name))
+    return _image_output(combine), [separate, combine]
+
+
 def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
     labels = {
         "CHROMA_MATTE": "Chroma Matte",
@@ -3450,6 +3470,7 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "LUMA_MATTE": "Luma Matte",
         "CHANNEL_SHIFT": "Channel Shift",
         "PLANE_EXTRACT": "Plane Extract",
+        "PLANE_SHUFFLE": "Plane Shuffle",
         "PREMUL_KEY": "Premul Key",
     }
     label = f"VTK {label_prefix} {labels.get(compositor_type, compositor_type.title())}"
@@ -4179,6 +4200,7 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "extractplanes=planes=y,"
         "premultiply,"
         "unpremultiply,"
+        "shuffleplanes=map0=2:map1=1:map2=0:map3=3,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"

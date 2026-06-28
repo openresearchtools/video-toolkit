@@ -339,14 +339,15 @@ scene.video_toolkit_ffmpeg_chain = (
     'extractplanes=planes=y,'
     'premultiply,'
     'unpremultiply,'
+    'shuffleplanes=map0=2:map1=1:map2=0:map3=3,'
     'pseudocolor=preset=viridis:opacity=0.75:index=1,'
     'histeq=strength=0.22:intensity=0.20:antibanding=1,'
     'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
 )
 result = bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert result == {{'FINISHED'}}, result
-assert 'translated colorspace, normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, pseudocolor, histeq, zscale' in scene.video_toolkit_last_translation
-assert 'compositor-only native node(s): 10' in scene.video_toolkit_last_translation
+assert 'translated colorspace, normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, pseudocolor, histeq, zscale' in scene.video_toolkit_last_translation
+assert 'compositor-only native node(s): 11' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 translated_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Translated Color Chain')]
 for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'HUE_CORRECT', 'TONEMAP', 'WHITE_BALANCE']:
@@ -378,6 +379,7 @@ assert 'alphaextract' in translated_workflow_supported
 assert 'extractplanes' in translated_workflow_supported
 assert 'premultiply' in translated_workflow_supported
 assert 'unpremultiply' in translated_workflow_supported
+assert 'shuffleplanes' in translated_workflow_supported
 assert 'pseudocolor' in translated_workflow_supported
 assert 'zscale' in translated_workflow_supported
 translated_workflow_modifier_types = [
@@ -924,8 +926,8 @@ assert f'Compositor-compatible catalog recipes: {{len(expected_all_recipe_ids)}}
 assert 'VSE-only native tools:' in catalog_coverage_report
 assert 'native_mask_slot: Mask Slot' in catalog_coverage_report
 assert 'Rendered fallback tools:' in catalog_coverage_report
-assert 'Native-translated FFmpeg filters: 44' in catalog_coverage_report
-assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply' in catalog_coverage_report
+assert 'Native-translated FFmpeg filters: 45' in catalog_coverage_report
+assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes' in catalog_coverage_report
 assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_coverage_report
 assert 'Rendered-only FFmpeg filters:' in catalog_coverage_report
 assert 'deflicker' in catalog_coverage_report
@@ -1162,7 +1164,7 @@ result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_CO
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
 assert 'color management:' in scene.video_toolkit_last_compositor_nodes
-assert 'compositor-only filter node(s): 10' in scene.video_toolkit_last_compositor_nodes
+assert 'compositor-only filter node(s): 11' in scene.video_toolkit_last_compositor_nodes
 translated_compositor_summary = scene.video_toolkit_last_compositor_nodes
 translated_compositor_node_types = [
     node.bl_idname
