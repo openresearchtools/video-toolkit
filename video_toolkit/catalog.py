@@ -198,6 +198,88 @@ _SKIN_TONE_ISOLATION_STACK = (
     _color_balance(gamma=(1.035, 1.015, 0.985), gain=(1.025, 1.01, 0.985), color_multiply=1.02),
     ("HUE_CORRECT", {"__hue_correct__": {"saturation": 0.56, "value": 0.52}}),
 )
+_PRIMARY_COLOR_BOARD_STACK = (
+    _bright_contrast(bright=0.0, contrast=6.0),
+    _color_balance(
+        lift=(0.99, 0.99, 0.99),
+        gamma=(1.02, 1.02, 1.02),
+        gain=(1.04, 1.04, 1.04),
+        color_multiply=1.01,
+    ),
+    _asc_cdl(offset=(1.0, 1.0, 1.0), power=(0.98, 0.98, 0.98), slope=(1.03, 1.03, 1.03)),
+    _curve_points({0: [(0.0, 0.0), (0.18, 0.14), (0.50, 0.50), (0.82, 0.88), (1.0, 1.0)]}),
+    _tonemap(tonemap_type="RD_PHOTORECEPTOR", intensity=0.07, contrast=0.08, gamma=1.0),
+    _hue_correct(),
+)
+_LOG_ZONE_COLOR_BOARD_STACK = (
+    _color_balance(
+        lift=(1.035, 1.025, 1.015),
+        gamma=(1.015, 1.015, 1.015),
+        gain=(0.985, 0.990, 1.000),
+        color_multiply=1.0,
+    ),
+    _curve_points({0: [(0.0, 0.015), (0.22, 0.19), (0.50, 0.50), (0.78, 0.84), (1.0, 0.985)]}),
+    _tonemap(tonemap_type="RD_PHOTORECEPTOR", intensity=0.10, contrast=0.10, gamma=0.99),
+)
+_ASC_CDL_FINISH_STACK = (
+    _asc_cdl(offset=(1.005, 1.000, 0.995), power=(0.985, 0.990, 1.000), slope=(1.045, 1.035, 1.025)),
+    _bright_contrast(bright=0.0, contrast=5.0),
+    _curve_points({0: [(0.0, 0.0), (0.28, 0.24), (0.72, 0.78), (1.0, 1.0)]}),
+    ("HUE_CORRECT", {"__hue_correct__": {"saturation": 0.54, "value": 0.50}}),
+)
+_SIX_VECTOR_HUE_BOARD_STACK = (
+    (
+        "HUE_CORRECT",
+        {
+            "__curve_points__": {
+                0: [(0.00, 0.50), (0.08, 0.505), (0.16, 0.497), (0.33, 0.500), (0.50, 0.503), (0.66, 0.498), (0.83, 0.502), (1.0, 0.50)],
+                1: [(0.00, 0.53), (0.08, 0.56), (0.16, 0.54), (0.33, 0.51), (0.50, 0.52), (0.66, 0.55), (0.83, 0.53), (1.0, 0.53)],
+                2: [(0.00, 0.50), (0.08, 0.515), (0.16, 0.505), (0.33, 0.50), (0.50, 0.505), (0.66, 0.512), (0.83, 0.505), (1.0, 0.50)],
+            }
+        },
+    ),
+    _color_balance(gamma=(1.01, 1.0, 1.01), gain=(1.015, 1.0, 1.015), color_multiply=1.02),
+)
+_SECONDARY_SKIN_VECTOR_STACK = (
+    (
+        "HUE_CORRECT",
+        {
+            "__curve_points__": {
+                0: [(0.00, 0.50), (0.06, 0.503), (0.10, 0.505), (0.16, 0.502), (0.24, 0.50), (1.0, 0.50)],
+                1: [(0.00, 0.50), (0.06, 0.535), (0.10, 0.555), (0.16, 0.535), (0.24, 0.50), (1.0, 0.50)],
+                2: [(0.00, 0.50), (0.06, 0.512), (0.10, 0.525), (0.16, 0.512), (0.24, 0.50), (1.0, 0.50)],
+            }
+        },
+    ),
+    _color_balance(gamma=(1.025, 1.010, 0.990), gain=(1.020, 1.008, 0.990), color_multiply=1.01),
+    _tonemap(tonemap_type="RD_PHOTORECEPTOR", intensity=0.04, contrast=0.04, gamma=1.0),
+)
+_PALETTE_SEPARATION_BOARD_STACK = (
+    (
+        "HUE_CORRECT",
+        {
+            "__curve_points__": {
+                1: [(0.00, 0.53), (0.12, 0.55), (0.25, 0.50), (0.38, 0.54), (0.50, 0.52), (0.66, 0.55), (0.80, 0.54), (1.0, 0.53)],
+                2: [(0.00, 0.50), (0.12, 0.512), (0.25, 0.495), (0.38, 0.508), (0.50, 0.502), (0.66, 0.512), (0.80, 0.506), (1.0, 0.50)],
+            }
+        },
+    ),
+    _curve_points({0: [(0.0, 0.0), (0.20, 0.16), (0.50, 0.50), (0.80, 0.86), (1.0, 1.0)]}),
+    _color_balance(lift=(0.995, 1.000, 1.005), gamma=(1.01, 1.00, 1.01), gain=(1.02, 1.01, 1.02), color_multiply=1.02),
+)
+_BROADCAST_SAFE_FINISH_STACK = (
+    _LEGAL_RANGE_STACK[0],
+    _tonemap(tonemap_type="RD_PHOTORECEPTOR", intensity=0.12, contrast=0.06, gamma=0.98),
+    ("HUE_CORRECT", {"__hue_correct__": {"saturation": 0.49, "value": 0.50}}),
+    _curve_points({0: [(0.0, 0.02), (0.05, 0.05), (0.50, 0.50), (0.95, 0.95), (1.0, 0.98)]}),
+)
+_MATCH_PREP_NEUTRALIZER_STACK = (
+    _bright_contrast(bright=0.0, contrast=-4.0),
+    _white_balance((1.0, 1.0, 1.0)),
+    _color_balance(lift=(1.0, 1.0, 1.0), gamma=(1.0, 1.0, 1.0), gain=(1.0, 1.0, 1.0), color_multiply=0.98),
+    _curve_points({0: [(0.0, 0.02), (0.20, 0.20), (0.50, 0.50), (0.80, 0.80), (1.0, 0.98)]}),
+    ("HUE_CORRECT", {"__hue_correct__": {"saturation": 0.49, "value": 0.50}}),
+)
 
 
 TOOLS: tuple[VideoTool, ...] = (
@@ -601,6 +683,70 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_BLENDER_MODIFIER,
         description="Conservative native gamma and Hue Correct stack for warmer skin-tone-like ranges.",
         blender_stack=_SKIN_TONE_ISOLATION_STACK,
+    ),
+    VideoTool(
+        id="primary_color_board",
+        label="Primary Color Board",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Professional primary board built from Blender Brightness/Contrast, Lift/Gamma/Gain, ASC CDL, RGB Curves, Tone Map, and Hue Correct.",
+        blender_stack=_PRIMARY_COLOR_BOARD_STACK,
+    ),
+    VideoTool(
+        id="log_zone_color_board",
+        label="Log Zone Color Board",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Shadow, midtone, and highlight board for log-like footage using Blender Lift/Gamma/Gain, curves, and tone mapping.",
+        blender_stack=_LOG_ZONE_COLOR_BOARD_STACK,
+    ),
+    VideoTool(
+        id="asc_cdl_finish_board",
+        label="ASC CDL Finish Board",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Offset/Power/Slope finishing board with contrast curve and native Hue Correct saturation trim.",
+        blender_stack=_ASC_CDL_FINISH_STACK,
+    ),
+    VideoTool(
+        id="six_vector_hue_board",
+        label="Six-Vector Hue Board",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Secondary color board using Blender Hue Correct curves across red, yellow, green, cyan, blue, and magenta zones.",
+        blender_stack=_SIX_VECTOR_HUE_BOARD_STACK,
+    ),
+    VideoTool(
+        id="secondary_skin_vector",
+        label="Secondary Skin Vector",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Native secondary correction for skin-tone-like hue ranges with Hue Correct, Lift/Gamma/Gain, and gentle tone mapping.",
+        blender_stack=_SECONDARY_SKIN_VECTOR_STACK,
+    ),
+    VideoTool(
+        id="palette_separation_board",
+        label="Palette Separation Board",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Palette separation board for sampled color identity work using hue-zone saturation, RGB curves, and color balance.",
+        blender_stack=_PALETTE_SEPARATION_BOARD_STACK,
+    ),
+    VideoTool(
+        id="broadcast_safe_finish",
+        label="Broadcast-Safe Finish",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Native legal-range, highlight roll-off, saturation restraint, and curve finish for delivery-safe video color.",
+        blender_stack=_BROADCAST_SAFE_FINISH_STACK,
+    ),
+    VideoTool(
+        id="match_prep_neutralizer",
+        label="Match Prep Neutralizer",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Neutral preparation board before reference matching: soft contrast, neutral white balance, flat curves, and restrained saturation.",
+        blender_stack=_MATCH_PREP_NEUTRALIZER_STACK,
     ),
     VideoTool(
         id="native_all_color_tools",

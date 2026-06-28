@@ -333,6 +333,26 @@ for required in [
     'CompositorNodeOutputFile',
 ]:
     assert required in sidecar_recipe_node_types, required
+scene.video_toolkit_sidecar_tool = 'primary_color_board'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+primary_board_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Primary Color Board')]
+assert {{'BRIGHT_CONTRAST', 'COLOR_BALANCE', 'CURVES', 'HUE_CORRECT', 'TONEMAP'}}.issubset(set(primary_board_types))
+bpy.ops.video_toolkit.create_sidecar_compositor_nodes()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Primary Color Board')
+primary_board_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Tool Primary Color Board ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in primary_board_node_types, required
 from video_toolkit.addon import _tool_has_compositor_stack
 from video_toolkit.catalog import all_tools
 expected_recipe_ids = [tool.id for tool in all_tools() if _tool_has_compositor_stack(tool)]
@@ -342,6 +362,17 @@ assert f'{{len(expected_recipe_ids)}} tools' in scene.video_toolkit_last_composi
 created_recipe_ids = scene.get('video_toolkit_last_compositor_recipe_ids', '').split(',')
 assert created_recipe_ids == expected_recipe_ids
 assert 'live_pro_color_stack' in created_recipe_ids
+for color_board_id in [
+    'primary_color_board',
+    'log_zone_color_board',
+    'asc_cdl_finish_board',
+    'six_vector_hue_board',
+    'secondary_skin_vector',
+    'palette_separation_board',
+    'broadcast_safe_finish',
+    'match_prep_neutralizer',
+]:
+    assert color_board_id in created_recipe_ids
 assert 'native_white_balance_editor' in created_recipe_ids
 assert 'native_mask_slot' not in created_recipe_ids
 bpy.ops.video_toolkit.write_catalog_coverage_report()

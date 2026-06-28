@@ -143,6 +143,7 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     sampled_hue_chroma = output_dir / "after_sampled_hue_chroma.png"
     sampled_pro_grade_base = output_dir / "before_sampled_pro_grade.png"
     sampled_pro_grade = output_dir / "after_sampled_pro_grade.png"
+    primary_color_board = output_dir / "after_primary_color_board.png"
     blend = output_dir / "end_user_preview.blend"
     report = output_dir / "report.json"
     return f"""
@@ -529,6 +530,46 @@ sampled_pro_grade_diff = (
     + abs(sampled_pro_grade_stats['b'] - sampled_pro_grade_base_stats['b'])
 )
 assert sampled_pro_grade_diff > 0.001, f'Sampled pro grade did not visibly change preview pixels: {{sampled_pro_grade_diff}}'
+scene.video_toolkit_sidecar_group = 'LIVE_BLENDER_COLOR'
+scene.video_toolkit_sidecar_tool = 'primary_color_board'
+result = bpy.ops.video_toolkit.apply_sidecar_tool()
+assert result == {{'FINISHED'}}, result
+primary_color_board_modifier_types = [
+    modifier.type
+    for modifier in pro_grade_strip.modifiers
+    if modifier.name.startswith('VTK Primary Color Board')
+]
+for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'CURVES', 'HUE_CORRECT', 'TONEMAP']:
+    assert required in primary_color_board_modifier_types, required
+primary_color_board_stats = render_preview({str(primary_color_board)!r})
+primary_color_board_diff = (
+    abs(primary_color_board_stats['r'] - sampled_pro_grade_stats['r'])
+    + abs(primary_color_board_stats['g'] - sampled_pro_grade_stats['g'])
+    + abs(primary_color_board_stats['b'] - sampled_pro_grade_stats['b'])
+)
+assert primary_color_board_diff > 0.001, f'Primary Color Board did not visibly change preview pixels: {{primary_color_board_diff}}'
+result = bpy.ops.video_toolkit.create_sidecar_compositor_nodes()
+assert result == {{'FINISHED'}}, result
+primary_color_board_compositor_summary = scene.video_toolkit_last_compositor_nodes
+assert primary_color_board_compositor_summary.startswith('tool compositor Primary Color Board')
+primary_color_board_node_types = [
+    node.bl_idname
+    for node in (scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree).nodes
+    if node.name.startswith('VTK Tool Primary Color Board ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in primary_color_board_node_types, required
 for candidate in editor.strips_all:
     candidate.select = False
 strip.select = True
@@ -998,6 +1039,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_hue_chroma_png': {str(sampled_hue_chroma)!r},
     'sampled_pro_grade_base_png': {str(sampled_pro_grade_base)!r},
     'sampled_pro_grade_png': {str(sampled_pro_grade)!r},
+    'primary_color_board_png': {str(primary_color_board)!r},
     'before': before_stats,
     'after': after_stats,
     'translated': translated_stats,
@@ -1010,6 +1052,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_hue_chroma': sampled_hue_chroma_stats,
     'sampled_pro_grade_base': sampled_pro_grade_base_stats,
     'sampled_pro_grade': sampled_pro_grade_stats,
+    'primary_color_board': primary_color_board_stats,
     'rgb_abs_diff': diff,
     'translated_rgb_abs_diff': translated_diff,
     'translated_workflow_rgb_abs_diff': translated_workflow_diff,
@@ -1021,6 +1064,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_levels_gamma_rgb_abs_diff': sampled_levels_gamma_diff,
     'sampled_hue_chroma_rgb_abs_diff': sampled_hue_chroma_diff,
     'sampled_pro_grade_rgb_abs_diff': sampled_pro_grade_diff,
+    'primary_color_board_rgb_abs_diff': primary_color_board_diff,
     'edited_modifiers': edited,
     'native_modifier_types': types,
     'translated_chain_summary': scene.video_toolkit_last_translation,
@@ -1061,6 +1105,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_hue_chroma_modifier_types': sampled_hue_chroma_types,
     'sampled_pro_grade_summary': scene.video_toolkit_last_sampled_pro_grade,
     'sampled_pro_grade_modifier_types': sampled_pro_grade_types,
+    'primary_color_board_modifier_types': primary_color_board_modifier_types,
+    'primary_color_board_compositor_summary': primary_color_board_compositor_summary,
+    'primary_color_board_node_types': primary_color_board_node_types,
     'primary_correction_modifier_types': primary_correction_types,
     'normalizer_keyframes': normalizer_keyframes,
     'timeline_match_reference': {str(reference_video)!r},

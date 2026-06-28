@@ -793,7 +793,7 @@ def diagnose_color(stats: ColorStats) -> ColorDiagnosis:
         findings.append(f"Balanced exposure band (mean luma {stats.mean_luma:.1f}).")
     if dynamic_range < 118.0 or stats.luma_std < 34.0:
         findings.append(f"Low tonal separation (range {dynamic_range:.1f}, spread {stats.luma_std:.1f}); expand levels.")
-        tools.extend(["Levels Expand", "Contrast Pop"])
+        tools.extend(["Levels Expand", "Contrast Pop", "Primary Color Board"])
     elif dynamic_range > 222.0:
         findings.append(f"Wide tonal range (range {dynamic_range:.1f}); use tone compression for review.")
         tools.append("HDR Tone Compress")
@@ -810,18 +810,18 @@ def diagnose_color(stats: ColorStats) -> ColorDiagnosis:
         findings.append(f"Warm/cool balance is near neutral ({stats.warm_ratio:.2f}/{stats.cool_ratio:.2f}).")
     if stats.mean_saturation < 0.18 or stats.mean_chroma < 28.0:
         findings.append(f"Low chroma/saturation ({stats.mean_chroma:.1f}, {stats.mean_saturation:.2f}); add vibrance.")
-        tools.extend(["Vibrance", "Saturation Boost"])
+        tools.extend(["Vibrance", "Saturation Boost", "Palette Separation Board"])
     elif stats.mean_saturation > 0.62:
         findings.append(f"High saturation ({stats.mean_saturation:.2f}); reduce saturation if skin or broadcast range clips.")
-        tools.append("Saturation Reduce")
+        tools.extend(["Saturation Reduce", "Broadcast-Safe Finish"])
     else:
         findings.append(f"Saturation is in a workable band ({stats.mean_saturation:.2f}).")
     if stats.skin_ratio > 0.10:
         findings.append(f"Skin-tone-like pixels present ({stats.skin_ratio:.2f}); prefer skin-safe vibrance.")
-        tools.append("Skin-Safe Vibrance")
+        tools.extend(["Skin-Safe Vibrance", "Secondary Skin Vector"])
     palette_hex = tuple(_rgb_hex(rgb) for rgb in stats.dominant_rgb[:5])
     if not tools:
-        tools.extend(["Neutral Grade", "Live Pro Color Stack"])
+        tools.extend(["Neutral Grade", "Primary Color Board", "Live Pro Color Stack"])
     suggested_tools = _dedupe_preserve_order(tools)
     summary = f"diagnosis {stats.samples} frames, {len(findings)} findings, tools: {', '.join(suggested_tools[:4])}"
     report_lines = [

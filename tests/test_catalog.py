@@ -95,11 +95,46 @@ def test_color_enhance_tools_are_blender_native_live_stacks():
         "shadow_cool_tint",
         "highlight_warm_tint",
         "skin_tone_isolation",
+        "primary_color_board",
+        "log_zone_color_board",
+        "asc_cdl_finish_board",
+        "six_vector_hue_board",
+        "secondary_skin_vector",
+        "palette_separation_board",
+        "broadcast_safe_finish",
+        "match_prep_neutralizer",
     ):
         tool = get_tool(tool_id)
         assert tool.is_blender_modifier
         assert tool.blender_modifiers
         assert not tool.ffmpeg_filter
+
+
+def test_professional_color_board_tools_are_native_and_node_ready():
+    expected = {
+        "primary_color_board",
+        "log_zone_color_board",
+        "asc_cdl_finish_board",
+        "six_vector_hue_board",
+        "secondary_skin_vector",
+        "palette_separation_board",
+        "broadcast_safe_finish",
+        "match_prep_neutralizer",
+    }
+    for tool_id in expected:
+        tool = get_tool(tool_id)
+        modifier_types = set(tool.blender_modifiers)
+        assert tool.category == "Live Blender Color"
+        assert tool.is_blender_modifier
+        assert tool.blender_stack
+        assert modifier_types.issubset(
+            {"BRIGHT_CONTRAST", "COLOR_BALANCE", "CURVES", "HUE_CORRECT", "TONEMAP", "WHITE_BALANCE"}
+        )
+    assert {"COLOR_BALANCE", "CURVES", "HUE_CORRECT", "TONEMAP"}.issubset(
+        set(get_tool("primary_color_board").blender_modifiers)
+    )
+    assert get_tool("six_vector_hue_board").blender_modifiers[0] == "HUE_CORRECT"
+    assert "CURVES" in get_tool("broadcast_safe_finish").blender_modifiers
 
 
 def test_every_native_blender_color_primitive_is_exposed():

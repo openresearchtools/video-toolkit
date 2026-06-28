@@ -1916,6 +1916,12 @@ def _draw_one_click_video_effects(layout, scene, strip) -> None:
         icon="MODIFIER",
     )
     row = controls.row(align=True)
+    _draw_operator(row, "primary_color_board", icon="COLOR")
+    _draw_operator(row, "six_vector_hue_board", icon="COLOR")
+    row = controls.row(align=True)
+    _draw_operator(row, "broadcast_safe_finish", icon="MODIFIER")
+    _draw_operator(row, "match_prep_neutralizer", icon="EYEDROPPER")
+    row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Pro Grade", icon="MODIFIER")
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname, text="Color Mgmt", icon="WORLD")
     row = controls.row(align=True)
@@ -3555,7 +3561,7 @@ def _score_catalog_recipe(tool, stats, diagnosis):
         add(2.0, "can also generate a native compositor recipe")
     if tool.category == "Live Blender Color":
         add(3.0, "one-click live Blender color recipe")
-    if tool.id in {"live_pro_color_stack", "auto_enhance"}:
+    if tool.id in {"live_pro_color_stack", "auto_enhance", "primary_color_board"}:
         add(8.0, "broad finishing stack for mixed luma/color issues")
     if tool.id == "neutral_grade" and 108.0 <= stats.mean_luma <= 170.0 and 0.20 <= stats.mean_saturation <= 0.58:
         add(9.0, "sampled exposure and saturation are close to neutral")
@@ -3571,25 +3577,25 @@ def _score_catalog_recipe(tool, stats, diagnosis):
         if "TONEMAP" in modifiers or "CURVES" in modifiers:
             add(5.0, "has native tone-map or curve controls")
     else:
-        if _matches(text, "neutral", "pro color", "auto enhance", "shadow/highlight"):
+        if _matches(text, "neutral", "pro color", "auto enhance", "shadow/highlight", "color board", "asc cdl"):
             add(9.0, "balanced exposure benefits from a complete editorial baseline")
 
     if dynamic_range < 118.0 or stats.luma_std < 34.0:
-        if _matches(text, "contrast", "levels", "curve", "s-curve", "black point", "auto enhance"):
+        if _matches(text, "contrast", "levels", "curve", "s-curve", "black point", "auto enhance", "primary", "log zone"):
             add(24.0, "low tonal separation needs curve/levels expansion")
         if "CURVES" in modifiers or "BRIGHT_CONTRAST" in modifiers:
             add(4.0, "contains native contrast/curve controls")
     elif dynamic_range > 222.0:
-        if _matches(text, "hdr", "tone", "compress", "soft contrast", "white point", "legal"):
+        if _matches(text, "hdr", "tone", "compress", "soft contrast", "white point", "legal", "broadcast-safe"):
             add(18.0, "wide tonal range benefits from compression")
 
     if stats.mean_saturation < 0.18 or stats.mean_chroma < 28.0:
-        if _matches(text, "vibrance", "saturation boost", "punchy", "pro color"):
+        if _matches(text, "vibrance", "saturation boost", "punchy", "pro color", "palette", "six-vector", "secondary"):
             add(22.0, "low sampled chroma needs vibrance/saturation")
         if "HUE_CORRECT" in modifiers:
             add(4.0, "has native Hue Correct saturation control")
     elif stats.mean_saturation > 0.62:
-        if _matches(text, "saturation reduce", "skin-safe", "legal"):
+        if _matches(text, "saturation reduce", "skin-safe", "legal", "broadcast-safe"):
             add(22.0, "high sampled saturation needs restraint")
         if "HUE_CORRECT" in modifiers:
             add(3.0, "can control saturation with Hue Correct")
@@ -3616,16 +3622,16 @@ def _score_catalog_recipe(tool, stats, diagnosis):
             add(12.0, "sampled average RGB leans blue")
 
     if stats.skin_ratio > 0.10:
-        if _matches(text, "skin", "skin-safe", "vibrance"):
+        if _matches(text, "skin", "skin-safe", "vibrance", "secondary"):
             add(18.0, "skin-tone-like pixels detected; prefer skin-safe tools")
     if stats.shadow_count > stats.highlight_count * 1.35:
-        if _matches(text, "shadow", "black point", "lift", "gamma"):
+        if _matches(text, "shadow", "black point", "lift", "gamma", "log zone"):
             add(10.0, "shadow-heavy sample distribution")
     if stats.highlight_count > stats.shadow_count * 1.35:
-        if _matches(text, "highlight", "white point", "protect", "hdr"):
+        if _matches(text, "highlight", "white point", "protect", "hdr", "broadcast-safe"):
             add(10.0, "highlight-heavy sample distribution")
 
-    if not reasons and tool.id in {"live_pro_color_stack", "auto_enhance", "neutral_grade"}:
+    if not reasons and tool.id in {"live_pro_color_stack", "auto_enhance", "neutral_grade", "primary_color_board"}:
         add(4.0, "fallback broad Blender-native grade")
     return score, reasons
 
