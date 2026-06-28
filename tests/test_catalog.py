@@ -52,6 +52,25 @@ def test_professional_restoration_tools_are_present():
 
 def test_native_compositor_catalog_tools_are_exposed():
     expected = {
+        "native_compositor_all_color_primitives": {
+            "EXPOSURE",
+            "BRIGHT_CONTRAST",
+            "COLOR_BALANCE",
+            "COLOR_CORRECTION",
+            "CURVE_RGB",
+            "HUE_SAT",
+            "HUE_CORRECT",
+            "TONEMAP",
+            "INVERT",
+            "POSTERIZE",
+            "PREMUL_KEY",
+        },
+        "native_compositor_exposure": {"EXPOSURE"},
+        "native_compositor_color_correction": {"COLOR_CORRECTION"},
+        "native_compositor_hue_saturation": {"HUE_SAT"},
+        "native_compositor_invert": {"INVERT"},
+        "native_compositor_posterize": {"POSTERIZE"},
+        "native_compositor_premultiply": {"PREMUL_KEY"},
         "native_compositor_restore_nodes": {"DENOISE", "DESPECKLE", "BILATERAL_BLUR", "ANTI_ALIASING"},
         "native_compositor_sharpen_cleanup": {"FILTER", "DESPECKLE", "ANTI_ALIASING"},
         "native_compositor_lens_repair": {"LENS_DISTORTION", "SCALE", "ANTI_ALIASING"},
@@ -64,7 +83,7 @@ def test_native_compositor_catalog_tools_are_exposed():
         assert not tool.is_blender_modifier
         assert not tool.is_ffmpeg
         assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
-        assert tool.category in {"Restoration", "Resolution & Motion"}
+        assert tool.category in {"Native Blender Primitives", "Restoration", "Resolution & Motion"}
 
 
 def test_categories_keep_ui_order():
