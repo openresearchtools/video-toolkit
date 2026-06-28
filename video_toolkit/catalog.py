@@ -260,6 +260,9 @@ _LUT1D_FILM_LOOK_TRANSLATION = translate_filter_chain("lut1d=file=warm_print.spi
 _LUT3D_SCENE_LOOK_TRANSLATION = translate_filter_chain("lut3d=file=teal_orange.cube:interp=tetrahedral")
 _HALDCLUT_DISPLAY_MATCH_TRANSLATION = translate_filter_chain("haldclut=interp=tetrahedral:clut=all")
 _COLORMAP_PALETTE_MATCH_TRANSLATION = translate_filter_chain("colormap=patch_size=64x64:nb_patches=32:type=absolute:kernel=weuclidean")
+_PALETTE_GENERATE_TRANSLATION = translate_filter_chain("palettegen=max_colors=96:stats_mode=diff:reserve_transparent=1")
+_PALETTE_USE_TRANSLATION = translate_filter_chain("paletteuse=dither=sierra2_4a:diff_mode=rectangle")
+_AMPLIFY_COLOR_TRANSLATION = translate_filter_chain("amplify=radius=3:factor=2.6:threshold=12:tolerance=2")
 _HISTOGRAM_EQUALIZE_TRANSLATION = translate_filter_chain("histeq=strength=0.42:intensity=0.30:antibanding=1")
 _COLOR_HOLD_TRANSLATION = translate_filter_chain("colorhold=color=blue:similarity=0.18:blend=0.15")
 _HSV_HOLD_TRANSLATION = translate_filter_chain("hsvhold=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.08")
@@ -308,8 +311,12 @@ _NATIVE_CIE_SCOPE_TRANSLATION = translate_filter_chain("ciescope=system=rec709:c
 _NATIVE_DATA_SCOPE_TRANSLATION = translate_filter_chain("datascope=mode=color2:components=all")
 _NATIVE_OSCILLOSCOPE_SCOPE_TRANSLATION = translate_filter_chain("oscilloscope=components=7:intensity=0.65")
 _NATIVE_PIXEL_SCOPE_TRANSLATION = translate_filter_chain("pixscope=x=0.5:y=0.5:w=9:h=9:o=0.65")
+_NATIVE_SHOWPALETTE_TRANSLATION = translate_filter_chain("showpalette=s=30")
+_NATIVE_THUMBNAIL_TRANSLATION = translate_filter_chain("thumbnail=n=60")
+_CUDA_THUMBNAIL_TRANSLATION = translate_filter_chain("thumbnail_cuda=n=60")
 _NATIVE_SIGNAL_STATS_TRANSLATION = translate_filter_chain("signalstats=stat=tout+vrep+brng")
 _NATIVE_COLOR_DETECT_TRANSLATION = translate_filter_chain("colordetect=mode=color_range+alpha_mode+all")
+_NATIVE_ENTROPY_TRANSLATION = translate_filter_chain("entropy=mode=normal:levels=256")
 _NATIVE_BLACK_DETECT_TRANSLATION = translate_filter_chain("blackdetect=d=1.0:pic_th=0.96:pix_th=0.08")
 _NATIVE_VULKAN_BLACK_DETECT_TRANSLATION = translate_filter_chain("blackdetect_vulkan=d=1.0:pic_th=0.96:pix_th=0.08")
 _NATIVE_BLACK_FRAME_TRANSLATION = translate_filter_chain("blackframe=amount=96:threshold=28")
@@ -329,6 +336,8 @@ _NATIVE_PSNR_COMPARE_TRANSLATION = translate_filter_chain("psnr=stats_file=vtk_p
 _NATIVE_XPSNR_COMPARE_TRANSLATION = translate_filter_chain("xpsnr=stats_file=vtk_xpsnr.log:eof_action=repeat")
 _NATIVE_CORR_COMPARE_TRANSLATION = translate_filter_chain("corr=eof_action=repeat:repeatlast=1")
 _NATIVE_MSAD_COMPARE_TRANSLATION = translate_filter_chain("msad=eof_action=repeat:repeatlast=1")
+_NATIVE_VIF_COMPARE_TRANSLATION = translate_filter_chain("vif=stats_file=vtk_vif.log:eof_action=repeat")
+_NATIVE_VMAF_MOTION_TRANSLATION = translate_filter_chain("vmafmotion=stats_file=vtk_vmafmotion.log")
 _NATIVE_XCORRELATE_COMPARE_TRANSLATION = translate_filter_chain("xcorrelate=planes=7:secondary=all:eof_action=repeat")
 _CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey=color=green:similarity=0.18:blend=0.06")
 _CUDA_CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey_cuda=color=green:similarity=0.18:blend=0.06")
@@ -364,6 +373,7 @@ _NATIVE_SOBEL_TRANSLATION = translate_filter_chain("sobel=scale=1.2:delta=0.02")
 _OPENCL_SOBEL_TRANSLATION = translate_filter_chain("sobel_opencl=scale=1.2:delta=0.02")
 _NATIVE_PREWITT_TRANSLATION = translate_filter_chain("prewitt=scale=0.9:delta=0.01")
 _OPENCL_PREWITT_TRANSLATION = translate_filter_chain("prewitt_opencl=scale=0.9:delta=0.01")
+_NATIVE_ROBERTS_TRANSLATION = translate_filter_chain("roberts=scale=0.9:delta=0.01")
 _OPENCL_ROBERTS_TRANSLATION = translate_filter_chain("roberts_opencl=scale=0.9:delta=0.01")
 _NATIVE_KIRSCH_TRANSLATION = translate_filter_chain("kirsch=scale=0.8")
 _NATIVE_EDGE_DETECT_TRANSLATION = translate_filter_chain("edgedetect=high=0.20:low=0.08:mode=wires")
@@ -392,6 +402,7 @@ _NATIVE_BOX_BLUR_TRANSLATION = translate_filter_chain("boxblur=lr=3:lp=2")
 _OPENCL_BOX_BLUR_TRANSLATION = translate_filter_chain("boxblur_opencl=lr=3:lp=2")
 _NATIVE_GAUSSIAN_BLUR_TRANSLATION = translate_filter_chain("gblur=sigma=1.2:steps=2:sigmaV=0.8")
 _VULKAN_GAUSSIAN_BLUR_TRANSLATION = translate_filter_chain("gblur_vulkan=sigma=1.2:steps=2:sigmaV=0.8")
+_NATIVE_VARIABLE_BLUR_TRANSLATION = translate_filter_chain("varblur=min_r=1:max_r=9:planes=7")
 _NATIVE_BILATERAL_TRANSLATION = translate_filter_chain("bilateral=sigmaS=3:sigmaR=0.12")
 _CUDA_BILATERAL_TRANSLATION = translate_filter_chain("bilateral_cuda=sigmaS=3:sigmaR=0.12")
 _NATIVE_SMART_BLUR_TRANSLATION = translate_filter_chain("smartblur=lr=2:ls=0.8:lt=8")
@@ -410,6 +421,8 @@ _NATIVE_ADAPTIVE_TEMPORAL_DENOISE_TRANSLATION = translate_filter_chain(
     "atadenoise=0a=0.02:0b=0.04:1a=0.02:1b=0.04:2a=0.02:2b=0.04"
 )
 _NATIVE_MEDIAN_DESPECKLE_TRANSLATION = translate_filter_chain("median=radius=2:planes=15")
+_NATIVE_TEMPORAL_MEDIAN_TRANSLATION = translate_filter_chain("tmedian=radius=3:percentile=0.50:planes=15")
+_NATIVE_XMEDIAN_TRANSLATION = translate_filter_chain("xmedian=inputs=3:planes=15:percentile=0.50")
 _NATIVE_DEDOT_CLEANUP_TRANSLATION = translate_filter_chain("dedot=lt=0.08:tl=0.08")
 _NATIVE_DEBAND_TRANSLATION = translate_filter_chain("deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20")
 _NATIVE_DEBLOCK_TRANSLATION = translate_filter_chain("deblock=block=16:alpha=0.12:beta=0.08")
@@ -423,6 +436,19 @@ _NATIVE_ESTDIF_DEINTERLACE_TRANSLATION = translate_filter_chain("estdif=mode=sen
 _NATIVE_W3FDIF_DEINTERLACE_TRANSLATION = translate_filter_chain("w3fdif=mode=send_frame:parity=auto:deint=all")
 _QSV_DEINTERLACE_TRANSLATION = translate_filter_chain("deinterlace_qsv=mode=send_frame:parity=auto:deint=all")
 _VAAPI_DEINTERLACE_TRANSLATION = translate_filter_chain("deinterlace_vaapi=mode=send_frame:parity=auto:deint=all")
+_NATIVE_FIELD_EXTRACT_TRANSLATION = translate_filter_chain("field=type=top")
+_NATIVE_FIELD_HINT_TRANSLATION = translate_filter_chain("fieldhint=hint=field.hints:mode=relative")
+_NATIVE_FIELD_MATCH_TRANSLATION = translate_filter_chain("fieldmatch=order=auto:mode=pc_n")
+_NATIVE_FIELD_ORDER_TRANSLATION = translate_filter_chain("fieldorder=order=tff")
+_NATIVE_SET_FIELD_TRANSLATION = translate_filter_chain("setfield=mode=prog")
+_NATIVE_SEPARATE_FIELDS_TRANSLATION = translate_filter_chain("separatefields")
+_NATIVE_REPEAT_FIELDS_TRANSLATION = translate_filter_chain("repeatfields")
+_NATIVE_TELECINE_TRANSLATION = translate_filter_chain("telecine=pattern=23")
+_NATIVE_DETELECINE_TRANSLATION = translate_filter_chain("detelecine=pattern=23")
+_NATIVE_DECIMATE_TRANSLATION = translate_filter_chain("decimate=cycle=5:dupthresh=1.1:scthresh=15")
+_NATIVE_MPDECIMATE_TRANSLATION = translate_filter_chain("mpdecimate=hi=64*12:lo=64*5:frac=0.33")
+_NATIVE_MCDEINT_TRANSLATION = translate_filter_chain("mcdeint=mode=fast:parity=auto")
+_NATIVE_NNEDI_TRANSLATION = translate_filter_chain("nnedi=weights=nnedi3_weights.bin:deint=all")
 _NATIVE_DESHAKE_TRANSLATION = translate_filter_chain("deshake=rx=16:ry=16")
 _OPENCL_DESHAKE_TRANSLATION = translate_filter_chain("deshake_opencl=rx=16:ry=16")
 _NATIVE_VIDSTAB_DETECT_TRANSLATION = translate_filter_chain("vidstabdetect=shakiness=5:accuracy=15:result=transforms.trf")
@@ -443,6 +469,10 @@ _CUDA_SCALE_FIT_TRANSLATION = translate_filter_chain("scale_cuda=w=1920:h=1080:f
 _QSV_SCALE_FIT_TRANSLATION = translate_filter_chain("scale_qsv=w=1920:h=1080:flags=lanczos")
 _VAAPI_SCALE_FIT_TRANSLATION = translate_filter_chain("scale_vaapi=w=1920:h=1080:flags=lanczos")
 _VULKAN_SCALE_FIT_TRANSLATION = translate_filter_chain("scale_vulkan=w=1920:h=1080:flags=lanczos")
+_NATIVE_FILLBORDERS_TRANSLATION = translate_filter_chain("fillborders=left=16:right=16:top=10:bottom=10:mode=mirror")
+_NATIVE_FLOODFILL_TRANSLATION = translate_filter_chain("floodfill=x=24:y=24:color=black:similarity=0.08")
+_NATIVE_UNTILE_TRANSLATION = translate_filter_chain("untile=layout=2x2:index=0")
+_NATIVE_V360_TRANSLATION = translate_filter_chain("v360=input=equirect:output=flat:yaw=12:pitch=-4:roll=0:h_fov=110")
 _NATIVE_CENTER_CROP_TRANSLATION = translate_filter_chain("crop=w=iw*0.9:h=ih*0.9:x=iw*0.05:y=ih*0.05")
 _NATIVE_ROTATE_LEVEL_TRANSLATION = translate_filter_chain("rotate=angle=2*PI/180:fillcolor=black")
 _NATIVE_TRANSPOSE_CLOCKWISE_TRANSLATION = translate_filter_chain("transpose=dir=clock")
@@ -1257,6 +1287,33 @@ TOOLS: tuple[VideoTool, ...] = (
         description="Translated FFmpeg colormap palette-match intent as Blender Hue Correct, RGB Curves, and Color Balance controls.",
         blender_stack=_COLORMAP_PALETTE_MATCH_TRANSLATION.stack,
         compositor_stack=_COLORMAP_PALETTE_MATCH_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="palette_generate_board",
+        label="Palette Generate Board",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg palettegen intent as live Blender hue-zone compression, RGB curves, and palette-separation controls.",
+        blender_stack=_PALETTE_GENERATE_TRANSLATION.stack,
+        compositor_stack=_PALETTE_GENERATE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="palette_use_match",
+        label="Palette Use Match",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg paletteuse intent as editable Blender palette matching, dithering metadata, curves, and color balance.",
+        blender_stack=_PALETTE_USE_TRANSLATION.stack,
+        compositor_stack=_PALETTE_USE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="temporal_change_amplifier",
+        label="Temporal Change Amplifier",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg amplify intent as live Blender contrast, gamma, and chroma emphasis with temporal threshold metadata.",
+        blender_stack=_AMPLIFY_COLOR_TRANSLATION.stack,
+        compositor_stack=_AMPLIFY_COLOR_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="histogram_equalize",
@@ -2281,6 +2338,14 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_OPENCL_PREWITT_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_roberts_edges",
+        label="Native Roberts Edges",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg roberts edge intent as an editable Blender-native edge preview graph.",
+        compositor_stack=_NATIVE_ROBERTS_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_opencl_roberts_edges",
         label="OpenCL Roberts Edges",
         category="Native Filter & Blur",
@@ -2423,6 +2488,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg gblur_vulkan intent as Blender's native Gaussian Blur compositor graph without requiring Vulkan rendering.",
         compositor_stack=_VULKAN_GAUSSIAN_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_variable_blur",
+        label="Native Variable Blur Preview",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg varblur intent as Blender's native Blur graph with min/max radius metadata.",
+        compositor_stack=_NATIVE_VARIABLE_BLUR_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_bilateral_filter",
@@ -2775,12 +2848,44 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_PIXEL_SCOPE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_ffmpeg_showpalette",
+        label="Show Palette Monitor",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg showpalette intent as Blender RGB/luma palette-monitor graph metadata for the selected strip.",
+        compositor_stack=_NATIVE_SHOWPALETTE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_thumbnail",
+        label="Thumbnail Frame Preview",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg thumbnail representative-frame intent as Blender diagnostic monitor nodes with selection-window metadata.",
+        compositor_stack=_NATIVE_THUMBNAIL_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_cuda_thumbnail",
+        label="CUDA Thumbnail Preview",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg thumbnail_cuda intent as Blender diagnostic monitor nodes without requiring CUDA rendering.",
+        compositor_stack=_CUDA_THUMBNAIL_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_ffmpeg_signal_stats",
         label="Signal Stats",
         category="Native Analysis & Utility",
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg signalstats intent as Blender Levels and Image Info diagnostic nodes for the selected strip.",
         compositor_stack=_NATIVE_SIGNAL_STATS_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_entropy",
+        label="Entropy Detail Monitor",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg entropy detail-analysis intent as Blender RGB/luma monitor nodes with entropy-mode metadata.",
+        compositor_stack=_NATIVE_ENTROPY_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_ffmpeg_color_detect",
@@ -2941,6 +3046,22 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg msad mean-sum-absolute-difference intent as a Blender luma difference overlay graph.",
         compositor_stack=_NATIVE_MSAD_COMPARE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_vif_compare",
+        label="VIF Fidelity Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg vif visual-information-fidelity intent as a Blender luma/edge reference overlay graph.",
+        compositor_stack=_NATIVE_VIF_COMPARE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_vmafmotion_compare",
+        label="VMAF Motion Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg vmafmotion intent as a Blender motion/edge reference overlay graph with stats metadata.",
+        compositor_stack=_NATIVE_VMAF_MOTION_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_ffmpeg_xcorrelate_compare",
@@ -3195,6 +3316,22 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_MEDIAN_DESPECKLE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_temporal_median_preview",
+        label="Native Temporal Median Preview",
+        category="Native Denoise & Cleanup",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg tmedian intent as Blender's native Despeckle preview with temporal median metadata.",
+        compositor_stack=_NATIVE_TEMPORAL_MEDIAN_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_xmedian_preview",
+        label="Native XMedian Preview",
+        category="Native Denoise & Cleanup",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg xmedian multi-input median intent as Blender's native Despeckle preview with cross-input metadata.",
+        compositor_stack=_NATIVE_XMEDIAN_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_dedot_cleanup",
         label="Native Dedot Cleanup",
         category="Native Denoise & Cleanup",
@@ -3369,6 +3506,110 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_VAAPI_DEINTERLACE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_field_extract_preview",
+        label="Native Field Extract Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg field intent as Blender Anti-Aliasing and field-blend preview nodes with field metadata.",
+        compositor_stack=_NATIVE_FIELD_EXTRACT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_field_hint_preview",
+        label="Native Field Hint Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg fieldhint intent as Blender field-cadence preview nodes with hint metadata.",
+        compositor_stack=_NATIVE_FIELD_HINT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_field_match_preview",
+        label="Native Field Match Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg fieldmatch intent as Blender cadence/field-match preview nodes.",
+        compositor_stack=_NATIVE_FIELD_MATCH_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_field_order_preview",
+        label="Native Field Order Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg fieldorder intent as Blender field-order preview nodes with parity metadata.",
+        compositor_stack=_NATIVE_FIELD_ORDER_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_setfield_metadata",
+        label="Native Set Field Metadata",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg setfield intent as Blender field metadata plus visible edge-smoothing preview nodes.",
+        compositor_stack=_NATIVE_SET_FIELD_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_separate_fields_preview",
+        label="Native Separate Fields Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg separatefields intent as Blender vertical field-blend preview nodes.",
+        compositor_stack=_NATIVE_SEPARATE_FIELDS_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_repeat_fields_preview",
+        label="Native Repeat Fields Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg repeatfields intent as Blender field cadence preview nodes.",
+        compositor_stack=_NATIVE_REPEAT_FIELDS_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_telecine_preview",
+        label="Native Telecine Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg telecine cadence intent as Blender field-blend preview nodes with pattern metadata.",
+        compositor_stack=_NATIVE_TELECINE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_detelecine_preview",
+        label="Native Detelecine Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg detelecine cadence intent as Blender field-blend preview nodes with pattern metadata.",
+        compositor_stack=_NATIVE_DETELECINE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_decimate_preview",
+        label="Native Decimate Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg decimate duplicate-frame intent as Blender luma monitor and motion-preview nodes.",
+        compositor_stack=_NATIVE_DECIMATE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_mpdecimate_preview",
+        label="Native MPDecimate Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg mpdecimate intent as Blender duplicate-frame monitor and motion-preview nodes.",
+        compositor_stack=_NATIVE_MPDECIMATE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_mcdeint_preview",
+        label="Native MCDeint Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg mcdeint intent as Blender deinterlace preview nodes with motion-compensation metadata.",
+        compositor_stack=_NATIVE_MCDEINT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_nnedi_preview",
+        label="Native NNEDI Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg nnedi intent as Blender deinterlace preview nodes with NNEDI metadata.",
+        compositor_stack=_NATIVE_NNEDI_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_deshake_stabilize",
         label="Native Deshake Stabilize",
         category="Restoration",
@@ -3484,6 +3725,38 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg scale_vulkan intent as Blender's native compositor Scale graph without requiring Vulkan rendering.",
         compositor_stack=_VULKAN_SCALE_FIT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_fillborders_repair",
+        label="Native Fill Borders Repair",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg fillborders intent as Blender overscan scale and seam-softening preview nodes.",
+        compositor_stack=_NATIVE_FILLBORDERS_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_floodfill_repair",
+        label="Native Flood Fill Repair",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg floodfill intent as Blender Inpaint and color-overlay preview nodes with seed metadata.",
+        compositor_stack=_NATIVE_FLOODFILL_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_untile_extract",
+        label="Native Untile Extract",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg untile intent as Blender Scale and Translate graphlets with layout/cell metadata.",
+        compositor_stack=_NATIVE_UNTILE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_v360_projection",
+        label="Native V360 Projection Preview",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg v360 projection intent as Blender Lens Distortion and Transform preview nodes.",
+        compositor_stack=_NATIVE_V360_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_compositor_center_crop",

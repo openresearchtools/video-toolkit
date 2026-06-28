@@ -49,6 +49,9 @@ NATIVE_FFMPEG_COLOR_FILTERS = (
     "procamp_vaapi",
     "tonemap_opencl",
     "tonemap_vaapi",
+    "amplify",
+    "palettegen",
+    "paletteuse",
 )
 
 NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS = (
@@ -95,6 +98,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "sobel_opencl",
     "prewitt",
     "prewitt_opencl",
+    "roberts",
     "roberts_opencl",
     "kirsch",
     "edgedetect",
@@ -111,6 +115,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "boxblur_opencl",
     "gblur",
     "gblur_vulkan",
+    "varblur",
     "bilateral",
     "bilateral_cuda",
     "smartblur",
@@ -133,6 +138,8 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "vaguedenoiser",
     "atadenoise",
     "median",
+    "tmedian",
+    "xmedian",
     "dedot",
     "dctdnoiz",
     "deband",
@@ -147,6 +154,19 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "w3fdif",
     "deinterlace_qsv",
     "deinterlace_vaapi",
+    "field",
+    "fieldhint",
+    "fieldmatch",
+    "fieldorder",
+    "setfield",
+    "separatefields",
+    "repeatfields",
+    "telecine",
+    "detelecine",
+    "decimate",
+    "mpdecimate",
+    "mcdeint",
+    "nnedi",
     "deshake",
     "deshake_opencl",
     "vidstabdetect",
@@ -166,6 +186,10 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "scale_qsv",
     "scale_vaapi",
     "scale_vulkan",
+    "fillborders",
+    "floodfill",
+    "untile",
+    "v360",
     "transpose_opencl",
     "transpose_vaapi",
     "transpose_vulkan",
@@ -180,8 +204,12 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "datascope",
     "oscilloscope",
     "pixscope",
+    "showpalette",
+    "thumbnail",
+    "thumbnail_cuda",
     "signalstats",
     "colordetect",
+    "entropy",
     "blackdetect",
     "blackdetect_vulkan",
     "blackframe",
@@ -201,6 +229,8 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "xpsnr",
     "corr",
     "msad",
+    "vif",
+    "vmafmotion",
     "xcorrelate",
 )
 
@@ -305,6 +335,18 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             color_management.extend(accelerated_tonemap_to_blender_color_management(**args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender Tone Map/Hue controls plus color-management metadata; OpenCL/VAAPI hardware execution is replaced by native Blender preview nodes.")
+        elif name == "amplify":
+            amplify_stack = amplify_to_blender_stack(**args)
+            stack.extend(amplify_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(amplify_stack, "amplify", "Amplify"))
+            supported.append(name)
+            notes.append("Amplify temporal-difference intent is represented with editable Blender contrast, gamma, and hue/chroma emphasis; frame-difference accumulation remains a rendered fallback.")
+        elif name in {"palettegen", "paletteuse"}:
+            palette_stack = palette_filter_to_blender_stack(name, **args)
+            stack.extend(palette_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(palette_stack, name, "Palette"))
+            supported.append(name)
+            notes.append(f"{name} palette quantization/matching intent is approximated with Blender Hue Correct, RGB Curves, and Color Balance palette controls.")
         elif name == "normalize":
             normalize_stack = normalize_to_blender_stack(**args)
             stack.extend(normalize_stack)
@@ -457,7 +499,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(detail_cleanup_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor detail/cleanup nodes.")
-        elif name in {"sobel", "sobel_opencl", "prewitt", "prewitt_opencl", "roberts_opencl", "kirsch", "edgedetect"}:
+        elif name in {"sobel", "sobel_opencl", "prewitt", "prewitt_opencl", "roberts", "roberts_opencl", "kirsch", "edgedetect"}:
             compositor_nodes.extend(edge_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Filter edge-detection nodes.")
@@ -469,7 +511,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(convolution_to_blender_compositor(**args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Convolve nodes with generated kernel images.")
-        elif name in {"avgblur", "avgblur_opencl", "avgblur_vulkan", "boxblur", "boxblur_opencl", "gblur", "gblur_vulkan"}:
+        elif name in {"avgblur", "avgblur_opencl", "avgblur_vulkan", "boxblur", "boxblur_opencl", "gblur", "gblur_vulkan", "varblur"}:
             compositor_nodes.extend(blur_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Blur nodes.")
@@ -505,15 +547,27 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(lenscorrection_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Lenscorrection is approximated with Blender compositor Lens Distortion controls.")
-        elif name in {"hqdn3d", "nlmeans", "nlmeans_opencl", "nlmeans_vulkan", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise", "median", "dedot", "dctdnoiz", "deband", "deblock"}:
+        elif name in {"fillborders", "floodfill"}:
+            compositor_nodes.extend(border_fill_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is translated to Blender native crop/scale/inpaint/overlay border-repair graphlets.")
+        elif name == "untile":
+            compositor_nodes.extend(untile_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Untile is represented with Blender compositor Scale/Crop graphlets and layout metadata for extracting tiled video cells.")
+        elif name == "v360":
+            compositor_nodes.extend(v360_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("V360 projection conversion is approximated with Blender Lens Distortion and Transform nodes; exact projection warping remains a rendered fallback.")
+        elif name in {"hqdn3d", "nlmeans", "nlmeans_opencl", "nlmeans_vulkan", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise", "median", "tmedian", "xmedian", "dedot", "dctdnoiz", "deband", "deblock"}:
             compositor_nodes.extend(restoration_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor restoration nodes; temporal behavior is approximated spatially where Blender has no temporal node.")
-        elif name in {"deflicker", "bwdif", "bwdif_cuda", "bwdif_vulkan", "yadif", "yadif_cuda", "estdif", "w3fdif", "deinterlace_qsv", "deinterlace_vaapi", "deshake", "deshake_opencl", "vidstabdetect", "vidstabtransform", "tmix", "fps", "framerate", "minterpolate"}:
+        elif name in {"deflicker", "bwdif", "bwdif_cuda", "bwdif_vulkan", "yadif", "yadif_cuda", "estdif", "w3fdif", "deinterlace_qsv", "deinterlace_vaapi", "field", "fieldhint", "fieldmatch", "fieldorder", "setfield", "separatefields", "repeatfields", "telecine", "detelecine", "decimate", "mpdecimate", "mcdeint", "nnedi", "deshake", "deshake_opencl", "vidstabdetect", "vidstabtransform", "tmix", "fps", "framerate", "minterpolate"}:
             compositor_nodes.extend(temporal_motion_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to native Blender compositor temporal/motion graphlets with editable FFmpeg timing metadata; temporal output generation remains a rendered fallback when Blender has no frame-neighborhood node.")
-        elif name in {"histogram", "thistogram", "waveform", "vectorscope", "ciescope", "datascope", "oscilloscope", "pixscope", "signalstats", "colordetect"}:
+        elif name in {"histogram", "thistogram", "waveform", "vectorscope", "ciescope", "datascope", "oscilloscope", "pixscope", "showpalette", "thumbnail", "thumbnail_cuda", "signalstats", "colordetect", "entropy"}:
             compositor_nodes.extend(scope_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to a Blender compositor diagnostic graph using RGB/luma monitor nodes.")
@@ -525,7 +579,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(identity_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Identity is translated to a Blender reference-difference diagnostic graph; FFmpeg's numeric two-stream identity metrics are represented visually with native Difference Matte and overlay nodes.")
-        elif name in {"ssim", "psnr", "xpsnr", "corr", "msad", "xcorrelate"}:
+        elif name in {"ssim", "psnr", "xpsnr", "corr", "msad", "vif", "vmafmotion", "xcorrelate"}:
             compositor_nodes.extend(quality_compare_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to a Blender native quality/reference compare graph using luma, edge emphasis, Difference Matte, and overlay nodes; FFmpeg numeric metric logs are represented as editable graph metadata.")
@@ -1225,6 +1279,107 @@ def accelerated_tonemap_to_blender_color_management(**options: str | int | float
     if sequencer_input:
         pairs.insert(0, ("sequencer_input", sequencer_input))
     return tuple(_dedupe_pairs(pairs))
+
+
+def amplify_to_blender_stack(
+    *,
+    radius: str | int | float = 2,
+    factor: str | int | float = 2.0,
+    threshold: str | int | float = 10,
+    tolerance: str | int | float = 0,
+    low: str | int | float = 65535,
+    high: str | int | float = 65535,
+    **_unused: str,
+) -> BlenderStack:
+    radius_value = _clamp(_float(radius, 2.0), 1.0, 63.0)
+    factor_value = _clamp(_float(factor, 2.0), 0.0, 16.0)
+    threshold_value = _clamp(_float(threshold, 10.0), 0.0, 65535.0)
+    tolerance_value = _clamp(_float(tolerance, 0.0), 0.0, 65535.0)
+    low_value = _clamp(_float(low, 65535.0), 0.0, 65535.0)
+    high_value = _clamp(_float(high, 65535.0), 0.0, 65535.0)
+    contrast = _clamp((factor_value - 1.0) * 18.0 + radius_value * 0.8, -100.0, 100.0)
+    saturation = _clamp(0.10 + factor_value / 12.0, 0.0, 1.0)
+    gamma = _clamp(1.0 + (threshold_value - tolerance_value) / 65535.0 * 0.22, 0.5, 2.0)
+    return (
+        ("BRIGHT_CONTRAST", {"bright": 0.0, "contrast": contrast}),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.gamma": (gamma, gamma, gamma),
+                "color_balance.gain": (1.0 + saturation * 0.05, 1.0, 1.0 - saturation * 0.04),
+            },
+        ),
+        (
+            "HUE_CORRECT",
+            {
+                "__hue_correct__": {"saturation": saturation, "value": _clamp(factor_value / 16.0, 0.0, 1.0)},
+                "__metadata__": {
+                    "radius": radius_value,
+                    "factor": factor_value,
+                    "threshold": threshold_value,
+                    "tolerance": tolerance_value,
+                    "low": low_value,
+                    "high": high_value,
+                    "source": "amplify",
+                    "approximation": "FFmpeg amplify compares neighboring frames. Blender VSE exposes the intent as editable contrast/gamma/chroma emphasis while storing temporal thresholds for rendered fallback parity.",
+                },
+            },
+        ),
+    )
+
+
+def palette_filter_to_blender_stack(source: str, **options: str | int | float) -> BlenderStack:
+    name = str(source).strip().lower()
+    max_colors = _clamp(_float(_option(options, "max_colors", default=256), 256.0), 2.0, 256.0)
+    reserve_transparent = _truthy(_option(options, "reserve_transparent", default=True))
+    stats_mode = str(_option(options, "stats_mode", default="full"))
+    dither = str(_option(options, "dither", default="sierra2_4a"))
+    diff_mode = str(_option(options, "diff_mode", default="rectangle"))
+    color_count = max(2.0, max_colors)
+    saturation = _clamp(0.18 + (256.0 - color_count) / 512.0, 0.0, 0.8)
+    posterize_bias = _clamp((256.0 - color_count) / 512.0, 0.0, 0.45)
+    curve_high = _clamp(1.0 - posterize_bias * 0.35, 0.72, 1.0)
+    warm_bias = 0.03 if name == "paletteuse" else 0.0
+    return (
+        (
+            "HUE_CORRECT",
+            {
+                "__hue_correct__": {"saturation": saturation, "value": posterize_bias * 0.6},
+                "__metadata__": {
+                    "max_colors": int(round(max_colors)),
+                    "reserve_transparent": reserve_transparent,
+                    "stats_mode": stats_mode,
+                    "dither": dither,
+                    "diff_mode": diff_mode,
+                    "source": name,
+                    "approximation": "Palette generation/use is represented by live hue-zone compression and palette-separation controls; exact indexed-palette quantization remains a rendered fallback.",
+                },
+            },
+        ),
+        (
+            "CURVES",
+            {
+                "__curve_points__": {
+                    0: [(0.0, 0.0), (0.25, 0.22), (0.50, 0.50), (0.75, 0.78), (1.0, curve_high)],
+                    1: [(0.0, warm_bias), (0.50, 0.50 + warm_bias), (1.0, curve_high)],
+                    2: [(0.0, 0.0), (0.50, 0.50), (1.0, curve_high)],
+                    3: [(0.0, 0.0), (0.50, 0.50 - warm_bias), (1.0, curve_high)],
+                },
+                "__metadata__": {"max_colors": int(round(max_colors)), "source": name},
+            },
+        ),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.lift": (1.0 + warm_bias, 1.0, 1.0 - warm_bias),
+                "color_balance.gamma": (1.0, 1.0, 1.0),
+                "color_balance.gain": (1.0 + warm_bias * 0.5, 1.0, 1.0 - warm_bias * 0.5),
+                "__metadata__": {"source": name},
+            },
+        ),
+    )
 
 
 def normalize_to_blender_stack(
@@ -2547,6 +2702,14 @@ def blur_to_blender_compositor(source: str, **options: str | int | float) -> Com
         size_y = size_x
         blur_type = "Flat"
         samples = int(max(1, round(power)))
+    elif base_name == "varblur":
+        min_radius = _clamp(_float(_option(options, "min_r", "min_radius", default=0), 0.0), 0.0, 1024.0)
+        max_radius = _clamp(_float(_option(options, "max_r", "max_radius", "radius", "arg0", default=8), 8.0), 0.0, 1024.0)
+        planes = str(_option(options, "planes", default=15))
+        size_x = _clamp((min_radius + max_radius) * 0.5, 0.0, 1024.0)
+        size_y = size_x
+        blur_type = "Gaussian"
+        samples = int(_clamp(round(max_radius - min_radius + 1.0), 1.0, 32.0))
     else:
         sigma = _clamp(_float(_option(options, "sigma", "arg0", default=0.5), 0.5), 0.0, 1024.0)
         steps = _clamp(_float(_option(options, "steps", "arg1", default=1), 1.0), 1.0, 6.0)
@@ -2555,6 +2718,7 @@ def blur_to_blender_compositor(source: str, **options: str | int | float) -> Com
         size_y = _clamp((sigma_v if sigma_v >= 0.0 else sigma) * (2.0 + steps * 0.35), 0.0, 1024.0)
         blur_type = "Gaussian"
         samples = int(round(steps))
+        planes = str(_option(options, "planes", "arg2", default=15))
     return (
         (
             "BLUR",
@@ -2563,16 +2727,21 @@ def blur_to_blender_compositor(source: str, **options: str | int | float) -> Com
                     "avgblur": "Average Blur",
                     "boxblur": "Box Blur",
                     "gblur": "Gaussian Blur",
+                    "varblur": "Variable Blur Preview",
                 }.get(base_name, "Blur"),
                 "size": (size_x, size_y),
                 "blur_type": blur_type,
                 "extend_bounds": False,
                 "separable": True,
                 "samples": samples,
-                "planes": str(_option(options, "planes", "arg1" if base_name == "avgblur" else "arg2", default=15)),
+                "planes": planes if base_name in {"varblur", "gblur"} else str(_option(options, "planes", "arg1" if base_name == "avgblur" else "arg2", default=15)),
                 "source": name,
                 "hardware_filter": name if name != base_name else "",
-                "approximation": f"{name} hardware/API execution is represented with Blender's native compositor Blur node." if name != base_name else "",
+                "approximation": (
+                    "FFmpeg varblur uses a second stream as a per-pixel radius map. Blender's native preview uses the average min/max radius on a Blur node and stores the mask/radius metadata."
+                    if base_name == "varblur"
+                    else (f"{name} hardware/API execution is represented with Blender's native compositor Blur node." if name != base_name else "")
+                ),
             },
         ),
     )
@@ -2876,11 +3045,158 @@ def lenscorrection_to_blender_compositor(
     )
 
 
+def border_fill_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    if name == "fillborders":
+        mode = str(_option(options, "mode", "m", default="mirror"))
+        left = _clamp(_float(_option(options, "left", "l", default=8), 8.0), 0.0, 4096.0)
+        right = _clamp(_float(_option(options, "right", "r", default=8), 8.0), 0.0, 4096.0)
+        top = _clamp(_float(_option(options, "top", "t", default=8), 8.0), 0.0, 4096.0)
+        bottom = _clamp(_float(_option(options, "bottom", "b", default=8), 8.0), 0.0, 4096.0)
+        overscan = _clamp(1.0 + max(left, right, top, bottom) / 480.0, 1.0, 1.35)
+        return (
+            (
+                "SCALE",
+                {
+                    "label": "Fill Borders Overscan",
+                    "type": "Relative",
+                    "x": overscan,
+                    "y": overscan,
+                    "frame_type": "Stretch",
+                    "interpolation": "Bicubic",
+                    "source": name,
+                    "mode": mode,
+                    "borders": {"left": left, "right": right, "top": top, "bottom": bottom},
+                    "approximation": "FFmpeg fillborders mirrors/smears selected border pixels. Blender previews this by overscanning the selected strip and preserving border widths/mode as metadata.",
+                },
+            ),
+            (
+                "BLUR",
+                {
+                    "label": "Border Seam Softener",
+                    "size": (_clamp(max(left, right) / 16.0, 0.5, 32.0), _clamp(max(top, bottom) / 16.0, 0.5, 32.0)),
+                    "blur_type": "Flat",
+                    "extend_bounds": True,
+                    "separable": True,
+                    "samples": 2,
+                    "source": name,
+                    "mode": mode,
+                },
+            ),
+        )
+    x = _clamp(_float(_option(options, "x", default=0), 0.0), 0.0, 8192.0)
+    y = _clamp(_float(_option(options, "y", default=0), 0.0), 0.0, 8192.0)
+    color = _parse_color(str(_option(options, "color", "c", default="black")), (0.0, 0.0, 0.0))
+    similarity = _clamp(_float(_option(options, "similarity", "s", default=0.08), 0.08), 0.0, 1.0)
+    return (
+        (
+            "NATIVE_NODE",
+            {
+                "node_type": "CompositorNodeInpaint",
+                "label": "Flood Fill Inpaint Preview",
+                "inputs": {"Size": int(_clamp(round(2.0 + similarity * 24.0), 1.0, 64.0))},
+                "metadata": {"seed": (x, y), "fill_color": (*color, 1.0), "similarity": similarity},
+                "source": name,
+                "approximation": "FFmpeg floodfill tracks a connected region from a seed pixel. Blender previews the repair intent with native Inpaint and stores the seed/color/similarity metadata.",
+            },
+        ),
+        (
+            "RGB_OVERLAY",
+            {
+                "label": "Flood Fill Color Overlay",
+                "outputs": {"Color": (*color, 1.0)},
+                "factor": _clamp(similarity * 0.6, 0.02, 0.5),
+                "seed": (x, y),
+                "source": name,
+            },
+        ),
+    )
+
+
+def untile_to_blender_compositor(**options: str | int | float) -> CompositorStack:
+    layout = str(_option(options, "layout", default="2x2")).lower().replace(":", "x")
+    raw_columns, raw_rows = _parse_size_pair(layout)
+    columns = _clamp(_dimension_or_default(raw_columns, 2.0), 1.0, 64.0)
+    rows = _clamp(_dimension_or_default(raw_rows, 2.0), 1.0, 64.0)
+    index = int(_clamp(_float(_option(options, "index", "idx", default=0), 0.0), 0.0, columns * rows - 1.0))
+    x_index = index % int(columns)
+    y_index = index // int(columns)
+    return (
+        (
+            "SCALE",
+            {
+                "label": "Untile Cell Scale",
+                "type": "Relative",
+                "x": columns,
+                "y": rows,
+                "frame_type": "Stretch",
+                "interpolation": "Bilinear",
+                "layout": layout,
+                "cell_index": index,
+                "source": "untile",
+                "approximation": "FFmpeg untile turns a tiled image into frames. Blender previews a chosen cell by scaling the tile grid and storing layout/index metadata.",
+            },
+        ),
+        (
+            "NATIVE_NODE",
+            {
+                "node_type": "CompositorNodeTranslate",
+                "label": "Untile Cell Offset",
+                "inputs": {"X": -x_index * 100.0, "Y": -y_index * 100.0, "Interpolation": "Bilinear"},
+                "metadata": {"layout": layout, "cell_index": index},
+                "source": "untile",
+            },
+        ),
+    )
+
+
+def v360_to_blender_compositor(**options: str | int | float) -> CompositorStack:
+    input_projection = str(_option(options, "input", "i", default="equirect"))
+    output_projection = str(_option(options, "output", "o", default="flat"))
+    yaw = _float(_option(options, "yaw", default=0.0), 0.0)
+    pitch = _float(_option(options, "pitch", default=0.0), 0.0)
+    roll = _float(_option(options, "roll", default=0.0), 0.0)
+    h_fov = _clamp(_float(_option(options, "h_fov", "h_fov_degrees", default=90.0), 90.0), 1.0, 360.0)
+    distortion = _clamp((h_fov - 90.0) / 180.0, -1.0, 1.0)
+    return (
+        (
+            "LENS_DISTORTION",
+            {
+                "label": "V360 Projection Warp Preview",
+                "distortion": distortion,
+                "dispersion": 0.0,
+                "fit": True,
+                "input_projection": input_projection,
+                "output_projection": output_projection,
+                "h_fov": h_fov,
+                "source": "v360",
+                "approximation": "FFmpeg v360 performs spherical projection remapping. Blender previews the projection pressure with Lens Distortion and stores projection/FOV metadata for exact rendered fallback.",
+            },
+        ),
+        (
+            "NATIVE_NODE",
+            {
+                "node_type": "CompositorNodeTransform",
+                "label": "V360 View Rotation",
+                "inputs": {
+                    "X": _clamp(yaw, -360.0, 360.0) / 6.0,
+                    "Y": _clamp(pitch, -360.0, 360.0) / 6.0,
+                    "Angle": _radians_expression(roll, 0.0),
+                    "Scale": 1.0,
+                    "Interpolation": "Bilinear",
+                },
+                "metadata": {"input_projection": input_projection, "output_projection": output_projection},
+                "source": "v360",
+            },
+        ),
+    )
+
+
 def restoration_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
     name = str(source).strip().lower()
     if name in {"hqdn3d", "nlmeans", "nlmeans_opencl", "nlmeans_vulkan", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise", "dctdnoiz"}:
         return _denoise_to_blender_compositor(name, options)
-    if name in {"median", "dedot"}:
+    if name in {"median", "tmedian", "xmedian", "dedot"}:
         return _despeckle_to_blender_compositor(name, options)
     if name == "deband":
         return _deband_to_blender_compositor(options)
@@ -2980,6 +3296,96 @@ def temporal_motion_filter_to_blender_compositor(source: str, **options: str | i
                     "source": name,
                     "hardware_filter": name if name != base_name else "",
                     "approximation": "Subtle vertical smoothing previews field-line cleanup; full field reconstruction remains the rendered FFmpeg fallback.",
+                },
+            ),
+        )
+    if name in {"field", "fieldhint", "fieldmatch", "fieldorder", "setfield", "separatefields", "repeatfields", "telecine", "detelecine", "mcdeint", "nnedi"}:
+        mode = str(_option(options, "mode", "arg0", default="auto"))
+        parity = str(_option(options, "parity", "order", "arg1", default="auto"))
+        pattern = str(_option(options, "pattern", "telecine", default="23"))
+        field = str(_option(options, "field", "type", default="auto"))
+        labels = {
+            "field": "Field Extract Preview",
+            "fieldhint": "Field Hint Preview",
+            "fieldmatch": "Field Match Preview",
+            "fieldorder": "Field Order Preview",
+            "setfield": "Set Field Metadata",
+            "separatefields": "Separate Fields Preview",
+            "repeatfields": "Repeat Fields Preview",
+            "telecine": "Telecine Cadence Preview",
+            "detelecine": "Detelecine Cadence Preview",
+            "mcdeint": "Motion-Compensated Deinterlace Preview",
+            "nnedi": "NNEDI Deinterlace Preview",
+        }
+        return (
+            (
+                "ANTI_ALIASING",
+                {
+                    "label": labels.get(name, "Field Preview"),
+                    "threshold": 0.14,
+                    "contrast_limit": 1.6,
+                    "corner_rounding": 0.30,
+                    "mode": mode,
+                    "parity": parity,
+                    "field": field,
+                    "pattern": pattern,
+                    "source": name,
+                    "approximation": "FFmpeg field/telecine filters operate on field cadence over time. Blender's preview applies edge smoothing and stores field order/cadence metadata for rendered fallback parity.",
+                },
+            ),
+            (
+                "BLUR",
+                {
+                    "label": "Field Cadence Blend",
+                    "size": (0.0, 1.0 if name in {"field", "setfield", "fieldorder"} else 1.6),
+                    "blur_type": "Flat",
+                    "extend_bounds": False,
+                    "separable": True,
+                    "samples": 2,
+                    "mode": mode,
+                    "parity": parity,
+                    "field": field,
+                    "pattern": pattern,
+                    "source": name,
+                },
+            ),
+        )
+    if name in {"decimate", "mpdecimate"}:
+        cycle = int(_clamp(round(_float(_option(options, "cycle", "arg0", default=5), 5.0)), 1.0, 100.0))
+        dupthresh = _clamp(_float(_option(options, "dupthresh", "hi", default=1.1), 1.1), 0.0, 100.0)
+        scthresh = _clamp(_float(_option(options, "scthresh", "lo", default=15.0), 15.0), 0.0, 100.0)
+        return (
+            (
+                "SCOPE_MONITOR",
+                {
+                    "label": "Decimate Duplicate Monitor" if name == "decimate" else "MPDecimate Duplicate Monitor",
+                    "scope": name,
+                    "mode": "duplicate_frame_cadence",
+                    "components": "luma",
+                    "intensity": 0.70,
+                    "cycle": cycle,
+                    "dupthresh": dupthresh,
+                    "scthresh": scthresh,
+                    "source": name,
+                    "approximation": "FFmpeg decimate removes duplicate frames. Blender's compositor cannot drop frames live, so this monitor graph exposes luma/edge change metadata while rendered output remains the exact decimation fallback.",
+                },
+            ),
+            (
+                "DIRECTIONAL_BLUR",
+                {
+                    "label": "Duplicate Frame Motion Preview",
+                    "samples": int(_clamp(round(cycle), 1.0, 32.0)),
+                    "center": (0.5, 0.5),
+                    "rotation": 0.0,
+                    "scale": 1.0,
+                    "amount": _clamp(0.02 + dupthresh / 300.0, 0.01, 0.20),
+                    "direction": 0.0,
+                    "angle": 0.0,
+                    "radius": _clamp(cycle * 0.5, 1.0, 64.0),
+                    "cycle": cycle,
+                    "dupthresh": dupthresh,
+                    "scthresh": scthresh,
+                    "source": name,
                 },
             ),
         )
@@ -3149,8 +3555,12 @@ def scope_filter_to_blender_compositor(source: str, **options: str | int | float
         "datascope": "Data Scope",
         "oscilloscope": "Oscilloscope",
         "pixscope": "Pixel Scope",
+        "showpalette": "Palette Monitor",
+        "thumbnail": "Thumbnail Frame Preview",
+        "thumbnail_cuda": "CUDA Thumbnail Frame Preview",
         "signalstats": "Signal Stats",
         "colordetect": "Color Detect",
+        "entropy": "Entropy Detail Monitor",
     }
     component_text = str(_option(options, "components", "c", default="all"))
     mode_text = str(_option(options, "mode", "m", "display", default="monitor"))
@@ -3300,6 +3710,8 @@ def quality_compare_to_blender_compositor(source: str, **options: str | int | fl
         "xpsnr": "XPSNR Perceptual Compare",
         "corr": "Correlation Compare",
         "msad": "MSAD Difference Compare",
+        "vif": "VIF Fidelity Compare",
+        "vmafmotion": "VMAF Motion Compare",
         "xcorrelate": "Cross-Correlation Compare",
     }
     modes = {
@@ -3308,6 +3720,8 @@ def quality_compare_to_blender_compositor(source: str, **options: str | int | fl
         "xpsnr": "perceptual_peak_error",
         "corr": "correlation",
         "msad": "mean_sum_absolute_difference",
+        "vif": "visual_information_fidelity",
+        "vmafmotion": "vmaf_motion",
         "xcorrelate": "cross_correlation",
     }
     filter_types = {
@@ -3315,17 +3729,21 @@ def quality_compare_to_blender_compositor(source: str, **options: str | int | fl
         "xpsnr": "Sobel",
         "corr": "Box Sharpen",
         "xcorrelate": "Box Sharpen",
+        "vif": "Sobel",
+        "vmafmotion": "Sobel",
         "psnr": "Box Sharpen",
         "msad": "Box Sharpen",
     }
-    factor = 1.0 if name in {"ssim", "xpsnr", "corr", "xcorrelate"} else 0.0
-    tolerance = 0.018 if name in {"ssim", "xpsnr"} else 0.012
+    factor = 1.0 if name in {"ssim", "xpsnr", "corr", "vif", "vmafmotion", "xcorrelate"} else 0.0
+    tolerance = 0.018 if name in {"ssim", "xpsnr", "vif", "vmafmotion"} else 0.012
     overlay_colors = {
         "ssim": (0.0, 0.55, 1.0, 1.0),
         "psnr": (1.0, 0.72, 0.0, 1.0),
         "xpsnr": (0.65, 0.18, 1.0, 1.0),
         "corr": (0.0, 0.9, 0.45, 1.0),
         "msad": (1.0, 0.16, 0.08, 1.0),
+        "vif": (0.2, 0.7, 1.0, 1.0),
+        "vmafmotion": (0.9, 0.35, 1.0, 1.0),
         "xcorrelate": (0.1, 1.0, 0.85, 1.0),
     }
     return (
@@ -3418,11 +3836,13 @@ def _denoise_to_blender_compositor(source: str, options: dict[str, object]) -> C
 
 
 def _despeckle_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
-    if source == "median":
+    if source in {"median", "tmedian", "xmedian"}:
         radius = _clamp(_float(_option(options, "radius", "arg0", default=1), 1.0), 1.0, 127.0)
         radius_v = _float(_option(options, "radiusV", "radiusv", "arg2", default=0), 0.0)
         percentile = _clamp(_float(_option(options, "percentile", "arg3", default=0.5), 0.5), 0.0, 1.0)
-        factor = _clamp((radius + max(radius_v, radius) * 0.5) / 8.0, 0.05, 1.0)
+        temporal_boost = 0.16 if source == "tmedian" else 0.0
+        cross_input_boost = 0.12 if source == "xmedian" else 0.0
+        factor = _clamp((radius + max(radius_v, radius) * 0.5) / 8.0 + temporal_boost + cross_input_boost, 0.05, 1.0)
         color_threshold = _clamp(0.15 + abs(percentile - 0.5), 0.0, 1.0)
         neighbor_threshold = _clamp(0.25 + radius / 16.0, 0.0, 1.0)
     else:
@@ -3437,11 +3857,20 @@ def _despeckle_to_blender_compositor(source: str, options: dict[str, object]) ->
         (
             "DESPECKLE",
             {
-                "label": "Median Despeckle" if source == "median" else "Dot Crawl Despeckle",
+                "label": {
+                    "median": "Median Despeckle",
+                    "tmedian": "Temporal Median Preview",
+                    "xmedian": "Cross-Input Median Preview",
+                }.get(source, "Dot Crawl Despeckle"),
                 "factor": factor,
                 "color_threshold": color_threshold,
                 "neighbor_threshold": neighbor_threshold,
                 "source": source,
+                "approximation": (
+                    "FFmpeg temporal/cross-input median uses neighboring frames or streams. Blender's native preview uses Despeckle with strength metadata; exact median math remains a rendered fallback."
+                    if source in {"tmedian", "xmedian"}
+                    else ""
+                ),
             },
         ),
     )

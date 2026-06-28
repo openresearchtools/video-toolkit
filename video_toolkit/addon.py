@@ -4898,6 +4898,9 @@ def _modifier_label(modifier_type: str) -> str:
 
 
 def _set_nested_attr(target, dotted_path: str, value) -> None:
+    if dotted_path == "__metadata__":
+        _store_modifier_metadata(target, value)
+        return
     if dotted_path == "__curve_points__":
         _apply_curve_points(target.curve_mapping, value)
         return
@@ -4914,6 +4917,18 @@ def _set_nested_attr(target, dotted_path: str, value) -> None:
         current[:] = value
     else:
         setattr(obj, attr, value)
+
+
+def _store_modifier_metadata(target, metadata) -> None:
+    for key, value in dict(metadata or {}).items():
+        prop_name = f"video_toolkit_{key}"
+        try:
+            target[prop_name] = value
+        except Exception:
+            try:
+                target[prop_name] = str(value)
+            except Exception:
+                continue
 
 
 def _apply_curve_points(curve_mapping, curve_points) -> None:

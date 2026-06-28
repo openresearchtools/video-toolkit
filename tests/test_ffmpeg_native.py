@@ -1,8 +1,10 @@
 from video_toolkit.ffmpeg_native import (
     alphaextract_to_blender_compositor,
     alphamerge_to_blender_compositor,
+    amplify_to_blender_stack,
     backgroundkey_to_blender_compositor,
     blend_to_blender_compositor,
+    border_fill_to_blender_compositor,
     chromaber_vulkan_to_blender_compositor,
     chromakey_to_blender_compositor,
     colorbalance_to_blender_stack,
@@ -55,6 +57,7 @@ from video_toolkit.ffmpeg_native import (
     premultiply_to_blender_compositor,
     procamp_vaapi_to_blender_compositor,
     procamp_vaapi_to_blender_stack,
+    palette_filter_to_blender_stack,
     pseudocolor_to_blender_stack,
     quality_compare_to_blender_compositor,
     restoration_filter_to_blender_compositor,
@@ -70,6 +73,8 @@ from video_toolkit.ffmpeg_native import (
     translate_filter_chain,
     transpose_to_blender_compositor,
     tonemap_to_blender_compositor,
+    untile_to_blender_compositor,
+    v360_to_blender_compositor,
     accelerated_tonemap_to_blender_color_management,
     accelerated_tonemap_to_blender_compositor,
     unpremultiply_to_blender_compositor,
@@ -205,6 +210,32 @@ def test_lut_clut_and_colormap_filters_translate_to_live_controls():
     assert sources.count("lut3d") == 3
     assert sources.count("haldclut") == 3
     assert sources.count("colormap") == 3
+
+
+def test_palette_and_amplify_filters_translate_to_live_controls():
+    palettegen = palette_filter_to_blender_stack("palettegen", max_colors=96, stats_mode="diff")
+    paletteuse = palette_filter_to_blender_stack("paletteuse", dither="sierra2_4a", diff_mode="rectangle")
+    amplify = amplify_to_blender_stack(radius=3, factor=2.6, threshold=12, tolerance=2)
+
+    assert [modifier_type for modifier_type, _settings in palettegen] == ["HUE_CORRECT", "CURVES", "COLOR_BALANCE"]
+    assert [modifier_type for modifier_type, _settings in paletteuse] == ["HUE_CORRECT", "CURVES", "COLOR_BALANCE"]
+    assert [modifier_type for modifier_type, _settings in amplify] == ["BRIGHT_CONTRAST", "COLOR_BALANCE", "HUE_CORRECT"]
+    assert palettegen[0][1]["__metadata__"]["max_colors"] == 96
+    assert paletteuse[0][1]["__metadata__"]["dither"] == "sierra2_4a"
+    assert amplify[0][1]["contrast"] > 25.0
+    assert amplify[2][1]["__metadata__"]["source"] == "amplify"
+
+    result = translate_filter_chain(
+        "palettegen=max_colors=96:stats_mode=diff,"
+        "paletteuse=dither=sierra2_4a:diff_mode=rectangle,"
+        "amplify=radius=3:factor=2.6:threshold=12:tolerance=2"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("palettegen", "paletteuse", "amplify")
+    sources = [settings["source"] for _node_type, settings in result.compositor_nodes]
+    assert sources.count("palettegen") == 3
+    assert sources.count("paletteuse") == 3
+    assert sources.count("amplify") == 3
 
 
 def test_greyedge_and_pseudocolor_translate_to_live_controls():
@@ -405,8 +436,12 @@ def test_ffmpeg_scope_filters_translate_to_blender_diagnostic_graphlets():
         "datascope=mode=color2,"
         "oscilloscope=components=7,"
         "pixscope=x=0.55:y=0.45:w=11:h=9:o=0.7,"
+        "showpalette=s=30,"
+        "thumbnail=n=60,"
+        "thumbnail_cuda=n=60,"
         "signalstats=stat=tout+vrep+brng,"
-        "colordetect=mode=color_range+alpha_mode+all"
+        "colordetect=mode=color_range+alpha_mode+all,"
+        "entropy=mode=normal:levels=256"
     )
     assert result.unsupported_filters == ()
     assert result.supported_filters == (
@@ -418,10 +453,14 @@ def test_ffmpeg_scope_filters_translate_to_blender_diagnostic_graphlets():
         "datascope",
         "oscilloscope",
         "pixscope",
+        "showpalette",
+        "thumbnail",
+        "thumbnail_cuda",
         "signalstats",
         "colordetect",
+        "entropy",
     )
-    assert [node_type for node_type, _settings in result.compositor_nodes] == ["SCOPE_MONITOR"] * 10
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["SCOPE_MONITOR"] * 14
     pixscope = result.compositor_nodes[7][1]
     assert pixscope["scope"] == "pixscope"
     assert pixscope["pixel_x"] == 0.55
@@ -429,6 +468,10 @@ def test_ffmpeg_scope_filters_translate_to_blender_diagnostic_graphlets():
     assert pixscope["pixel_width"] == 11
     assert pixscope["pixel_height"] == 9
     assert pixscope["window_opacity"] == 0.7
+    assert result.compositor_nodes[8][1]["scope"] == "showpalette"
+    assert result.compositor_nodes[9][1]["scope"] == "thumbnail"
+    assert result.compositor_nodes[10][1]["scope"] == "thumbnail_cuda"
+    assert result.compositor_nodes[-1][1]["scope"] == "entropy"
 
 
 def test_ffmpeg_detection_filters_translate_to_blender_diagnostic_graphlets():
@@ -517,6 +560,10 @@ def test_quality_metric_filters_translate_to_blender_reference_compare_graphlets
     assert xcorrelate[0][1]["metric_mode"] == "cross_correlation"
     assert xcorrelate[0][1]["planes"] == "3"
     assert xcorrelate[0][1]["secondary"] == "first"
+    vif = quality_compare_to_blender_compositor("vif", stats_file="vif.log")
+    motion = quality_compare_to_blender_compositor("vmafmotion", stats_file="motion.log")
+    assert vif[0][1]["metric_mode"] == "visual_information_fidelity"
+    assert motion[0][1]["metric_mode"] == "vmaf_motion"
 
     result = translate_filter_chain(
         "ssim=stats_file=ssim.log,"
@@ -524,11 +571,13 @@ def test_quality_metric_filters_translate_to_blender_reference_compare_graphlets
         "xpsnr=stats_file=xpsnr.log,"
         "corr,"
         "msad,"
+        "vif=stats_file=vif.log,"
+        "vmafmotion=stats_file=motion.log,"
         "xcorrelate=planes=7:secondary=all"
     )
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("ssim", "psnr", "xpsnr", "corr", "msad", "xcorrelate")
-    assert [node_type for node_type, _settings in result.compositor_nodes] == ["QUALITY_COMPARE"] * 6
+    assert result.supported_filters == ("ssim", "psnr", "xpsnr", "corr", "msad", "vif", "vmafmotion", "xcorrelate")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["QUALITY_COMPARE"] * 8
 
 
 def test_remaining_live_color_filters_emit_compositor_node_specs():
@@ -694,6 +743,49 @@ def test_temporal_motion_filters_translate_to_blender_graphlets():
     minterpolate = result.compositor_nodes[-1][1]
     assert minterpolate["source"] == "minterpolate"
     assert minterpolate["fps"] == 60
+
+
+def test_field_telecine_and_decimate_filters_translate_to_native_previews():
+    result = translate_filter_chain(
+        "field=type=top,"
+        "fieldhint=hint=field.hints:mode=relative,"
+        "fieldmatch=order=auto:mode=pc_n,"
+        "fieldorder=order=tff,"
+        "setfield=mode=prog,"
+        "separatefields,"
+        "repeatfields,"
+        "telecine=pattern=23,"
+        "detelecine=pattern=23,"
+        "decimate=cycle=5:dupthresh=1.1:scthresh=15,"
+        "mpdecimate=hi=12:lo=5,"
+        "mcdeint=mode=fast:parity=auto,"
+        "nnedi=deint=all"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == (
+        "field",
+        "fieldhint",
+        "fieldmatch",
+        "fieldorder",
+        "setfield",
+        "separatefields",
+        "repeatfields",
+        "telecine",
+        "detelecine",
+        "decimate",
+        "mpdecimate",
+        "mcdeint",
+        "nnedi",
+    )
+    sources = [settings["source"] for _node_type, settings in result.compositor_nodes]
+    for source in result.supported_filters:
+        assert source in sources
+    assert [node_type for node_type, _settings in result.compositor_nodes].count("ANTI_ALIASING") == 11
+    assert [node_type for node_type, _settings in result.compositor_nodes].count("SCOPE_MONITOR") == 2
+    assert result.compositor_nodes[sources.index("telecine")][1]["pattern"] == "23"
+    decimate = next(settings for node_type, settings in result.compositor_nodes if node_type == "SCOPE_MONITOR" and settings["source"] == "decimate")
+    assert decimate["cycle"] == 5
+    assert decimate["dupthresh"] == 1.1
 
 
 def test_filter_chain_supports_color_space_metadata():
@@ -1720,3 +1812,55 @@ def test_filter_chain_supports_more_color_grading_filters():
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management
+
+
+def test_added_native_ffmpeg_repair_geometry_and_filter_specs():
+    roberts = edge_filter_to_blender_compositor("roberts", scale=0.9)
+    varblur = blur_to_blender_compositor("varblur", min_r=1, max_r=9, planes=7)
+    fillborders = border_fill_to_blender_compositor("fillborders", left=16, right=12, top=8, bottom=8, mode="mirror")
+    floodfill = border_fill_to_blender_compositor("floodfill", x=24, y=24, color="black", similarity=0.08)
+    untile = untile_to_blender_compositor(layout="2x2", index=1)
+    v360 = v360_to_blender_compositor(input="equirect", output="flat", yaw=12, pitch=-4, h_fov=110)
+    tmedian = restoration_filter_to_blender_compositor("tmedian", radius=3)
+    xmedian = restoration_filter_to_blender_compositor("xmedian", inputs=3)
+
+    assert roberts[0][1]["source"] == "roberts"
+    assert varblur[0][0] == "BLUR"
+    assert varblur[0][1]["label"] == "Variable Blur Preview"
+    assert fillborders[0][0] == "SCALE"
+    assert fillborders[1][0] == "BLUR"
+    assert floodfill[0][0] == "NATIVE_NODE"
+    assert floodfill[0][1]["node_type"] == "CompositorNodeInpaint"
+    assert untile[0][0] == "SCALE"
+    assert untile[1][1]["node_type"] == "CompositorNodeTranslate"
+    assert v360[0][0] == "LENS_DISTORTION"
+    assert v360[1][1]["node_type"] == "CompositorNodeTransform"
+    assert tmedian[0][1]["label"] == "Temporal Median Preview"
+    assert xmedian[0][1]["label"] == "Cross-Input Median Preview"
+
+    result = translate_filter_chain(
+        "roberts=scale=0.9,"
+        "varblur=min_r=1:max_r=9:planes=7,"
+        "fillborders=left=16:right=12:top=8:bottom=8:mode=mirror,"
+        "floodfill=x=24:y=24:color=black:similarity=0.08,"
+        "untile=layout=2x2:index=1,"
+        "v360=input=equirect:output=flat:yaw=12:pitch=-4:h_fov=110,"
+        "tmedian=radius=3,"
+        "xmedian=inputs=3"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("roberts", "varblur", "fillborders", "floodfill", "untile", "v360", "tmedian", "xmedian")
+    assert [settings["source"] for _node_type, settings in result.compositor_nodes] == [
+        "roberts",
+        "varblur",
+        "fillborders",
+        "fillborders",
+        "floodfill",
+        "floodfill",
+        "untile",
+        "untile",
+        "v360",
+        "v360",
+        "tmedian",
+        "xmedian",
+    ]
