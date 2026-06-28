@@ -110,10 +110,12 @@ VIDEO = Path(__VIDEO__)
 REFERENCE_VIDEO = Path(__REFERENCE_VIDEO__)
 OUTPUT_DIR = Path(__OUTPUT_DIR__)
 RENDERED_DIR = OUTPUT_DIR / "rendered_tools"
+LIVE_PREVIEW_DIR = OUTPUT_DIR / "live_preview_pixels"
 REPORT_PATH = OUTPUT_DIR / "report.json"
 REPORT_MARKDOWN_PATH = OUTPUT_DIR / "report.md"
 BEFORE_PREVIEW = OUTPUT_DIR / "matrix_preview_before.png"
 AFTER_PREVIEW = OUTPUT_DIR / "matrix_preview_after.png"
+LIVE_PREVIEW_BASELINE = LIVE_PREVIEW_DIR / "baseline.png"
 BLEND_PATH = OUTPUT_DIR / "full_ui_operator_matrix.blend"
 
 sys.path.insert(0, str(ROOT))
@@ -192,6 +194,24 @@ scene.render.image_settings.file_format = "PNG"
 
 results = []
 failures = []
+live_preview_baseline = None
+
+LIVE_PREVIEW_STRUCTURAL_ONLY_TOOL_IDS = {
+    "native_all_color_tools",
+    "native_bright_contrast",
+    "native_lift_gamma_gain",
+    "native_asc_cdl",
+    "native_curves_editor",
+    "native_hue_correct_editor",
+    "native_white_balance_editor",
+    "native_mask_slot",
+    "vse_curves",
+    "vse_hue_correct",
+    "vse_white_balance",
+    "vse_mask",
+}
+LIVE_PREVIEW_MIN_CHANNEL_DELTA = 0.00002
+LIVE_PREVIEW_MIN_RGB_DELTA = 0.00005
 
 
 def sorted_result(result):
@@ -300,6 +320,28 @@ def render_preview(path):
     return stats
 
 
+def preview_delta(before, after):
+    channel_deltas = {
+        "r": abs(after["r"] - before["r"]),
+        "g": abs(after["g"] - before["g"]),
+        "b": abs(after["b"] - before["b"]),
+        "luma": abs(after["luma"] - before["luma"]),
+    }
+    channel_deltas["rgb_delta"] = channel_deltas["r"] + channel_deltas["g"] + channel_deltas["b"]
+    channel_deltas["max_channel_delta"] = max(channel_deltas["r"], channel_deltas["g"], channel_deltas["b"])
+    return channel_deltas
+
+
+def ensure_live_preview_baseline():
+    global live_preview_baseline
+    if live_preview_baseline is None:
+        LIVE_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+        clear_modifiers()
+        select_target()
+        live_preview_baseline = render_preview(LIVE_PREVIEW_BASELINE)
+    return live_preview_baseline
+
+
 def record(name, group, func):
     try:
         evidence = func()
@@ -355,6 +397,10 @@ def compact_evidence(result):
         pieces.append(f"nodes={md_cell(evidence['count'])}")
     if "luma_delta" in evidence:
         pieces.append(f"luma_delta={md_cell(evidence['luma_delta'])}")
+    if "max_channel_delta" in evidence:
+        pieces.append(f"max_delta={md_cell(evidence['max_channel_delta'])}")
+    if "rgb_delta" in evidence:
+        pieces.append(f"rgb_delta={md_cell(evidence['rgb_delta'])}")
     if "output" in evidence and evidence["output"]:
         pieces.append(f"output={md_cell(evidence['output'])}")
     if "bytes" in evidence:
@@ -379,6 +425,17 @@ def write_markdown_report(report):
     catalog_nodes = Counter()
     rendered_outputs = []
     live_modifier_tools = 0
+    live_preview_results = [result for result in report["results"] if result["group"] == "catalog_live_preview_pixels"]
+    live_preview_pixel_results = [
+        result
+        for result in live_preview_results
+        if (result.get("evidence") or {}).get("visual_requirement") == "pixel_delta"
+    ]
+    live_preview_structural_results = [
+        result
+        for result in live_preview_results
+        if (result.get("evidence") or {}).get("visual_requirement") == "structural_only"
+    ]
     for result in report["results"]:
         evidence = result.get("evidence") or {}
         if result["group"] == "catalog_apply_filter" and result["status"] == "passed":
@@ -421,6 +478,9 @@ def write_markdown_report(report):
         f"| Compositor-compatible catalog tools | {report['compositor_compatible_catalog_tools']} |",
         f"| Live modifier catalog tools | {live_modifier_tools} |",
         f"| Rendered-output catalog tools | {len(rendered_outputs)} |",
+        f"| Live tools preview-pixel checked | {len(live_preview_results)} |",
+        f"| Live tools with measured pixel deltas | {len(live_preview_pixel_results)} |",
+        f"| Live editor-slot structural checks | {len(live_preview_structural_results)} |",
         "",
         "## UI Coverage",
         "",
@@ -500,6 +560,29 @@ def write_markdown_report(report):
             f"- After PNG: `{md_cell(evidence.get('after_png'))}`",
             f"- Pixels measured: `{md_cell((evidence.get('after') or {}).get('pixels'))}`",
         ])
+
+    if live_preview_results:
+        lines.extend([
+            "",
+            "## Live Tool Preview Pixel Proof",
+            "",
+            f"- Baseline PNG: `{md_cell(LIVE_PREVIEW_BASELINE)}`",
+            f"- Tools checked against real Sequencer preview renders: `{len(live_preview_results)}`",
+            f"- Tools required to change pixels: `{len(live_preview_pixel_results)}`",
+            f"- Neutral editor-slot tools checked structurally: `{len(live_preview_structural_results)}`",
+            "",
+            "| Tool | Category | Requirement | Max Channel Delta | RGB Delta | PNG |",
+            "| --- | --- | --- | ---: | ---: | --- |",
+        ])
+        for result in live_preview_results:
+            evidence = result.get("evidence") or {}
+            lines.append(
+                f"| {md_cell(result['name'])} | {md_cell(evidence.get('category'))} | "
+                f"{md_cell(evidence.get('visual_requirement'))} | "
+                f"{md_cell(evidence.get('max_channel_delta'))} | "
+                f"{md_cell(evidence.get('rgb_delta'))} | "
+                f"`{md_cell(evidence.get('after_png'))}` |"
+            )
 
     if rendered_outputs:
         lines.extend([
@@ -583,6 +666,42 @@ def exercise_catalog_tool(tool):
             "bytes": output.stat().st_size,
         }
     record(tool.id, "catalog_apply_filter", run)
+
+
+def exercise_live_tool_preview_pixels(tool):
+    def run():
+        baseline = ensure_live_preview_baseline()
+        clear_modifiers()
+        select_target()
+        result = bpy.ops.video_toolkit.apply_filter(filter_id=tool.id, target="ACTIVE")
+        assert_finished(result)
+        mods = modifier_evidence(f"VTK {tool.label}")
+        expected = len(tool.blender_stack) if tool.blender_stack else 1
+        if len(mods) < expected:
+            raise AssertionError(f"expected at least {expected} modifiers, found {len(mods)}")
+        after_png = LIVE_PREVIEW_DIR / f"{tool.id}.png"
+        after = render_preview(after_png)
+        delta = preview_delta(baseline, after)
+        structural_only = tool.id in LIVE_PREVIEW_STRUCTURAL_ONLY_TOOL_IDS
+        if not structural_only:
+            if delta["max_channel_delta"] <= LIVE_PREVIEW_MIN_CHANNEL_DELTA and delta["rgb_delta"] <= LIVE_PREVIEW_MIN_RGB_DELTA:
+                raise AssertionError(
+                    "live preview did not change enough: "
+                    f"max_channel_delta={delta['max_channel_delta']}, rgb_delta={delta['rgb_delta']}"
+                )
+        return {
+            "tool_id": tool.id,
+            "category": tool.category,
+            "engine": tool.engine,
+            "visual_requirement": "structural_only" if structural_only else "pixel_delta",
+            "modifier_count": len(mods),
+            "modifier_types": [item["type"] for item in mods],
+            "baseline_png": str(LIVE_PREVIEW_BASELINE),
+            "after_png": str(after_png),
+            "after": after,
+            **delta,
+        }
+    record(tool.id, "catalog_live_preview_pixels", run)
 
 
 def exercise_tool_nodes(tool):
@@ -891,6 +1010,10 @@ for tool in all_tools():
     exercise_catalog_tool(tool)
 
 for tool in all_tools():
+    if tool.is_blender_modifier:
+        exercise_live_tool_preview_pixels(tool)
+
+for tool in all_tools():
     if _tool_has_compositor_stack(tool):
         exercise_tool_nodes(tool)
 
@@ -994,6 +1117,21 @@ report = {
     "total_catalog_tools": len(all_tools()),
     "categories": {category: sum(1 for tool in all_tools() if tool.category == category) for category in categories()},
     "compositor_compatible_catalog_tools": sum(1 for tool in all_tools() if _tool_has_compositor_stack(tool)),
+    "live_preview_checked_tools": sum(
+        1 for result in results if result["group"] == "catalog_live_preview_pixels"
+    ),
+    "live_preview_pixel_tools": sum(
+        1
+        for result in results
+        if result["group"] == "catalog_live_preview_pixels"
+        and (result.get("evidence") or {}).get("visual_requirement") == "pixel_delta"
+    ),
+    "live_preview_structural_tools": sum(
+        1
+        for result in results
+        if result["group"] == "catalog_live_preview_pixels"
+        and (result.get("evidence") or {}).get("visual_requirement") == "structural_only"
+    ),
     "passed": sum(1 for result in results if result["status"] == "passed"),
     "failed": len(failures),
     "noted": sum(1 for result in results if result["status"] == "noted"),
