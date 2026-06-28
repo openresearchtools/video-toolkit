@@ -10,6 +10,7 @@ from video_toolkit.compositor import (
     RESTORATION_WORKSPACE_STACK_NODE_TYPES,
     compositor_node_types,
 )
+from video_toolkit.ffmpeg_native import NATIVE_FFMPEG_COMPOSITOR_FILTERS
 
 
 def test_tool_ids_are_unique():
@@ -96,6 +97,7 @@ def test_native_matte_and_channel_tools_are_exposed():
         "native_chroma_channel_shift": {"CHANNEL_SHIFT"},
         "native_luma_plane_extract": {"PLANE_EXTRACT"},
         "native_alpha_extract": {"PLANE_EXTRACT"},
+        "native_premultiply_alpha": {"PREMUL_KEY"},
         "native_plane_shuffle_bgr": {"PLANE_SHUFFLE"},
         "native_straight_alpha": {"PREMUL_KEY"},
     }
@@ -111,6 +113,7 @@ def test_native_matte_and_channel_tools_are_exposed():
 def test_native_filter_and_blur_tools_are_exposed():
     expected = {
         "native_unsharp_filter": {"FILTER"},
+        "native_elbg_posterize": {"POSTERIZE"},
         "native_sobel_edges": {"FILTER"},
         "native_prewitt_edges": {"FILTER"},
         "native_kirsch_edges": {"FILTER"},
@@ -122,6 +125,8 @@ def test_native_filter_and_blur_tools_are_exposed():
         "native_box_blur": {"BLUR"},
         "native_gaussian_blur": {"BLUR"},
         "native_smart_blur": {"BILATERAL_BLUR"},
+        "native_shape_adaptive_blur": {"BILATERAL_BLUR"},
+        "native_edge_preserving_blur": {"BILATERAL_BLUR"},
         "native_directional_blur": {"DIRECTIONAL_BLUR"},
         "native_deband_cleanup": {"BILATERAL_BLUR"},
         "native_deblock_cleanup": {"ANTI_ALIASING"},
@@ -135,13 +140,108 @@ def test_native_filter_and_blur_tools_are_exposed():
         assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
 
 
+def test_native_denoise_and_cleanup_tools_are_exposed():
+    expected = {
+        "native_hqdn3d_denoise": {"DENOISE"},
+        "native_nlmeans_denoise": {"DENOISE"},
+        "native_bm3d_denoise": {"DENOISE"},
+        "native_wavelet_denoise": {"DENOISE"},
+        "native_vague_denoise": {"DENOISE"},
+        "native_adaptive_temporal_denoise": {"DENOISE"},
+        "native_median_despeckle": {"DESPECKLE"},
+        "native_dedot_cleanup": {"DESPECKLE"},
+    }
+    for tool_id, node_types in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Denoise & Cleanup"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
+
+
+def test_native_geometry_and_lens_tools_are_exposed():
+    expected = {
+        "native_compositor_scale_fit": {"SCALE"},
+        "native_compositor_center_crop": {"CROP"},
+        "native_compositor_rotate_level": {"ROTATE"},
+        "native_compositor_transpose_clockwise": {"ROTATE"},
+        "native_compositor_flip_horizontal": {"FLIP"},
+        "native_compositor_flip_vertical": {"FLIP"},
+        "native_compositor_lens_correction": {"LENS_DISTORTION"},
+    }
+    for tool_id, node_types in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Geometry & Lens"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
+
+
+def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
+    filter_to_tool = {
+        "chromakey": "native_chroma_key_matte",
+        "colorkey": "native_color_key_matte",
+        "hsvkey": "native_hsv_key_matte",
+        "lumakey": "native_luma_key_matte",
+        "rgbashift": "native_rgba_channel_shift",
+        "chromashift": "native_chroma_channel_shift",
+        "alphaextract": "native_alpha_extract",
+        "extractplanes": "native_luma_plane_extract",
+        "premultiply": "native_premultiply_alpha",
+        "unpremultiply": "native_straight_alpha",
+        "shuffleplanes": "native_plane_shuffle_bgr",
+        "elbg": "native_elbg_posterize",
+        "unsharp": "native_unsharp_filter",
+        "sobel": "native_sobel_edges",
+        "prewitt": "native_prewitt_edges",
+        "kirsch": "native_kirsch_edges",
+        "edgedetect": "native_edge_detect",
+        "erosion": "native_erode_matte",
+        "dilation": "native_dilate_matte",
+        "convolution": "native_convolution_sharpen",
+        "avgblur": "native_average_blur",
+        "boxblur": "native_box_blur",
+        "gblur": "native_gaussian_blur",
+        "smartblur": "native_smart_blur",
+        "sab": "native_shape_adaptive_blur",
+        "yaepblur": "native_edge_preserving_blur",
+        "dblur": "native_directional_blur",
+        "scale": "native_compositor_scale_fit",
+        "crop": "native_compositor_center_crop",
+        "rotate": "native_compositor_rotate_level",
+        "transpose": "native_compositor_transpose_clockwise",
+        "hflip": "native_compositor_flip_horizontal",
+        "vflip": "native_compositor_flip_vertical",
+        "lenscorrection": "native_compositor_lens_correction",
+        "hqdn3d": "native_hqdn3d_denoise",
+        "nlmeans": "native_nlmeans_denoise",
+        "bm3d": "native_bm3d_denoise",
+        "owdenoise": "native_wavelet_denoise",
+        "vaguedenoiser": "native_vague_denoise",
+        "atadenoise": "native_adaptive_temporal_denoise",
+        "median": "native_median_despeckle",
+        "dedot": "native_dedot_cleanup",
+        "deband": "native_deband_cleanup",
+        "deblock": "native_deblock_cleanup",
+    }
+    assert set(NATIVE_FFMPEG_COMPOSITOR_FILTERS) == set(filter_to_tool)
+    for tool_id in filter_to_tool.values():
+        tool = get_tool(tool_id)
+        assert tool.is_compositor
+        assert tool.compositor_stack
+
+
 def test_categories_keep_ui_order():
     assert categories() == (
         "Live Blender Color",
         "Native Blender Primitives",
         "Native Matte & Channel",
         "Native Filter & Blur",
+        "Native Denoise & Cleanup",
         "Restoration",
+        "Native Geometry & Lens",
         "Resolution & Motion",
         "Live Blender Modifiers",
     )

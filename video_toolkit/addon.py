@@ -94,6 +94,8 @@ SIDECAR_GROUP_ICONS = {
     "Native Blender Primitives": "PROPERTIES",
     "Native Matte & Channel": "NODETREE",
     "Native Filter & Blur": "NODETREE",
+    "Native Denoise & Cleanup": "NODETREE",
+    "Native Geometry & Lens": "NODETREE",
     "Live Blender Modifiers": "MODIFIER",
     "Restoration": "RENDER_ANIMATION",
     "Resolution & Motion": "RENDER_ANIMATION",
