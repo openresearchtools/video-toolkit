@@ -96,6 +96,7 @@ SIDECAR_GROUP_ICONS = {
     "Native Matte & Channel": "NODETREE",
     "Native Filter & Blur": "NODETREE",
     "Native Visual FX Nodes": "NODETREE",
+    "Native Analysis & Utility": "NODETREE",
     "Native Denoise & Cleanup": "NODETREE",
     "Native Geometry & Lens": "NODETREE",
     "Live Blender Modifiers": "MODIFIER",
@@ -3385,6 +3386,14 @@ def _append_translated_compositor_filter(
         return _append_plane_extract_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "PLANE_SHUFFLE":
         return _append_plane_shuffle_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "BOX_MASK_ALPHA":
+        return _append_shape_mask_alpha_filter(tree, input_socket, settings, index, origin, label_prefix, "CompositorNodeBoxMask")
+    if compositor_type == "ELLIPSE_MASK_ALPHA":
+        return _append_shape_mask_alpha_filter(tree, input_socket, settings, index, origin, label_prefix, "CompositorNodeEllipseMask")
+    if compositor_type == "DOUBLE_EDGE_MASK_ALPHA":
+        return _append_double_edge_mask_alpha_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "MASK_TO_SDF_ALPHA":
+        return _append_mask_to_sdf_alpha_filter(tree, input_socket, settings, index, origin, label_prefix)
     node = _translated_compositor_filter_to_node(tree, compositor_type, settings, index, origin, label_prefix, source_clip=source_clip)
     if node is None:
         return input_socket, []
@@ -3392,7 +3401,10 @@ def _append_translated_compositor_filter(
     output_name = settings.get("__image_output__")
     node_input = _socket_by_name(node.inputs, str(input_name)) if input_name else _image_input(node)
     node_output = _socket_by_name(node.outputs, str(output_name)) if output_name else _image_output(node)
-    _link_socket(tree, input_socket, node_input)
+    if not settings.get("__skip_link_input__"):
+        _link_socket(tree, input_socket, node_input)
+    if settings.get("__passthrough__"):
+        return input_socket, [node]
     return node_output, [node]
 
 
@@ -3592,6 +3604,51 @@ def _append_plane_shuffle_compositor_filter(tree, input_socket, settings: dict[s
     ):
         _link_socket(tree, _socket_by_name(separate.outputs, output_name), _socket_by_name(combine.inputs, input_name))
     return _image_output(combine), [separate, combine]
+
+
+def _append_shape_mask_alpha_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str, node_type: str):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Mask Alpha'}"
+    mask = _new_compositor_node(tree, node_type, f"{label} Mask", index, y_offset=-160, origin=origin)
+    for socket_name, value in dict(settings.get("mask_inputs", {})).items():
+        _set_input_default(mask, str(socket_name), value)
+    set_alpha = _new_compositor_node(tree, "CompositorNodeSetAlpha", label, index + 1, origin=origin)
+    _set_input_default(set_alpha, "Type", settings.get("type", "Apply Mask"))
+    _link_socket(tree, input_socket, _image_input(set_alpha))
+    _link_socket(tree, _socket_by_name(mask.outputs, "Mask"), _socket_by_name(set_alpha.inputs, "Alpha"))
+    return _image_output(set_alpha), [mask, set_alpha]
+
+
+def _append_double_edge_mask_alpha_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Double Edge Mask'}"
+    outer = _new_compositor_node(tree, "CompositorNodeBoxMask", f"{label} Outer", index, y_offset=-260, origin=origin)
+    inner = _new_compositor_node(tree, "CompositorNodeEllipseMask", f"{label} Inner", index + 1, y_offset=-80, origin=origin)
+    for socket_name, value in dict(settings.get("outer_inputs", {})).items():
+        _set_input_default(outer, str(socket_name), value)
+    for socket_name, value in dict(settings.get("inner_inputs", {})).items():
+        _set_input_default(inner, str(socket_name), value)
+    double_edge = _new_compositor_node(tree, "CompositorNodeDoubleEdgeMask", label, index + 2, y_offset=-160, origin=origin)
+    _set_input_default(double_edge, "Only Inside Outer", bool(settings.get("only_inside_outer", True)))
+    _link_socket(tree, _socket_by_name(outer.outputs, "Mask"), _socket_by_name(double_edge.inputs, "Outer Mask"))
+    _link_socket(tree, _socket_by_name(inner.outputs, "Mask"), _socket_by_name(double_edge.inputs, "Inner Mask"))
+    set_alpha = _new_compositor_node(tree, "CompositorNodeSetAlpha", f"{label} Alpha", index + 3, origin=origin)
+    _set_input_default(set_alpha, "Type", settings.get("type", "Apply Mask"))
+    _link_socket(tree, input_socket, _image_input(set_alpha))
+    _link_socket(tree, _socket_by_name(double_edge.outputs, "Mask"), _socket_by_name(set_alpha.inputs, "Alpha"))
+    return _image_output(set_alpha), [outer, inner, double_edge, set_alpha]
+
+
+def _append_mask_to_sdf_alpha_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Mask to SDF'}"
+    mask = _new_compositor_node(tree, "CompositorNodeBoxMask", f"{label} Source Mask", index, y_offset=-180, origin=origin)
+    for socket_name, value in dict(settings.get("mask_inputs", {})).items():
+        _set_input_default(mask, str(socket_name), value)
+    sdf = _new_compositor_node(tree, "CompositorNodeMaskToSDF", label, index + 1, y_offset=-180, origin=origin)
+    _link_socket(tree, _socket_by_name(mask.outputs, "Mask"), _socket_by_name(sdf.inputs, "Mask"))
+    set_alpha = _new_compositor_node(tree, "CompositorNodeSetAlpha", f"{label} Alpha", index + 2, origin=origin)
+    _set_input_default(set_alpha, "Type", settings.get("type", "Apply Mask"))
+    _link_socket(tree, input_socket, _image_input(set_alpha))
+    _link_socket(tree, _socket_by_name(sdf.outputs, "SDF"), _socket_by_name(set_alpha.inputs, "Alpha"))
+    return _image_output(set_alpha), [mask, sdf, set_alpha]
 
 
 def _translated_compositor_filter_to_node(

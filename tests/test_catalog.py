@@ -48,6 +48,18 @@ STACK_TYPE_TO_COMPOSITOR_NODE = {
     "TONEMAP": "CompositorNodeTonemap",
 }
 
+SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES = {
+    "BOX_MASK_ALPHA": {"CompositorNodeBoxMask", "CompositorNodeSetAlpha"},
+    "ELLIPSE_MASK_ALPHA": {"CompositorNodeEllipseMask", "CompositorNodeSetAlpha"},
+    "DOUBLE_EDGE_MASK_ALPHA": {
+        "CompositorNodeBoxMask",
+        "CompositorNodeEllipseMask",
+        "CompositorNodeDoubleEdgeMask",
+        "CompositorNodeSetAlpha",
+    },
+    "MASK_TO_SDF_ALPHA": {"CompositorNodeBoxMask", "CompositorNodeMaskToSDF", "CompositorNodeSetAlpha"},
+}
+
 
 def _tool_compositor_node_classes(tool_id):
     tool = get_tool(tool_id)
@@ -57,6 +69,8 @@ def _tool_compositor_node_classes(tool_id):
             node_classes.add(settings["node_type"])
         elif stack_type in STACK_TYPE_TO_COMPOSITOR_NODE:
             node_classes.add(STACK_TYPE_TO_COMPOSITOR_NODE[stack_type])
+        elif stack_type in SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES:
+            node_classes.update(SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES[stack_type])
     return node_classes
 
 
@@ -192,6 +206,27 @@ def test_native_matte_keying_node_tools_are_exposed():
         assert tool.compositor_stack[0][1]["node_type"] == node_type
 
 
+def test_native_matte_mask_alpha_tools_are_exposed():
+    expected = {
+        "native_compositor_box_mask_alpha": {"CompositorNodeBoxMask", "CompositorNodeSetAlpha"},
+        "native_compositor_ellipse_mask_alpha": {"CompositorNodeEllipseMask", "CompositorNodeSetAlpha"},
+        "native_compositor_double_edge_mask_alpha": {
+            "CompositorNodeBoxMask",
+            "CompositorNodeEllipseMask",
+            "CompositorNodeDoubleEdgeMask",
+            "CompositorNodeSetAlpha",
+        },
+        "native_compositor_mask_to_sdf_alpha": {"CompositorNodeBoxMask", "CompositorNodeMaskToSDF", "CompositorNodeSetAlpha"},
+    }
+    for tool_id, node_types in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Matte & Channel"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert node_types.issubset(_tool_compositor_node_classes(tool_id))
+
+
 def test_native_filter_and_blur_tools_are_exposed():
     expected = {
         "native_unsharp_filter": {"FILTER"},
@@ -262,6 +297,32 @@ def test_native_visual_fx_node_tools_are_exposed():
         assert tool.compositor_stack[0][1]["node_type"] == node_type
 
 
+def test_native_analysis_and_utility_node_tools_are_exposed():
+    expected = {
+        "native_compositor_levels_monitor": "CompositorNodeLevels",
+        "native_compositor_image_info": "CompositorNodeImageInfo",
+        "native_compositor_split_compare": "CompositorNodeSplit",
+        "native_compositor_switch_compare": "CompositorNodeSwitch",
+        "native_compositor_cryptomatte": "CompositorNodeCryptomatte",
+        "native_compositor_cryptomatte_v2": "CompositorNodeCryptomatteV2",
+        "native_compositor_map_uv": "CompositorNodeMapUV",
+        "native_compositor_plane_track_deform": "CompositorNodePlaneTrackDeform",
+        "native_compositor_z_combine": "CompositorNodeZcombine",
+        "native_compositor_sequencer_strip_info": "CompositorNodeSequencerStripInfo",
+        "native_compositor_scene_time": "CompositorNodeSceneTime",
+        "native_compositor_time": "CompositorNodeTime",
+        "native_compositor_track_position": "CompositorNodeTrackPos",
+    }
+    for tool_id, node_type in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Analysis & Utility"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack[0][0] == "NATIVE_NODE"
+        assert tool.compositor_stack[0][1]["node_type"] == node_type
+
+
 def test_native_geometry_and_lens_tools_are_exposed():
     expected = {
         "native_compositor_scale_fit": {"SCALE"},
@@ -304,26 +365,43 @@ def test_applicable_tracked_compositor_nodes_have_one_click_tools():
     node_to_tool = {
         "CompositorNodeAlphaOver": "native_compositor_alpha_over",
         "CompositorNodeBokehBlur": "native_compositor_bokeh_blur",
+        "CompositorNodeBoxMask": "native_compositor_box_mask_alpha",
         "CompositorNodeChannelMatte": "native_compositor_channel_matte",
         "CompositorNodeColorSpill": "native_compositor_color_spill",
         "CompositorNodeConvertColorSpace": "native_compositor_color_space_convert",
         "CompositorNodeConvertToDisplay": "native_compositor_display_convert",
         "CompositorNodeCornerPin": "native_compositor_corner_pin",
+        "CompositorNodeCryptomatte": "native_compositor_cryptomatte",
+        "CompositorNodeCryptomatteV2": "native_compositor_cryptomatte_v2",
         "CompositorNodeDefocus": "native_compositor_defocus",
         "CompositorNodeDiffMatte": "native_compositor_difference_matte",
         "CompositorNodeDisplace": "native_compositor_displace",
         "CompositorNodeDistanceMatte": "native_compositor_distance_matte",
+        "CompositorNodeDoubleEdgeMask": "native_compositor_double_edge_mask_alpha",
+        "CompositorNodeEllipseMask": "native_compositor_ellipse_mask_alpha",
         "CompositorNodeGlare": "native_compositor_glare",
+        "CompositorNodeImageInfo": "native_compositor_image_info",
         "CompositorNodeInpaint": "native_compositor_inpaint",
         "CompositorNodeKeying": "native_compositor_keying",
         "CompositorNodeKuwahara": "native_compositor_kuwahara",
+        "CompositorNodeLevels": "native_compositor_levels_monitor",
+        "CompositorNodeMapUV": "native_compositor_map_uv",
+        "CompositorNodeMaskToSDF": "native_compositor_mask_to_sdf_alpha",
         "CompositorNodeMovieDistortion": "native_compositor_movie_distortion_node",
         "CompositorNodePixelate": "native_compositor_pixelate",
+        "CompositorNodePlaneTrackDeform": "native_compositor_plane_track_deform",
+        "CompositorNodeSceneTime": "native_compositor_scene_time",
+        "CompositorNodeSequencerStripInfo": "native_compositor_sequencer_strip_info",
         "CompositorNodeSetAlpha": "native_compositor_set_alpha",
+        "CompositorNodeSplit": "native_compositor_split_compare",
         "CompositorNodeStabilize": "native_compositor_stabilize_node",
+        "CompositorNodeSwitch": "native_compositor_switch_compare",
+        "CompositorNodeTime": "native_compositor_time",
+        "CompositorNodeTrackPos": "native_compositor_track_position",
         "CompositorNodeTransform": "native_compositor_transform",
         "CompositorNodeTranslate": "native_compositor_translate",
         "CompositorNodeVecBlur": "native_compositor_vector_blur",
+        "CompositorNodeZcombine": "native_compositor_z_combine",
     }
     tracked_nodes = {tool.node_type for tool in compositor_node_tools()}
     assert set(node_to_tool).issubset(tracked_nodes)
@@ -393,6 +471,7 @@ def test_categories_keep_ui_order():
         "Native Matte & Channel",
         "Native Filter & Blur",
         "Native Visual FX Nodes",
+        "Native Analysis & Utility",
         "Native Denoise & Cleanup",
         "Restoration",
         "Native Geometry & Lens",

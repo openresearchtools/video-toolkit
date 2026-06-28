@@ -144,6 +144,8 @@ def _native_node(
     inputs: dict[str, Any] | None = None,
     properties: dict[str, Any] | None = None,
     assign_source_clip: bool = False,
+    skip_link_input: bool = False,
+    passthrough: bool = False,
     note: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     settings: dict[str, Any] = {
@@ -157,6 +159,10 @@ def _native_node(
         settings["__image_input__"] = image_input
     if image_output:
         settings["__image_output__"] = image_output
+    if skip_link_input:
+        settings["__skip_link_input__"] = True
+    if passthrough:
+        settings["__passthrough__"] = True
     if note:
         settings["note"] = note
     return ("NATIVE_NODE", settings)
@@ -1270,6 +1276,72 @@ TOOLS: tuple[VideoTool, ...] = (
         ),
     ),
     VideoTool(
+        id="native_compositor_box_mask_alpha",
+        label="Box Mask Alpha",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native Box Mask and Set Alpha nodes as an editable selected-strip mask graph.",
+        compositor_stack=(
+            (
+                "BOX_MASK_ALPHA",
+                {
+                    "label": "Box Mask Alpha",
+                    "mask_inputs": {"Value": 1.0, "Position": (0.5, 0.5), "Size": (0.72, 0.72), "Rotation": 0.0},
+                },
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_ellipse_mask_alpha",
+        label="Ellipse Mask Alpha",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native Ellipse Mask and Set Alpha nodes as an editable selected-strip mask graph.",
+        compositor_stack=(
+            (
+                "ELLIPSE_MASK_ALPHA",
+                {
+                    "label": "Ellipse Mask Alpha",
+                    "mask_inputs": {"Value": 1.0, "Position": (0.5, 0.5), "Size": (0.66, 0.66), "Rotation": 0.0},
+                },
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_double_edge_mask_alpha",
+        label="Double Edge Mask Alpha",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native Double Edge Mask graph with generated outer/inner masks and Set Alpha output.",
+        compositor_stack=(
+            (
+                "DOUBLE_EDGE_MASK_ALPHA",
+                {
+                    "label": "Double Edge Mask Alpha",
+                    "outer_inputs": {"Value": 1.0, "Position": (0.5, 0.5), "Size": (0.82, 0.82)},
+                    "inner_inputs": {"Value": 1.0, "Position": (0.5, 0.5), "Size": (0.50, 0.50)},
+                    "only_inside_outer": True,
+                },
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_mask_to_sdf_alpha",
+        label="Mask to SDF Alpha",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native Mask to SDF node from a generated Box Mask and applies it as selected-strip alpha.",
+        compositor_stack=(
+            (
+                "MASK_TO_SDF_ALPHA",
+                {
+                    "label": "Mask to SDF Alpha",
+                    "mask_inputs": {"Value": 1.0, "Position": (0.5, 0.5), "Size": (0.72, 0.72)},
+                },
+            ),
+        ),
+    ),
+    VideoTool(
         id="native_unsharp_filter",
         label="Native Unsharp Filter",
         category="Native Filter & Blur",
@@ -1485,6 +1557,136 @@ TOOLS: tuple[VideoTool, ...] = (
         description="Creates Blender's native compositor Vector Blur node for motion-blur finishing graphs.",
         compositor_stack=(
             _native_node("CompositorNodeVecBlur", label="Vector Blur", inputs={"Samples": 8.0, "Shutter": 0.35}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_levels_monitor",
+        label="Levels Monitor",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Levels node as a selected-strip analysis monitor while preserving image output.",
+        compositor_stack=(
+            _native_node("CompositorNodeLevels", label="Levels Monitor", passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_image_info",
+        label="Image Info Monitor",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Image Info node from the selected strip while preserving image output.",
+        compositor_stack=(
+            _native_node("CompositorNodeImageInfo", label="Image Info", passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_split_compare",
+        label="Split Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Split node for before/after comparison graph work.",
+        compositor_stack=(
+            _native_node("CompositorNodeSplit", label="Split Compare", inputs={"Position": 0.5, "Rotation": 0.0}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_switch_compare",
+        label="Switch Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Switch node for toggling selected-strip image branches.",
+        compositor_stack=(
+            _native_node("CompositorNodeSwitch", label="Switch Compare", image_input="On", inputs={"Switch": True}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_cryptomatte",
+        label="Cryptomatte",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Cryptomatte node for matte extraction workflows.",
+        compositor_stack=(
+            _native_node("CompositorNodeCryptomatte", label="Cryptomatte"),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_cryptomatte_v2",
+        label="Cryptomatte V2",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Cryptomatte V2 node for modern matte extraction workflows.",
+        compositor_stack=(
+            _native_node("CompositorNodeCryptomatteV2", label="Cryptomatte V2"),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_map_uv",
+        label="Map UV",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Map UV node for UV-based image remapping graphs.",
+        compositor_stack=(
+            _native_node("CompositorNodeMapUV", label="Map UV", inputs={"Interpolation": "Bilinear"}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_plane_track_deform",
+        label="Plane Track Deform",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Plane Track Deform node for tracked-plane finishing graphs.",
+        compositor_stack=(
+            _native_node("CompositorNodePlaneTrackDeform", label="Plane Track Deform", inputs={"Motion Blur": False, "Samples": 8.0, "Shutter": 0.5}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_z_combine",
+        label="Z Combine",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Z Combine node for depth-compositing workflows.",
+        compositor_stack=(
+            _native_node("CompositorNodeZcombine", label="Z Combine", image_input="A", image_output="Result", inputs={"Use Alpha": True, "Anti-Alias": True}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_sequencer_strip_info",
+        label="Sequencer Strip Info",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Sequencer Strip Info node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeSequencerStripInfo", label="Sequencer Strip Info", skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_scene_time",
+        label="Scene Time",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Scene Time node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeSceneTime", label="Scene Time", skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_time",
+        label="Time",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Time node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeTime", label="Time", inputs={"Start Frame": 1.0, "End Frame": 120.0}, skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_track_position",
+        label="Track Position",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Track Position node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeTrackPos", label="Track Position", inputs={"Frame": 1.0}, assign_source_clip=True, skip_link_input=True, passthrough=True),
         ),
     ),
     VideoTool(
