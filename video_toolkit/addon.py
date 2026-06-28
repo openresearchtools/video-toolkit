@@ -2396,7 +2396,34 @@ def _draw_live_modifier_editor(layout, strip) -> None:
         row.prop(modifier, "mute", text="", icon="HIDE_ON" if modifier.mute else "HIDE_OFF")
         if not modifier.show_expanded:
             continue
+        _draw_modifier_common_controls(mod_box, modifier)
         _draw_modifier_controls(mod_box, modifier)
+
+
+def _draw_modifier_common_controls(layout, modifier) -> None:
+    row = layout.row(align=True)
+    drew = False
+    for prop, text in (("enable", "Enabled"), ("show_preview", "Preview"), ("is_active", "Active")):
+        if hasattr(modifier, prop):
+            row.prop(modifier, prop, text=text)
+            drew = True
+    if not drew:
+        return
+    mask_props = ("input_mask_type", "input_mask_strip", "input_mask_id", "mask_time")
+    if not any(hasattr(modifier, prop) for prop in mask_props):
+        return
+    mask_box = layout.box()
+    mask_box.label(text="Mask", icon="MOD_MASK")
+    if hasattr(modifier, "input_mask_type"):
+        mask_box.prop(modifier, "input_mask_type", text="Type")
+    if hasattr(modifier, "input_mask_strip"):
+        mask_box.prop(modifier, "input_mask_strip", text="Strip")
+    if hasattr(modifier, "input_mask_id"):
+        mask_box.prop(modifier, "input_mask_id", text="ID")
+    if hasattr(modifier, "mask_time"):
+        mask_box.prop(modifier, "mask_time", text="Time")
+    if hasattr(modifier, "open_mask_input_panel"):
+        mask_box.prop(modifier, "open_mask_input_panel", text="Open Mask Panel")
 
 
 def _draw_modifier_controls(layout, modifier) -> None:
@@ -2427,13 +2454,9 @@ def _draw_modifier_controls(layout, modifier) -> None:
         except Exception:
             layout.label(text="Open Blender's modifier panel for curve editing.", icon="INFO")
     elif modifier.type == "MASK":
-        for prop in ("input_mask_type", "input_mask_strip", "input_mask_id", "mask_time"):
-            if hasattr(modifier, prop):
-                layout.prop(modifier, prop)
+        layout.label(text="Native mask modifier controls are shown above.", icon="MOD_MASK")
     else:
-        for prop in ("enable", "show_preview", "input_mask_type"):
-            if hasattr(modifier, prop):
-                layout.prop(modifier, prop)
+        layout.label(text=f"{modifier.type} controls are exposed through Blender's native modifier data.", icon="MODIFIER")
 
 
 def _draw_render_tools(layout, scene) -> None:
