@@ -516,6 +516,20 @@ _BLUE_GAMMA_TRIM_STACK = (
     _color_balance(gamma=(1.0, 1.0, 1.08), gain=(0.99, 1.0, 1.03)),
     _white_balance((0.99, 1.0, 1.03)),
 )
+_MASTER_COLOR_WHEELS_STACK = (
+    _bright_contrast(bright=0.0, contrast=2.0),
+    _color_balance(
+        lift=(0.995, 0.995, 1.000),
+        gamma=(1.010, 1.010, 1.010),
+        gain=(1.020, 1.020, 1.020),
+        color_multiply=1.0,
+    ),
+    _asc_cdl(offset=(1.000, 1.000, 1.000), power=(0.995, 0.995, 0.995), slope=(1.015, 1.015, 1.015)),
+    _white_balance((1.0, 1.0, 1.0)),
+    _curve_points({0: [(0.0, 0.0), (0.25, 0.235), (0.50, 0.50), (0.75, 0.775), (1.0, 1.0)]}),
+    _tonemap(tonemap_type="RD_PHOTORECEPTOR", intensity=0.03, contrast=0.03, gamma=1.0),
+    ("HUE_CORRECT", {"__hue_correct__": {"saturation": 0.515, "value": 0.50}}),
+)
 _MAGENTA_GREEN_TINT_STACK = (
     _white_balance((1.02, 0.98, 1.02)),
     _color_balance(gamma=(1.015, 0.985, 1.015), gain=(1.02, 0.98, 1.02)),
@@ -1539,6 +1553,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_BLENDER_MODIFIER,
         description="Live Blender midtone blue-channel gamma trim using Color Balance and White Balance.",
         blender_stack=_BLUE_GAMMA_TRIM_STACK,
+    ),
+    VideoTool(
+        id="master_color_wheels",
+        label="Master Color Wheels",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Editable primary correction board exposing Blender Brightness/Contrast, Lift/Gamma/Gain, ASC CDL Offset/Power/Slope, White Balance, RGB Curves, Tone Map, and Hue Correct controls.",
+        blender_stack=_MASTER_COLOR_WHEELS_STACK,
     ),
     VideoTool(
         id="rgb_gamma_board",

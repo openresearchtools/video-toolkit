@@ -794,6 +794,7 @@ created_recipe_ids = scene.get('video_toolkit_last_compositor_recipe_ids', '').s
 assert created_recipe_ids == expected_recipe_ids
 assert 'live_pro_color_stack' in created_recipe_ids
 for color_board_id in [
+    'master_color_wheels',
     'primary_color_board',
     'log_zone_color_board',
     'asc_cdl_finish_board',

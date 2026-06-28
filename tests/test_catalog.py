@@ -34,6 +34,7 @@ STACK_TYPE_TO_COMPOSITOR_NODE = {
     "COLOR_SPILL": "CompositorNodeColorSpill",
     "CONVOLVE": "CompositorNodeConvolve",
     "CROP": "CompositorNodeCrop",
+    "CURVES": "CompositorNodeCurveRGB",
     "CURVE_RGB": "CompositorNodeCurveRGB",
     "DENOISE": "CompositorNodeDenoise",
     "DESPECKLE": "CompositorNodeDespeckle",
@@ -1217,6 +1218,7 @@ def test_color_enhance_tools_are_blender_native_live_stacks():
         "red_gamma_trim",
         "green_gamma_trim",
         "blue_gamma_trim",
+        "master_color_wheels",
         "magenta_green_tint",
         "green_cast_repair",
         "shadow_cool_tint",
@@ -1269,6 +1271,7 @@ def test_translated_ffmpeg_color_intent_tools_are_live_and_node_ready():
 
 def test_professional_color_board_tools_are_native_and_node_ready():
     expected = {
+        "master_color_wheels",
         "primary_color_board",
         "log_zone_color_board",
         "asc_cdl_finish_board",
@@ -1290,6 +1293,30 @@ def test_professional_color_board_tools_are_native_and_node_ready():
     assert {"COLOR_BALANCE", "CURVES", "HUE_CORRECT", "TONEMAP"}.issubset(
         set(get_tool("primary_color_board").blender_modifiers)
     )
+    master = get_tool("master_color_wheels")
+    assert master.blender_modifiers == (
+        "BRIGHT_CONTRAST",
+        "COLOR_BALANCE",
+        "COLOR_BALANCE",
+        "WHITE_BALANCE",
+        "CURVES",
+        "TONEMAP",
+        "HUE_CORRECT",
+    )
+    assert master.blender_stack[1][1]["color_balance.correction_method"] == "LIFT_GAMMA_GAIN"
+    assert master.blender_stack[2][1]["color_balance.correction_method"] == "OFFSET_POWER_SLOPE"
+    converted_node_classes = {
+        STACK_TYPE_TO_COMPOSITOR_NODE[modifier_type]
+        for modifier_type, _settings in master.blender_stack
+        if modifier_type in STACK_TYPE_TO_COMPOSITOR_NODE
+    }
+    assert {
+        "CompositorNodeBrightContrast",
+        "CompositorNodeColorBalance",
+        "CompositorNodeCurveRGB",
+        "CompositorNodeHueCorrect",
+        "CompositorNodeTonemap",
+    }.issubset(converted_node_classes)
     assert get_tool("six_vector_hue_board").blender_modifiers[0] == "HUE_CORRECT"
     assert "CURVES" in get_tool("broadcast_safe_finish").blender_modifiers
 
