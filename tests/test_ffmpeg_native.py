@@ -72,6 +72,7 @@ from video_toolkit.ffmpeg_native import (
     scope_filter_to_blender_compositor,
     source_generator_to_blender_compositor,
     threshold_to_blender_compositor,
+    timeline_filter_to_blender_compositor,
     translate_filter_chain,
     transpose_to_blender_compositor,
     tonemap_to_blender_compositor,
@@ -323,6 +324,60 @@ def test_ffmpeg_editing_filters_translate_to_native_graphlets():
     assert "CompositorNodePixelate" in node_types
     assert "CompositorNodeCornerPin" in node_types
     assert "CompositorNodeTranslate" in node_types
+    assert "TEXT_OVERLAY" in node_types
+
+
+def test_ffmpeg_timeline_filters_translate_to_native_metadata_graphlets():
+    trim = timeline_filter_to_blender_compositor("trim", start_frame=10, end_frame=120)
+    setdar = timeline_filter_to_blender_compositor("setdar", ratio="4/3")
+    tpad = timeline_filter_to_blender_compositor("tpad", start_duration=1, stop_duration=1, color="black")
+    showinfo = timeline_filter_to_blender_compositor("showinfo")
+
+    assert [node_type for node_type, _settings in trim] == ["NATIVE_NODE", "NATIVE_NODE", "TEXT_OVERLAY"]
+    assert trim[0][1]["node_type"] == "CompositorNodeTime"
+    assert trim[0][1]["__skip_link_input__"] is True
+    assert trim[1][1]["node_type"] == "CompositorNodeSequencerStripInfo"
+    assert trim[1][1]["__skip_link_input__"] is True
+    assert setdar[0][0] == "SCALE"
+    assert setdar[0][1]["metadata"]["aspect_ratio"] == 4 / 3
+    assert tpad[0][0] == "BLANK_IMAGE_OVERLAY"
+    assert showinfo[0][0] == "SCOPE_MONITOR"
+
+    result = translate_filter_chain(
+        "trim=start_frame=10:end_frame=120,"
+        "setpts=PTS-STARTPTS,"
+        "settb=expr=1/30,"
+        "setdar=ratio=16/9,"
+        "setsar=ratio=1/1,"
+        "loop=loop=2:size=50:start=0,"
+        "reverse,"
+        "freezeframes=first=10:last=30:replace=10,"
+        "tpad=start_duration=1:stop_duration=1:color=black,"
+        "select=expr=n,"
+        "metadata=mode=add:key=video_toolkit:value=preview,"
+        "showinfo,"
+        "null"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == (
+        "trim",
+        "setpts",
+        "settb",
+        "setdar",
+        "setsar",
+        "loop",
+        "reverse",
+        "freezeframes",
+        "tpad",
+        "select",
+        "metadata",
+        "showinfo",
+        "null",
+    )
+    node_types = [settings.get("node_type", stack_type) for stack_type, settings in result.compositor_nodes]
+    assert "CompositorNodeTime" in node_types
+    assert "CompositorNodeSequencerStripInfo" in node_types
+    assert "SCOPE_MONITOR" in node_types
     assert "TEXT_OVERLAY" in node_types
 
 

@@ -129,8 +129,38 @@ NATIVE_FFMPEG_EDITING_FILTERS = (
     "ass",
 )
 
+NATIVE_FFMPEG_TIMELINE_FILTERS = (
+    "bench",
+    "copy",
+    "cue",
+    "framestep",
+    "freezeframes",
+    "fsync",
+    "latency",
+    "loop",
+    "metadata",
+    "null",
+    "perms",
+    "realtime",
+    "reverse",
+    "segment",
+    "select",
+    "sendcmd",
+    "setdar",
+    "setpts",
+    "setsar",
+    "settb",
+    "showinfo",
+    "shuffleframes",
+    "sidedata",
+    "split",
+    "tpad",
+    "trim",
+)
+
 NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     *NATIVE_FFMPEG_EDITING_FILTERS,
+    *NATIVE_FFMPEG_TIMELINE_FILTERS,
     "chromakey",
     "chromakey_cuda",
     "colorkey",
@@ -427,6 +457,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(editing_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} edit/layout/finishing intent is represented with native Blender compositor graphlets and editable FFmpeg metadata.")
+        elif name in NATIVE_FFMPEG_TIMELINE_FILTERS:
+            compositor_nodes.extend(timeline_filter_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} timeline/metadata intent is represented with native Blender time, sequencer-info, and visible metadata graphlets.")
         elif name == "normalize":
             normalize_stack = normalize_to_blender_stack(**args)
             stack.extend(normalize_stack)
@@ -1915,6 +1949,192 @@ def _native_compositor_node(
     if approximation:
         settings["approximation"] = approximation
     return ("NATIVE_NODE", settings)
+
+
+def timeline_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    metadata = _editing_metadata(name, options, role=_timeline_role(name))
+    label = _timeline_label(name)
+    if name in {"setdar", "setsar"}:
+        ratio = _aspect_ratio_from_options(options)
+        return (
+            (
+                "SCALE",
+                {
+                    "label": f"{label} Aspect Preview",
+                    "type": "Relative",
+                    "x": _clamp(ratio, 0.25, 4.0) if ratio >= 1.0 else 1.0,
+                    "y": _clamp(1.0 / ratio, 0.25, 4.0) if ratio < 1.0 else 1.0,
+                    "frame_type": "Fit",
+                    "interpolation": "Bilinear",
+                    "source": name,
+                    "metadata": metadata | {"aspect_ratio": ratio},
+                    "approximation": "FFmpeg display/sample aspect metadata is previewed with Blender Scale and preserved as node metadata.",
+                },
+            ),
+            _timeline_text_node(name, label, metadata),
+        )
+    if name == "tpad":
+        color = (*_parse_color(str(_option(options, "color", default="black")), (0.0, 0.0, 0.0)), 1.0)
+        return (
+            (
+                "BLANK_IMAGE_OVERLAY",
+                {
+                    "label": "Temporal Pad Plate",
+                    "inputs": {"Color": color, "Size": (640, 360)},
+                    "factor": 0.24,
+                    "source": name,
+                    "metadata": metadata,
+                    "approximation": "FFmpeg tpad inserts cloned/solid frames. Blender previews the pad plate while start/stop durations remain metadata for rendered fallback.",
+                },
+            ),
+            _timeline_text_node(name, label, metadata),
+        )
+    if name in {"metadata", "sidedata", "showinfo", "bench", "latency"}:
+        return (
+            (
+                "SCOPE_MONITOR",
+                {
+                    "label": label,
+                    "source": name,
+                    "metadata": metadata,
+                    "approximation": "FFmpeg analysis/metadata filters emit logs or frame metadata. Blender shows a selected-strip scope monitor and stamps the options onto nodes.",
+                },
+            ),
+            _timeline_text_node(name, label, metadata),
+        )
+    if name in {"freezeframes", "loop", "reverse", "shuffleframes", "framestep", "select", "trim", "segment", "split", "sendcmd", "setpts", "settb", "fsync", "cue", "realtime", "copy", "null", "perms"}:
+        return (
+            _native_compositor_node(
+                "CompositorNodeTime",
+                label=f"{label} Time Metadata",
+                source=name,
+                inputs={"Start Frame": _timeline_start_frame(options), "End Frame": _timeline_end_frame(options)},
+                metadata=metadata,
+                approximation="This FFmpeg filter changes frame timing, selection, sync, permissions, or stream routing. Blender compositor preview keeps the image live and exposes editable Time metadata; exact frame reordering stays in rendered fallback.",
+                skip_link_input=True,
+                passthrough=True,
+            ),
+            _native_compositor_node(
+                "CompositorNodeSequencerStripInfo",
+                label=f"{label} Strip Info",
+                source=name,
+                metadata=metadata,
+                approximation="Sequencer Strip Info provides native Blender timing/transform context for the selected movie strip.",
+                skip_link_input=True,
+                passthrough=True,
+            ),
+            _timeline_text_node(name, label, metadata),
+        )
+    return (_timeline_text_node(name, label, metadata),)
+
+
+def _timeline_text_node(source: str, label: str, metadata: dict[str, object]) -> tuple[str, dict[str, object]]:
+    return (
+        "TEXT_OVERLAY",
+        {
+            "label": label,
+            "inputs": {"String": f"FFmpeg {source}: {_timeline_role(source)}", "Size": 22.0},
+            "factor": 0.30,
+            "source": source,
+            "metadata": metadata,
+            "approximation": "Visible timeline metadata overlay confirms the selected strip passed through this native sidecar graphlet.",
+        },
+    )
+
+
+def _timeline_label(source: str) -> str:
+    labels = {
+        "bench": "Benchmark Metadata",
+        "copy": "Copy Passthrough",
+        "cue": "Cue Sync Metadata",
+        "framestep": "Frame Step",
+        "freezeframes": "Freeze Frames",
+        "fsync": "Frame Sync Metadata",
+        "latency": "Latency Monitor",
+        "loop": "Loop Preview",
+        "metadata": "Metadata Editor",
+        "null": "Null Passthrough",
+        "perms": "Frame Permissions",
+        "realtime": "Realtime Throttle",
+        "reverse": "Reverse Preview",
+        "segment": "Segment Marker",
+        "select": "Frame Select",
+        "sendcmd": "Command Metadata",
+        "setdar": "Display Aspect",
+        "setpts": "Presentation Time",
+        "setsar": "Sample Aspect",
+        "settb": "Timebase Metadata",
+        "showinfo": "Show Info Monitor",
+        "shuffleframes": "Shuffle Frames",
+        "sidedata": "Side Data Metadata",
+        "split": "Split Stream",
+        "tpad": "Temporal Pad",
+        "trim": "Trim Range",
+    }
+    return labels.get(source, source.replace("_", " ").title())
+
+
+def _timeline_role(source: str) -> str:
+    roles = {
+        "bench": "benchmark timing/log metadata",
+        "copy": "passthrough copy node",
+        "cue": "cue delay/sync metadata",
+        "framestep": "frame-step selection",
+        "freezeframes": "freeze selected frame ranges",
+        "fsync": "external frame-sync metadata",
+        "latency": "latency measurement metadata",
+        "loop": "loop/repeat frame range",
+        "metadata": "read/write frame metadata",
+        "null": "explicit no-op passthrough",
+        "perms": "frame permission metadata",
+        "realtime": "wall-clock throttle metadata",
+        "reverse": "reverse frame order",
+        "segment": "segment timeline marker",
+        "select": "expression-based frame selection",
+        "sendcmd": "timeline command dispatch",
+        "setdar": "display aspect metadata",
+        "setpts": "presentation timestamp expression",
+        "setsar": "sample aspect metadata",
+        "settb": "timebase metadata",
+        "showinfo": "frame info logging",
+        "shuffleframes": "frame order shuffle",
+        "sidedata": "frame side-data metadata",
+        "split": "multi-output stream split",
+        "tpad": "temporal padding",
+        "trim": "timeline trim range",
+    }
+    return roles.get(source, "timeline metadata")
+
+
+def _timeline_start_frame(options: dict[str, object]) -> float:
+    value = _option(options, "start_frame", "start", "s", "start_pts", default=1)
+    parsed = _numeric_expression(value, 1.0)
+    return _clamp(parsed, -1000000.0, 1000000.0)
+
+
+def _timeline_end_frame(options: dict[str, object]) -> float:
+    value = _option(options, "end_frame", "end", "duration", "d", default=250)
+    parsed = _numeric_expression(value, 250.0)
+    return _clamp(parsed, -1000000.0, 1000000.0)
+
+
+def _aspect_ratio_from_options(options: dict[str, object]) -> float:
+    value = str(_option(options, "ratio", "r", "dar", "sar", "arg0", default="16/9")).strip()
+    if ":" in value:
+        left, right = value.split(":", 1)
+        numerator = _numeric_expression(left, 16.0)
+        denominator = _numeric_expression(right, 9.0)
+    elif "/" in value:
+        left, right = value.split("/", 1)
+        numerator = _numeric_expression(left, 16.0)
+        denominator = _numeric_expression(right, 9.0)
+    else:
+        numerator = _numeric_expression(value, 16.0 / 9.0)
+        denominator = 1.0
+    if abs(denominator) < 1e-9:
+        return 16.0 / 9.0
+    return _clamp(numerator / denominator, 0.05, 20.0)
 
 
 def normalize_to_blender_stack(

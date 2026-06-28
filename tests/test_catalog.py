@@ -15,6 +15,7 @@ from video_toolkit.ffmpeg_native import (
     NATIVE_FFMPEG_COMPOSITOR_FILTERS,
     NATIVE_FFMPEG_EDITING_FILTERS,
     NATIVE_FFMPEG_SOURCE_FILTERS,
+    NATIVE_FFMPEG_TIMELINE_FILTERS,
 )
 
 
@@ -979,6 +980,7 @@ def test_all_tracked_compositor_nodes_have_one_click_catalog_coverage():
 
 def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
     filter_to_tool = {filter_name: f"native_ffmpeg_edit_{filter_name}" for filter_name in NATIVE_FFMPEG_EDITING_FILTERS}
+    filter_to_tool.update({filter_name: f"native_ffmpeg_timeline_{filter_name}" for filter_name in NATIVE_FFMPEG_TIMELINE_FILTERS})
     filter_to_tool.update({
         "chromakey": "native_chroma_key_matte",
         "chromakey_cuda": "native_cuda_chroma_key_matte",

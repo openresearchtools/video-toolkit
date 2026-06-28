@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from .ffmpeg_native import NATIVE_FFMPEG_EDITING_FILTERS, NATIVE_FFMPEG_SOURCE_FILTERS, translate_filter_chain
+from .ffmpeg_native import (
+    NATIVE_FFMPEG_EDITING_FILTERS,
+    NATIVE_FFMPEG_SOURCE_FILTERS,
+    NATIVE_FFMPEG_TIMELINE_FILTERS,
+    translate_filter_chain,
+)
 
 
 ENGINE_BLENDER_MODIFIER = "blender_modifier"
@@ -765,6 +770,86 @@ def _ffmpeg_editing_tool(filter_name: str) -> VideoTool:
 
 
 _FFMPEG_EDITING_TOOLS = tuple(_ffmpeg_editing_tool(filter_name) for filter_name in NATIVE_FFMPEG_EDITING_FILTERS)
+
+
+_FFMPEG_TIMELINE_LABELS = {
+    "bench": "Benchmark Metadata",
+    "copy": "Copy Passthrough",
+    "cue": "Cue Sync Metadata",
+    "framestep": "Frame Step",
+    "freezeframes": "Freeze Frames",
+    "fsync": "Frame Sync Metadata",
+    "latency": "Latency Monitor",
+    "loop": "Loop Preview",
+    "metadata": "Metadata Editor",
+    "null": "Null Passthrough",
+    "perms": "Frame Permissions",
+    "realtime": "Realtime Throttle",
+    "reverse": "Reverse Preview",
+    "segment": "Segment Marker",
+    "select": "Frame Select",
+    "sendcmd": "Command Metadata",
+    "setdar": "Display Aspect",
+    "setpts": "Presentation Time",
+    "setsar": "Sample Aspect",
+    "settb": "Timebase Metadata",
+    "showinfo": "Show Info Monitor",
+    "shuffleframes": "Shuffle Frames",
+    "sidedata": "Side Data Metadata",
+    "split": "Split Stream",
+    "tpad": "Temporal Pad",
+    "trim": "Trim Range",
+}
+
+
+def _ffmpeg_timeline_chain(filter_name: str) -> str:
+    defaults = {
+        "bench": "bench=start",
+        "copy": "copy",
+        "cue": "cue=cue=0:preroll=0:buffer=0",
+        "framestep": "framestep=step=2",
+        "freezeframes": "freezeframes=first=10:last=30:replace=10",
+        "fsync": "fsync=file=sync.txt",
+        "latency": "latency",
+        "loop": "loop=loop=2:size=50:start=0",
+        "metadata": "metadata=mode=add:key=video_toolkit:value=preview",
+        "null": "null",
+        "perms": "perms=mode=random",
+        "realtime": "realtime=limit=2",
+        "reverse": "reverse",
+        "segment": "segment=timestamps=1|2|3",
+        "select": "select=expr=n",
+        "sendcmd": "sendcmd=commands='0.0 drawtext reinit text=Video Toolkit'",
+        "setdar": "setdar=ratio=16/9",
+        "setpts": "setpts=PTS-STARTPTS",
+        "setsar": "setsar=ratio=1/1",
+        "settb": "settb=expr=1/30",
+        "showinfo": "showinfo",
+        "shuffleframes": "shuffleframes=0 2 1",
+        "sidedata": "sidedata=mode=select:type=MOTION_VECTORS",
+        "split": "split=outputs=2",
+        "tpad": "tpad=start_duration=1:stop_duration=1:color=black",
+        "trim": "trim=start_frame=10:end_frame=120",
+    }
+    return defaults.get(filter_name, filter_name)
+
+
+def _ffmpeg_timeline_tool(filter_name: str) -> VideoTool:
+    translation = translate_filter_chain(_ffmpeg_timeline_chain(filter_name))
+    return VideoTool(
+        id=f"native_ffmpeg_timeline_{filter_name}",
+        label=_FFMPEG_TIMELINE_LABELS.get(filter_name, filter_name.replace("_", " ").title()),
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description=(
+            f"Translated FFmpeg {filter_name} timeline/metadata intent as native Blender "
+            "Time, Sequencer Strip Info, scope, aspect, or visible metadata preview graphlets."
+        ),
+        compositor_stack=translation.compositor_nodes,
+    )
+
+
+_FFMPEG_TIMELINE_TOOLS = tuple(_ffmpeg_timeline_tool(filter_name) for filter_name in NATIVE_FFMPEG_TIMELINE_FILTERS)
 
 
 TOOLS: tuple[VideoTool, ...] = (
@@ -2928,6 +3013,7 @@ TOOLS: tuple[VideoTool, ...] = (
             _native_node("CompositorNodeTrackPos", label="Track Position", inputs={"Frame": 1.0}, assign_source_clip=True, skip_link_input=True, passthrough=True),
         ),
     ),
+    *_FFMPEG_TIMELINE_TOOLS,
     VideoTool(
         id="native_compositor_normalize_luma",
         label="Normalize Luma",
