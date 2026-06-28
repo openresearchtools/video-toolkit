@@ -3830,6 +3830,7 @@ def _translated_compositor_filter_to_node(
     labels = {
         "CHROMA_MATTE": "Chroma Matte",
         "COLOR_MATTE": "Color Matte",
+        "COLOR_SPILL": "Color Spill",
         "LUMA_MATTE": "Luma Matte",
         "BRIGHT_CONTRAST": "Brightness/Contrast",
         "COLOR_BALANCE": "Color Balance",
@@ -3897,6 +3898,23 @@ def _translated_compositor_filter_to_node(
         _set_input_default(node, "Hue", settings.get("hue", 0.02))
         _set_input_default(node, "Saturation", settings.get("saturation", 0.02))
         _set_input_default(node, "Value", settings.get("value", 0.02))
+        return node
+    if compositor_type == "COLOR_SPILL":
+        node = _new_compositor_node(tree, "CompositorNodeColorSpill", label, index, origin=origin)
+        _set_input_default(node, "Factor", settings.get("factor", 0.5))
+        _set_input_default(node, "Spill Channel", settings.get("spill_channel", "Green"))
+        _set_input_default(node, "Limit Method", settings.get("limit_method", "Single"))
+        _set_input_default(node, "Limit Channel", settings.get("limit_channel", "Red"))
+        _set_input_default(node, "Limit Strength", settings.get("limit_strength", 0.0))
+        _set_input_default(node, "Use Spill Strength", bool(settings.get("use_spill_strength", True)))
+        _set_input_default(node, "Strength", settings.get("strength", 0.6))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "despill")
+        node["video_toolkit_spill_channel"] = settings.get("spill_channel", "")
+        node["video_toolkit_channel_scales"] = str(settings.get("channel_scales", {}))
+        node["video_toolkit_brightness"] = float(settings.get("brightness", 0.0) or 0.0)
+        node["video_toolkit_alpha"] = bool(settings.get("alpha", False))
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "LUMA_MATTE":
         node = _new_compositor_node(tree, "CompositorNodeLumaMatte", label, index, origin=origin)
@@ -4840,6 +4858,7 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "colorkey=color=blue:similarity=0.10:blend=0.03,"
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
+        "despill=type=green:mix=0.65:expand=0.12:green=-1.0,"
         "threshold=planes=7,"
         "maskedthreshold=threshold=2048:planes=7:mode=abs,"
         "blend=all_mode=overlay:all_opacity=0.35,"

@@ -61,6 +61,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "colorkey",
     "hsvkey",
     "lumakey",
+    "despill",
     "threshold",
     "maskedthreshold",
     "blend",
@@ -288,6 +289,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(lumakey_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Lumakey is translated to Blender compositor Luma Matte nodes.")
+        elif name == "despill":
+            compositor_nodes.extend(despill_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Despill is translated to Blender compositor Color Spill suppression nodes.")
         elif name in {"threshold", "maskedthreshold"}:
             compositor_nodes.extend(threshold_to_blender_compositor(name, **args))
             supported.append(name)
@@ -1513,6 +1518,50 @@ def lumakey_to_blender_compositor(
             {
                 "minimum": _clamp(threshold_value - tolerance_value, 0.0, 1.0),
                 "maximum": _clamp(threshold_value + tolerance_value, 0.0, 1.0),
+            },
+        ),
+    )
+
+
+def despill_to_blender_compositor(
+    *,
+    type: str | int = "green",
+    mix: str | float = 0.5,
+    expand: str | float = 0.0,
+    red: str | float = 0.0,
+    green: str | float = -1.0,
+    blue: str | float = 0.0,
+    brightness: str | float = 0.0,
+    alpha: str | bool = False,
+    **_unused: str,
+) -> CompositorStack:
+    screen_text = str(type).strip().lower()
+    spill_channel = "Blue" if screen_text in {"1", "blue", "b"} else "Green"
+    mix_value = _clamp(_float(mix, 0.5), 0.0, 1.0)
+    expand_value = _clamp(_float(expand, 0.0), 0.0, 1.0)
+    red_scale = _clamp(_float(red, 0.0), -100.0, 100.0)
+    green_scale = _clamp(_float(green, -1.0), -100.0, 100.0)
+    blue_scale = _clamp(_float(blue, 0.0), -100.0, 100.0)
+    brightness_value = _clamp(_float(brightness, 0.0), -10.0, 10.0)
+    channel_scale = blue_scale if spill_channel == "Blue" else green_scale
+    strength = _clamp(abs(channel_scale) * 0.55 + mix_value * 0.35 + expand_value * 0.25, 0.0, 1.0)
+    return (
+        (
+            "COLOR_SPILL",
+            {
+                "label": f"Despill {spill_channel} Screen",
+                "factor": mix_value,
+                "spill_channel": spill_channel,
+                "limit_method": "Single",
+                "limit_channel": "Green" if spill_channel == "Blue" else "Red",
+                "limit_strength": expand_value,
+                "use_spill_strength": True,
+                "strength": strength,
+                "source": "despill",
+                "channel_scales": {"red": red_scale, "green": green_scale, "blue": blue_scale},
+                "brightness": brightness_value,
+                "alpha": _truthy(alpha),
+                "approximation": "FFmpeg despill's channel-scale and brightness math is represented with Blender's native Color Spill node; exact per-channel scale values are kept as node metadata.",
             },
         ),
     )

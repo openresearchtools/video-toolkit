@@ -47,12 +47,15 @@ def main() -> int:
 
     if args.compositor_report and args.compositor_report.exists():
         compositor_report = json.loads(args.compositor_report.read_text(encoding="utf-8"))
-        compositor_pages = _build_compositor_pages(compositor_report, source_png, output_dir, font, small)
+        compositor_source_png = output_dir / "compositor_source_frame.png"
+        _extract_frame(Path(compositor_report["source_video"]), compositor_source_png)
+        compositor_pages = _build_compositor_pages(compositor_report, compositor_source_png, output_dir, font, small)
         compositor_notes = [
             result for result in compositor_report["results"]
             if result.get("group") == "compositor_visual_snapshot" and result.get("status") == "noted"
         ]
         summary.append(f"- Compositor node output before/after pages: `{len(compositor_pages)}`")
+        summary.append(f"- Compositor source video: `{compositor_report['source_video']}`")
         summary.append(f"- Compositor snapshots rendered: `{compositor_report['passed']}`")
         summary.append(f"- Compositor graph-only notes: `{len(compositor_notes)}`")
         for result in compositor_notes:

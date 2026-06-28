@@ -86,6 +86,7 @@ def _setup_scene() -> None:
         "colorkey=color=blue:similarity=0.10:blend=0.03,"
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
+        "despill=type=green:mix=0.65:expand=0.12:green=-1.0,"
         "threshold=planes=7,"
         "maskedthreshold=threshold=2048:planes=7:mode=abs,"
         "blend=all_mode=overlay:all_opacity=0.35,"

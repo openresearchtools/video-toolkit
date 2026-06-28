@@ -162,6 +162,7 @@ sys.path.insert(0, {str(ROOT)!r})
 import bpy
 import video_toolkit
 from video_toolkit.compositor import compositor_node_types
+from video_toolkit.ffmpeg_native import NATIVE_FFMPEG_COMPOSITOR_FILTERS, NATIVE_FFMPEG_FILTERS
 
 video_toolkit.register()
 scene = bpy.context.scene
@@ -337,6 +338,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'colorkey=color=blue:similarity=0.10:blend=0.03,'
     'hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,'
     'lumakey=threshold=0.20:tolerance=0.08:softness=0.02,'
+    'despill=type=green:mix=0.65:expand=0.12:green=-1.0,'
     'threshold=planes=7,'
     'maskedthreshold=threshold=2048:planes=7:mode=abs,'
     "blend=all_mode=overlay:all_opacity=0.35,"
@@ -397,6 +399,7 @@ for required_filter in [
     'eq',
     'colorbalance',
     'chromakey',
+    'despill',
     'threshold',
     'blend',
     'tblend',
@@ -1002,8 +1005,8 @@ assert f'Compositor-compatible catalog recipes: {{len(expected_all_recipe_ids)}}
 assert 'VSE-only native tools:' in catalog_coverage_report
 assert 'native_mask_slot: Mask Slot' in catalog_coverage_report
 assert 'Rendered fallback tools:' in catalog_coverage_report
-assert 'Native-translated FFmpeg filters: 78' in catalog_coverage_report
-assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur, scale, crop, rotate, transpose, hflip, vflip, lenscorrection, hqdn3d, nlmeans, bm3d, owdenoise, vaguedenoiser, atadenoise, median, dedot, deband, deblock' in catalog_coverage_report
+assert f'Native-translated FFmpeg filters: {{len(NATIVE_FFMPEG_FILTERS)}}' in catalog_coverage_report
+assert 'Native compositor-only FFmpeg filters: ' + ', '.join(NATIVE_FFMPEG_COMPOSITOR_FILTERS) in catalog_coverage_report
 assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_coverage_report
 assert 'Rendered-only FFmpeg filters:' in catalog_coverage_report
 assert 'deflicker' in catalog_coverage_report
