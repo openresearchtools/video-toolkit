@@ -137,6 +137,19 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "pixscope",
     "signalstats",
     "colordetect",
+    "blackdetect",
+    "blackdetect_vulkan",
+    "blackframe",
+    "blockdetect",
+    "blurdetect",
+    "cropdetect",
+    "bbox",
+    "bitplanenoise",
+    "freezedetect",
+    "scdet",
+    "scdet_vulkan",
+    "vfrdet",
+    "idet",
     "identity",
     "ssim",
     "psnr",
@@ -452,6 +465,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(scope_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to a Blender compositor diagnostic graph using RGB/luma monitor nodes.")
+        elif name in {"blackdetect", "blackdetect_vulkan", "blackframe", "blockdetect", "blurdetect", "cropdetect", "bbox", "bitplanenoise", "freezedetect", "scdet", "scdet_vulkan", "vfrdet", "idet"}:
+            compositor_nodes.extend(detection_filter_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is translated to a Blender compositor diagnostic graph using luma/RGB monitor nodes and editable detection metadata.")
         elif name == "identity":
             compositor_nodes.extend(identity_to_blender_compositor(**args))
             supported.append(name)
@@ -2775,6 +2792,87 @@ def scope_filter_to_blender_compositor(source: str, **options: str | int | float
     )
 
 
+def detection_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    labels = {
+        "blackdetect": "Black Segment Detect",
+        "blackdetect_vulkan": "Vulkan Black Segment Detect",
+        "blackframe": "Black Frame Detect",
+        "blockdetect": "Block Artifact Detect",
+        "blurdetect": "Blur Detect",
+        "cropdetect": "Crop Detect",
+        "bbox": "Bounding Box Detect",
+        "bitplanenoise": "Bit Plane Noise Detect",
+        "freezedetect": "Freeze Detect",
+        "scdet": "Scene Change Detect",
+        "scdet_vulkan": "Vulkan Scene Change Detect",
+        "vfrdet": "Variable Frame Rate Detect",
+        "idet": "Interlace Detect",
+    }
+    modes = {
+        "blackdetect": "black_segment",
+        "blackdetect_vulkan": "black_segment",
+        "blackframe": "black_frame",
+        "blockdetect": "block_artifacts",
+        "blurdetect": "blur_edges",
+        "cropdetect": "crop_bounds",
+        "bbox": "bounding_box",
+        "bitplanenoise": "bitplane_noise",
+        "freezedetect": "freeze",
+        "scdet": "scene_change",
+        "scdet_vulkan": "scene_change",
+        "vfrdet": "frame_rate_variation",
+        "idet": "interlace",
+    }
+    threshold = _detection_threshold(name, options)
+    high = _clamp(_float(_option(options, "high", default=0.117647 if name == "blurdetect" else 0.0980392), 0.117647), 0.0, 1.0)
+    low = _clamp(_float(_option(options, "low", default=0.0588235), 0.0588235), 0.0, 1.0)
+    duration = str(_option(options, "duration", "d", "black_min_duration", default="2"))
+    return (
+        (
+            "SCOPE_MONITOR",
+            {
+                "label": labels.get(name, name.title()),
+                "scope": name,
+                "mode": modes.get(name, "detect"),
+                "components": str(_option(options, "planes", "components", default="luma")),
+                "intensity": _clamp(_float(_option(options, "intensity", "i", default=0.7), 0.7), 0.0, 1.0),
+                "threshold": threshold,
+                "high": high,
+                "low": low,
+                "duration": duration,
+                "ratio": _clamp(_float(_option(options, "picture_black_ratio_th", "pic_th", "amount", default=98.0 if name == "blackframe" else 0.98), 0.98), 0.0, 100.0),
+                "pixel_threshold": _detection_pixel_threshold(name, options),
+                "alpha": _truthy(_option(options, "alpha", default=False)),
+                "period_min": int(_clamp(_float(_option(options, "period_min", default=3), 3.0), 2.0, 64.0)),
+                "period_max": int(_clamp(_float(_option(options, "period_max", default=24), 24.0), 2.0, 128.0)),
+                "radius": int(_clamp(_float(_option(options, "radius", default=50), 50.0), 1.0, 256.0)),
+                "block_pct": int(_clamp(_float(_option(options, "block_pct", default=80), 80.0), 1.0, 100.0)),
+                "block_width": int(_clamp(_float(_option(options, "block_width", default=-1), -1.0), -1.0, 8192.0)),
+                "block_height": int(_clamp(_float(_option(options, "block_height", default=-1), -1.0), -1.0, 8192.0)),
+                "round": int(_clamp(_float(_option(options, "round", default=16), 16.0), 0.0, 1024.0)),
+                "reset": int(_clamp(_float(_option(options, "reset", "reset_count", default=0), 0.0), 0.0, 100000.0)),
+                "skip": int(_clamp(_float(_option(options, "skip", default=2), 2.0), 0.0, 100000.0)),
+                "max_outliers": int(_clamp(_float(_option(options, "max_outliers", default=0), 0.0), 0.0, 100000.0)),
+                "mv_threshold": int(_clamp(_float(_option(options, "mv_threshold", default=8), 8.0), 0.0, 100.0)),
+                "min_val": int(_clamp(_float(_option(options, "min_val", default=16), 16.0), 0.0, 65535.0)),
+                "bitplane": int(_clamp(_float(_option(options, "bitplane", default=1), 1.0), 1.0, 16.0)),
+                "filter": _truthy(_option(options, "filter", default=False)),
+                "noise": _clamp(_float(_option(options, "noise", "n", default=0.001), 0.001), 0.0, 1.0),
+                "scene_threshold": _clamp(_float(_option(options, "threshold", "t", default=10.0), 10.0), 0.0, 100.0),
+                "sc_pass": _truthy(_option(options, "sc_pass", "s", default=False)),
+                "intl_thres": _float(_option(options, "intl_thres", default=1.04), 1.04),
+                "prog_thres": _float(_option(options, "prog_thres", default=1.5), 1.5),
+                "rep_thres": _float(_option(options, "rep_thres", default=3.0), 3.0),
+                "half_life": _float(_option(options, "half_life", default=0.0), 0.0),
+                "analyze_interlaced_flag": int(_clamp(_float(_option(options, "analyze_interlaced_flag", default=0), 0.0), 0.0, 100000.0)),
+                "source": name,
+                "approximation": "FFmpeg detection filters emit frame logs/metadata. This Blender graph keeps the selected-strip image live, adds luma/RGB Levels, Image Info, and Viewer monitor nodes, and stores the detector thresholds/options as editable node metadata for visual QC inside the compositor.",
+            },
+        ),
+    )
+
+
 def identity_to_blender_compositor(**options: str | int | float) -> CompositorStack:
     eof_action = str(_option(options, "eof_action", default="repeat"))
     ts_sync_mode = str(_option(options, "ts_sync_mode", default="default"))
@@ -3667,6 +3765,33 @@ def _normalize_limiter_value(value: float) -> float:
     if value > 1.0:
         return _clamp(value / 255.0, 0.0, 1.0)
     return _clamp(value, 0.0, 1.0)
+
+
+def _detection_threshold(name: str, options: dict[str, object]) -> float:
+    if name in {"blackdetect", "blackdetect_vulkan"}:
+        return _clamp(_float(_option(options, "pixel_black_th", "pix_th", default=0.1), 0.1), 0.0, 1.0)
+    if name == "blackframe":
+        return _clamp(_float(_option(options, "threshold", "thresh", default=32), 32.0) / 255.0, 0.0, 1.0)
+    if name == "cropdetect":
+        value = _float(_option(options, "limit", default=0.0941176), 0.0941176)
+        return _clamp(value / 65535.0 if value > 1.0 else value, 0.0, 1.0)
+    if name == "bbox":
+        return _clamp(_float(_option(options, "min_val", default=16), 16.0) / 255.0, 0.0, 1.0)
+    if name == "freezedetect":
+        return _clamp(_float(_option(options, "noise", "n", default=0.001), 0.001), 0.0, 1.0)
+    if name in {"scdet", "scdet_vulkan"}:
+        return _clamp(_float(_option(options, "threshold", "t", default=10), 10.0) / 100.0, 0.0, 1.0)
+    if name == "blurdetect":
+        return _clamp(_float(_option(options, "low", default=0.0588235), 0.0588235), 0.0, 1.0)
+    return _clamp(_float(_option(options, "threshold", default=0.5), 0.5), 0.0, 1.0)
+
+
+def _detection_pixel_threshold(name: str, options: dict[str, object]) -> float:
+    if name in {"blackdetect", "blackdetect_vulkan"}:
+        return _clamp(_float(_option(options, "pixel_black_th", "pix_th", default=0.1), 0.1), 0.0, 1.0)
+    if name == "blackframe":
+        return _clamp(_float(_option(options, "threshold", "thresh", default=32), 32.0) / 255.0, 0.0, 1.0)
+    return _detection_threshold(name, options)
 
 
 def _accelerated_tonemap_method(value: object) -> str:

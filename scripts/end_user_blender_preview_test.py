@@ -407,6 +407,19 @@ scene.video_toolkit_ffmpeg_chain = (
     'dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,'
     'deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,'
     'deblock=block=16:alpha=0.12:beta=0.08,'
+    'blackdetect=d=1.0:pic_th=0.96:pix_th=0.08,'
+    'blackdetect_vulkan=d=1.0:pic_th=0.96:pix_th=0.08,'
+    'blackframe=amount=96:threshold=28,'
+    'blockdetect=period_min=3:period_max=24:planes=1,'
+    'blurdetect=high=0.12:low=0.06:radius=40:block_pct=80:planes=1,'
+    'cropdetect=limit=0.094:round=16:reset=30:skip=2,'
+    'bbox=min_val=16,'
+    'bitplanenoise=bitplane=1:filter=1,'
+    'freezedetect=n=0.001:d=2,'
+    'scdet=threshold=10:sc_pass=0,'
+    'scdet_vulkan=threshold=10:sc_pass=0,'
+    'vfrdet,'
+    'idet=intl_thres=1.04:prog_thres=1.5:rep_thres=3,'
     'identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,'
     'ssim=stats_file=vtk_ssim.log:eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,'
     'psnr=stats_file=vtk_psnr.log:stats_version=2:output_max=1:eof_action=repeat,'
@@ -446,6 +459,17 @@ for required_filter in [
     'colorkey_opencl',
     'convolution_opencl',
     'alphamerge',
+    'blackdetect',
+    'blackframe',
+    'blockdetect',
+    'blurdetect',
+    'cropdetect',
+    'bbox',
+    'bitplanenoise',
+    'freezedetect',
+    'scdet',
+    'vfrdet',
+    'idet',
     'identity',
     'ssim',
     'psnr',
@@ -521,6 +545,17 @@ assert 'edgedetect' in translated_workflow_supported
 assert 'erosion' in translated_workflow_supported
 assert 'dilation' in translated_workflow_supported
 assert 'convolution_opencl' in translated_workflow_supported
+assert 'blackdetect' in translated_workflow_supported
+assert 'blackframe' in translated_workflow_supported
+assert 'blockdetect' in translated_workflow_supported
+assert 'blurdetect' in translated_workflow_supported
+assert 'cropdetect' in translated_workflow_supported
+assert 'bbox' in translated_workflow_supported
+assert 'bitplanenoise' in translated_workflow_supported
+assert 'freezedetect' in translated_workflow_supported
+assert 'scdet' in translated_workflow_supported
+assert 'vfrdet' in translated_workflow_supported
+assert 'idet' in translated_workflow_supported
 assert 'pseudocolor' in translated_workflow_supported
 assert 'zscale' in translated_workflow_supported
 translated_workflow_modifier_types = [
@@ -1309,7 +1344,13 @@ result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_CO
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
 assert 'color management:' in scene.video_toolkit_last_compositor_nodes
-assert 'compositor-native filter node(s): 66' in scene.video_toolkit_last_compositor_nodes
+assert 'blackdetect' in scene.video_toolkit_last_compositor_nodes
+assert 'blurdetect' in scene.video_toolkit_last_compositor_nodes
+assert 'idet' in scene.video_toolkit_last_compositor_nodes
+translated_compositor_filter_count = int(
+    scene.video_toolkit_last_compositor_nodes.split('compositor-native filter node(s): ', 1)[1].split(';', 1)[0]
+)
+assert translated_compositor_filter_count >= 79, scene.video_toolkit_last_compositor_nodes
 translated_compositor_summary = scene.video_toolkit_last_compositor_nodes
 translated_compositor_node_types = [
     node.bl_idname

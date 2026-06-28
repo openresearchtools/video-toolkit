@@ -14,6 +14,7 @@ from video_toolkit.ffmpeg_native import (
     colorlevels_to_blender_stack,
     curves_to_blender_stack,
     despill_to_blender_compositor,
+    detection_filter_to_blender_compositor,
     detail_cleanup_filter_to_blender_compositor,
     blur_to_blender_compositor,
     colorcorrect_to_blender_compositor,
@@ -428,6 +429,57 @@ def test_ffmpeg_scope_filters_translate_to_blender_diagnostic_graphlets():
     assert pixscope["pixel_width"] == 11
     assert pixscope["pixel_height"] == 9
     assert pixscope["window_opacity"] == 0.7
+
+
+def test_ffmpeg_detection_filters_translate_to_blender_diagnostic_graphlets():
+    black = detection_filter_to_blender_compositor("blackdetect", d=1.5, pic_th=0.96, pix_th=0.08)
+    assert black[0][0] == "SCOPE_MONITOR"
+    assert black[0][1]["scope"] == "blackdetect"
+    assert black[0][1]["mode"] == "black_segment"
+    assert black[0][1]["threshold"] == 0.08
+    assert black[0][1]["duration"] == "1.5"
+
+    blur = detection_filter_to_blender_compositor("blurdetect", high=0.12, low=0.06, radius=40, block_pct=80)
+    assert blur[0][1]["scope"] == "blurdetect"
+    assert blur[0][1]["high"] == 0.12
+    assert blur[0][1]["low"] == 0.06
+    assert blur[0][1]["radius"] == 40
+
+    result = translate_filter_chain(
+        "blackdetect=d=1.0:pic_th=0.96:pix_th=0.08,"
+        "blackdetect_vulkan=d=1.0:pic_th=0.96:pix_th=0.08,"
+        "blackframe=amount=96:threshold=28,"
+        "blockdetect=period_min=3:period_max=24:planes=1,"
+        "blurdetect=high=0.12:low=0.06:radius=40:block_pct=80:planes=1,"
+        "cropdetect=limit=0.094:round=16:reset=30:skip=2,"
+        "bbox=min_val=16,"
+        "bitplanenoise=bitplane=1:filter=1,"
+        "freezedetect=n=0.001:d=2,"
+        "scdet=threshold=10:sc_pass=0,"
+        "scdet_vulkan=threshold=10:sc_pass=0,"
+        "vfrdet,"
+        "idet=intl_thres=1.04:prog_thres=1.5:rep_thres=3"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == (
+        "blackdetect",
+        "blackdetect_vulkan",
+        "blackframe",
+        "blockdetect",
+        "blurdetect",
+        "cropdetect",
+        "bbox",
+        "bitplanenoise",
+        "freezedetect",
+        "scdet",
+        "scdet_vulkan",
+        "vfrdet",
+        "idet",
+    )
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["SCOPE_MONITOR"] * 13
+    assert result.compositor_nodes[5][1]["round"] == 16
+    assert result.compositor_nodes[7][1]["bitplane"] == 1
+    assert result.compositor_nodes[-1][1]["intl_thres"] == 1.04
 
 
 def test_identity_filter_translates_to_blender_reference_difference_graphlet():
@@ -1267,6 +1319,19 @@ def test_filter_chain_supports_more_color_grading_filters():
         "pixscope=x=0.55:y=0.45:w=11:h=9:o=0.7,"
         "signalstats=stat=tout+vrep+brng,"
         "colordetect=mode=color_range+alpha_mode+all,"
+        "blackdetect=d=1.0:pic_th=0.96:pix_th=0.08,"
+        "blackdetect_vulkan=d=1.0:pic_th=0.96:pix_th=0.08,"
+        "blackframe=amount=96:threshold=28,"
+        "blockdetect=period_min=3:period_max=24:planes=1,"
+        "blurdetect=high=0.12:low=0.06:radius=40:block_pct=80:planes=1,"
+        "cropdetect=limit=0.094:round=16:reset=30:skip=2,"
+        "bbox=min_val=16,"
+        "bitplanenoise=bitplane=1:filter=1,"
+        "freezedetect=n=0.001:d=2,"
+        "scdet=threshold=10:sc_pass=0,"
+        "scdet_vulkan=threshold=10:sc_pass=0,"
+        "vfrdet,"
+        "idet=intl_thres=1.04:prog_thres=1.5:rep_thres=3,"
         "identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,"
         "ssim=stats_file=vtk_ssim.log:eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,"
         "psnr=stats_file=vtk_psnr.log:stats_version=2:output_max=1:eof_action=repeat,"
@@ -1386,6 +1451,19 @@ def test_filter_chain_supports_more_color_grading_filters():
         "pixscope",
         "signalstats",
         "colordetect",
+        "blackdetect",
+        "blackdetect_vulkan",
+        "blackframe",
+        "blockdetect",
+        "blurdetect",
+        "cropdetect",
+        "bbox",
+        "bitplanenoise",
+        "freezedetect",
+        "scdet",
+        "scdet_vulkan",
+        "vfrdet",
+        "idet",
         "identity",
         "ssim",
         "psnr",

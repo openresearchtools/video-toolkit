@@ -257,6 +257,19 @@ _NATIVE_OSCILLOSCOPE_SCOPE_TRANSLATION = translate_filter_chain("oscilloscope=co
 _NATIVE_PIXEL_SCOPE_TRANSLATION = translate_filter_chain("pixscope=x=0.5:y=0.5:w=9:h=9:o=0.65")
 _NATIVE_SIGNAL_STATS_TRANSLATION = translate_filter_chain("signalstats=stat=tout+vrep+brng")
 _NATIVE_COLOR_DETECT_TRANSLATION = translate_filter_chain("colordetect=mode=color_range+alpha_mode+all")
+_NATIVE_BLACK_DETECT_TRANSLATION = translate_filter_chain("blackdetect=d=1.0:pic_th=0.96:pix_th=0.08")
+_NATIVE_VULKAN_BLACK_DETECT_TRANSLATION = translate_filter_chain("blackdetect_vulkan=d=1.0:pic_th=0.96:pix_th=0.08")
+_NATIVE_BLACK_FRAME_TRANSLATION = translate_filter_chain("blackframe=amount=96:threshold=28")
+_NATIVE_BLOCK_DETECT_TRANSLATION = translate_filter_chain("blockdetect=period_min=3:period_max=24:planes=1")
+_NATIVE_BLUR_DETECT_TRANSLATION = translate_filter_chain("blurdetect=high=0.12:low=0.06:radius=40:block_pct=80:planes=1")
+_NATIVE_CROP_DETECT_TRANSLATION = translate_filter_chain("cropdetect=limit=0.094:round=16:reset=30:skip=2")
+_NATIVE_BBOX_DETECT_TRANSLATION = translate_filter_chain("bbox=min_val=16")
+_NATIVE_BITPLANE_NOISE_TRANSLATION = translate_filter_chain("bitplanenoise=bitplane=1:filter=1")
+_NATIVE_FREEZE_DETECT_TRANSLATION = translate_filter_chain("freezedetect=n=0.001:d=2")
+_NATIVE_SCENE_DETECT_TRANSLATION = translate_filter_chain("scdet=threshold=10:sc_pass=0")
+_NATIVE_VULKAN_SCENE_DETECT_TRANSLATION = translate_filter_chain("scdet_vulkan=threshold=10:sc_pass=0")
+_NATIVE_VFR_DETECT_TRANSLATION = translate_filter_chain("vfrdet")
+_NATIVE_INTERLACE_DETECT_TRANSLATION = translate_filter_chain("idet=intl_thres=1.04:prog_thres=1.5:rep_thres=3")
 _NATIVE_IDENTITY_COMPARE_TRANSLATION = translate_filter_chain("identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest")
 _NATIVE_SSIM_COMPARE_TRANSLATION = translate_filter_chain("ssim=stats_file=vtk_ssim.log:eof_action=repeat:repeatlast=1:ts_sync_mode=nearest")
 _NATIVE_PSNR_COMPARE_TRANSLATION = translate_filter_chain("psnr=stats_file=vtk_psnr.log:stats_version=2:output_max=1:eof_action=repeat")
@@ -2234,6 +2247,110 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg colordetect intent as Blender RGB/luma Levels, Separate Color, Image Info, and Viewer diagnostic nodes.",
         compositor_stack=_NATIVE_COLOR_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_black_detect",
+        label="Black Segment Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg blackdetect intent as Blender luma/RGB diagnostic monitor nodes with black-duration threshold metadata.",
+        compositor_stack=_NATIVE_BLACK_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_vulkan_black_detect",
+        label="Vulkan Black Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg blackdetect_vulkan intent as Blender luma/RGB diagnostic monitor nodes without requiring Vulkan rendering.",
+        compositor_stack=_NATIVE_VULKAN_BLACK_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_black_frame",
+        label="Black Frame Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg blackframe intent as Blender luma/RGB diagnostic monitor nodes with black-pixel threshold metadata.",
+        compositor_stack=_NATIVE_BLACK_FRAME_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_block_detect",
+        label="Block Artifact Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg blockdetect intent as Blender luma/RGB diagnostic monitor nodes with block-period metadata.",
+        compositor_stack=_NATIVE_BLOCK_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_blur_detect",
+        label="Blur Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg blurdetect intent as Blender luma/RGB diagnostic monitor nodes with edge-threshold metadata.",
+        compositor_stack=_NATIVE_BLUR_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_crop_detect",
+        label="Crop Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg cropdetect intent as Blender luma/RGB diagnostic monitor nodes with crop-threshold metadata.",
+        compositor_stack=_NATIVE_CROP_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_bbox_detect",
+        label="Bounding Box Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg bbox intent as Blender luma/RGB diagnostic monitor nodes with minimum-value metadata.",
+        compositor_stack=_NATIVE_BBOX_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_bitplane_noise",
+        label="Bit Plane Noise Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg bitplanenoise intent as Blender luma/RGB diagnostic monitor nodes with bit-plane metadata.",
+        compositor_stack=_NATIVE_BITPLANE_NOISE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_freeze_detect",
+        label="Freeze Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg freezedetect intent as Blender luma/RGB diagnostic monitor nodes with noise/duration metadata.",
+        compositor_stack=_NATIVE_FREEZE_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_scene_detect",
+        label="Scene Change Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg scdet intent as Blender luma/RGB diagnostic monitor nodes with scene-change threshold metadata.",
+        compositor_stack=_NATIVE_SCENE_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_vulkan_scene_detect",
+        label="Vulkan Scene Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg scdet_vulkan intent as Blender luma/RGB diagnostic monitor nodes without requiring Vulkan rendering.",
+        compositor_stack=_NATIVE_VULKAN_SCENE_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_vfr_detect",
+        label="Variable Frame Rate Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg vfrdet intent as Blender luma/RGB diagnostic monitor nodes with frame-rate-variation metadata.",
+        compositor_stack=_NATIVE_VFR_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_interlace_detect",
+        label="Interlace Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg idet intent as Blender luma/RGB diagnostic monitor nodes with interlace threshold metadata.",
+        compositor_stack=_NATIVE_INTERLACE_DETECT_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_ffmpeg_identity_compare",

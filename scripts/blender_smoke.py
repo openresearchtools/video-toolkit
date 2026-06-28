@@ -393,6 +393,19 @@ scene.video_toolkit_ffmpeg_chain = (
     'dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,'
     'deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,'
     'deblock=block=16:alpha=0.12:beta=0.08,'
+    'blackdetect=d=1.0:pic_th=0.96:pix_th=0.08,'
+    'blackdetect_vulkan=d=1.0:pic_th=0.96:pix_th=0.08,'
+    'blackframe=amount=96:threshold=28,'
+    'blockdetect=period_min=3:period_max=24:planes=1,'
+    'blurdetect=high=0.12:low=0.06:radius=40:block_pct=80:planes=1,'
+    'cropdetect=limit=0.094:round=16:reset=30:skip=2,'
+    'bbox=min_val=16,'
+    'bitplanenoise=bitplane=1:filter=1,'
+    'freezedetect=n=0.001:d=2,'
+    'scdet=threshold=10:sc_pass=0,'
+    'scdet_vulkan=threshold=10:sc_pass=0,'
+    'vfrdet,'
+    'idet=intl_thres=1.04:prog_thres=1.5:rep_thres=3,'
     'identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,'
     'ssim=stats_file=vtk_ssim.log:eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,'
     'psnr=stats_file=vtk_psnr.log:stats_version=2:output_max=1:eof_action=repeat,'
@@ -432,6 +445,17 @@ for required_filter in [
     'chromaber_vulkan',
     'convolution_opencl',
     'alphamerge',
+    'blackdetect',
+    'blackframe',
+    'blockdetect',
+    'blurdetect',
+    'cropdetect',
+    'bbox',
+    'bitplanenoise',
+    'freezedetect',
+    'scdet',
+    'vfrdet',
+    'idet',
     'identity',
     'ssim',
     'psnr',
@@ -462,6 +486,9 @@ assert 'ssim' in scene.video_toolkit_last_translated_workflow
 assert 'xcorrelate' in scene.video_toolkit_last_translated_workflow
 assert 'procamp_vaapi' in scene.video_toolkit_last_translated_workflow
 assert 'blend_vulkan' in scene.video_toolkit_last_translated_workflow
+assert 'blackdetect' in scene.video_toolkit_last_translated_workflow
+assert 'blurdetect' in scene.video_toolkit_last_translated_workflow
+assert 'idet' in scene.video_toolkit_last_translated_workflow
 assert scene.get('video_toolkit_last_translated_workflow_node_count', 0) >= 10
 translated_workflow_types = [
     node.bl_idname
@@ -976,6 +1003,19 @@ scene.video_toolkit_ffmpeg_chain = (
     'dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,'
     'deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,'
     'deblock=block=16:alpha=0.12:beta=0.08,'
+    'blackdetect=d=1.0:pic_th=0.96:pix_th=0.08,'
+    'blackdetect_vulkan=d=1.0:pic_th=0.96:pix_th=0.08,'
+    'blackframe=amount=96:threshold=28,'
+    'blockdetect=period_min=3:period_max=24:planes=1,'
+    'blurdetect=high=0.12:low=0.06:radius=40:block_pct=80:planes=1,'
+    'cropdetect=limit=0.094:round=16:reset=30:skip=2,'
+    'bbox=min_val=16,'
+    'bitplanenoise=bitplane=1:filter=1,'
+    'freezedetect=n=0.001:d=2,'
+    'scdet=threshold=10:sc_pass=0,'
+    'scdet_vulkan=threshold=10:sc_pass=0,'
+    'vfrdet,'
+    'idet=intl_thres=1.04:prog_thres=1.5:rep_thres=3,'
     'identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,'
     'ssim=stats_file=vtk_ssim.log:eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,'
     'psnr=stats_file=vtk_psnr.log:stats_version=2:output_max=1:eof_action=repeat,'
@@ -994,6 +1034,9 @@ assert 'ssim' in scene.video_toolkit_last_compositor_nodes
 assert 'xcorrelate' in scene.video_toolkit_last_compositor_nodes
 assert 'procamp_vaapi' in scene.video_toolkit_last_compositor_nodes
 assert 'convolution_opencl' in scene.video_toolkit_last_compositor_nodes
+assert 'blackdetect' in scene.video_toolkit_last_compositor_nodes
+assert 'blurdetect' in scene.video_toolkit_last_compositor_nodes
+assert 'idet' in scene.video_toolkit_last_compositor_nodes
 compositor_filter_node_count = int(
     scene.video_toolkit_last_compositor_nodes.split('compositor-native filter node(s): ', 1)[1].split(';', 1)[0]
 )
