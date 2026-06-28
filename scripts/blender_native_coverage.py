@@ -60,6 +60,10 @@ scene_props = sorted(
     prop.identifier for prop in scene.view_settings.bl_rna.properties
     if prop.identifier != 'rna_type'
 )
+display_props = sorted(
+    prop.identifier for prop in scene.display_settings.bl_rna.properties
+    if prop.identifier != 'rna_type'
+)
 sequencer_color_props = []
 if hasattr(scene, 'sequencer_colorspace_settings'):
     sequencer_color_props = sorted(
@@ -103,6 +107,7 @@ print(json.dumps({{
     'untracked_creatable_compositor_nodes': sorted(set(creatable_compositor_nodes) - set(compositor_node_types())),
     'uncreatable_compositor_node_classes': uncreatable_compositor_node_classes,
     'scene_view_settings': scene_props,
+    'scene_display_settings': display_props,
     'sequencer_colorspace_settings': sequencer_color_props,
 }}, indent=2))
 """
@@ -123,10 +128,25 @@ print(json.dumps({{
     missing = REQUIRED_MODIFIERS - set(payload["covered"])
     if missing:
         raise SystemExit(f"Missing Blender VSE color modifiers: {sorted(missing)}")
-    required_scene_props = {"gamma", "exposure", "use_curve_mapping", "curve_mapping"}
+    required_scene_props = {
+        "view_transform",
+        "look",
+        "gamma",
+        "exposure",
+        "use_curve_mapping",
+        "curve_mapping",
+        "use_white_balance",
+        "white_balance_temperature",
+        "white_balance_tint",
+        "white_balance_whitepoint",
+    }
     missing_scene_props = required_scene_props - set(payload["scene_view_settings"])
     if missing_scene_props:
         raise SystemExit(f"Blender Color Management controls were not visible: {sorted(missing_scene_props)}")
+    required_display_props = {"display_device", "emulation"}
+    missing_display_props = required_display_props - set(payload["scene_display_settings"])
+    if missing_display_props:
+        raise SystemExit(f"Blender display color controls were not visible: {sorted(missing_display_props)}")
     if "name" not in payload["sequencer_colorspace_settings"]:
         raise SystemExit("Blender Sequencer input color-space control was not visible")
     failed_nodes = {

@@ -475,6 +475,63 @@ def strip_control_probe():
     }
 
 
+def color_management_control_probe():
+    display = scene.display_settings
+    view = scene.view_settings
+    before = {
+        "display_device": getattr(display, "display_device", ""),
+        "emulation": getattr(display, "emulation", ""),
+        "sequencer_input": getattr(scene.sequencer_colorspace_settings, "name", ""),
+        "view_transform": getattr(view, "view_transform", ""),
+        "look": getattr(view, "look", ""),
+        "exposure": getattr(view, "exposure", 0.0),
+        "gamma": getattr(view, "gamma", 1.0),
+    }
+    if hasattr(display, "display_device"):
+        display.display_device = display.display_device
+    if hasattr(display, "emulation"):
+        display.emulation = display.emulation
+    if hasattr(scene, "sequencer_colorspace_settings"):
+        scene.sequencer_colorspace_settings.name = scene.sequencer_colorspace_settings.name
+    if hasattr(view, "view_transform"):
+        view.view_transform = view.view_transform
+    if hasattr(view, "look"):
+        view.look = view.look
+    if hasattr(view, "exposure"):
+        view.exposure = float(view.exposure) + 0.01
+    if hasattr(view, "gamma"):
+        view.gamma = max(0.1, float(view.gamma))
+    if hasattr(view, "use_white_balance"):
+        view.use_white_balance = True
+        if hasattr(view, "white_balance_temperature"):
+            view.white_balance_temperature = float(view.white_balance_temperature)
+        if hasattr(view, "white_balance_tint"):
+            view.white_balance_tint = float(view.white_balance_tint)
+        if hasattr(view, "white_balance_whitepoint"):
+            view.white_balance_whitepoint = (1.0, 1.0, 1.0)
+    if hasattr(view, "use_curve_mapping"):
+        view.use_curve_mapping = True
+    after = {
+        "display_device": getattr(display, "display_device", ""),
+        "emulation": getattr(display, "emulation", ""),
+        "sequencer_input": getattr(scene.sequencer_colorspace_settings, "name", ""),
+        "view_transform": getattr(view, "view_transform", ""),
+        "look": getattr(view, "look", ""),
+        "exposure": getattr(view, "exposure", 0.0),
+        "gamma": getattr(view, "gamma", 1.0),
+        "use_white_balance": getattr(view, "use_white_balance", None),
+        "white_balance_temperature": getattr(view, "white_balance_temperature", None),
+        "white_balance_tint": getattr(view, "white_balance_tint", None),
+        "white_balance_whitepoint": list(getattr(view, "white_balance_whitepoint", ())),
+        "use_curve_mapping": getattr(view, "use_curve_mapping", None),
+    }
+    if not after["use_white_balance"]:
+        raise AssertionError("native white balance control did not enable")
+    if not after["use_curve_mapping"]:
+        raise AssertionError("native view curve control did not enable")
+    return {"before": before, "after": after}
+
+
 def workflow_operator(name, op, *, reference=False, minimum_modifiers=0, minimum_nodes=0, summary_attr=None):
     def run():
         clear_modifiers()
@@ -580,6 +637,7 @@ for section, _label, _description, _icon, _index in SIDECAR_SECTION_ITEMS:
     )
 
 record("strip_edit_controls", "sidecar_controls", strip_control_probe)
+record("color_management_controls", "sidecar_controls", color_management_control_probe)
 record("modifier_stack_controls", "sidecar_controls", live_modifier_control_probe)
 
 for tool in all_tools():

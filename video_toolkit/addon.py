@@ -2237,6 +2237,13 @@ def _draw_scene_color_management(layout, scene) -> None:
     for preset_id, label, _description in COLOR_MANAGEMENT_PRESET_ITEMS:
         op = preset_grid.operator(VIDEO_TOOLKIT_OT_apply_color_management_preset.bl_idname, text=label, icon="WORLD")
         op.preset_id = preset_id
+    display = getattr(scene, "display_settings", None)
+    if display is not None:
+        row = box.row(align=True)
+        if hasattr(display, "display_device"):
+            row.prop(display, "display_device", text="Display")
+        if hasattr(display, "emulation"):
+            row.prop(display, "emulation", text="Emulation")
     if hasattr(scene, "sequencer_colorspace_settings"):
         box.prop(scene.sequencer_colorspace_settings, "name", text="Input")
     view = scene.view_settings
@@ -2249,6 +2256,8 @@ def _draw_scene_color_management(layout, scene) -> None:
             row = box.row(align=True)
             row.prop(view, "white_balance_temperature", text="Temp")
             row.prop(view, "white_balance_tint", text="Tint")
+            if hasattr(view, "white_balance_whitepoint"):
+                box.prop(view, "white_balance_whitepoint", text="White Point")
     if hasattr(view, "use_curve_mapping"):
         box.prop(view, "use_curve_mapping", text="Use View Curves")
         if view.use_curve_mapping and hasattr(view, "curve_mapping"):
