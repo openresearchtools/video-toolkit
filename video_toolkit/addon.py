@@ -92,8 +92,10 @@ COLOR_MANAGEMENT_PRESET_ITEMS = (
 SIDECAR_GROUP_ICONS = {
     "Live Blender Color": "COLOR",
     "Native Blender Primitives": "PROPERTIES",
+    "Native Color & Composite": "NODETREE",
     "Native Matte & Channel": "NODETREE",
     "Native Filter & Blur": "NODETREE",
+    "Native Visual FX Nodes": "NODETREE",
     "Native Denoise & Cleanup": "NODETREE",
     "Native Geometry & Lens": "NODETREE",
     "Live Blender Modifiers": "MODIFIER",
@@ -3238,7 +3240,7 @@ def _create_compositor_nodes_from_blender_stack(scene, strip, stack, label_prefi
     tree = _ensure_compositor_tree(scene)
     origin = _next_node_origin(tree)
     movie = _new_compositor_node(tree, "CompositorNodeMovieClip", f"VTK {label_prefix} Movie Clip", 0, origin=origin)
-    _assign_movie_clip(movie, _movie_path(strip))
+    clip = _assign_movie_clip(movie, _movie_path(strip))
     convert = _new_compositor_node(tree, "CompositorNodeConvertColorSpace", f"VTK {label_prefix} Color Space", 1, origin=origin)
     chain_nodes = [movie, convert]
     skipped = 0
@@ -3266,6 +3268,7 @@ def _create_compositor_nodes_from_blender_stack(scene, strip, stack, label_prefi
             len(created),
             origin,
             label_prefix,
+            source_clip=clip,
         )
         if not filter_nodes:
             skipped += 1
@@ -3364,7 +3367,16 @@ def _translated_modifier_to_compositor_node(tree, modifier_type: str, settings: 
     return None
 
 
-def _append_translated_compositor_filter(tree, input_socket, compositor_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+def _append_translated_compositor_filter(
+    tree,
+    input_socket,
+    compositor_type: str,
+    settings: dict[str, object],
+    index: int,
+    origin,
+    label_prefix: str = "Translated",
+    source_clip=None,
+):
     if compositor_type == "CONVOLVE":
         return _append_convolve_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "CHANNEL_SHIFT":
@@ -3373,11 +3385,15 @@ def _append_translated_compositor_filter(tree, input_socket, compositor_type: st
         return _append_plane_extract_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "PLANE_SHUFFLE":
         return _append_plane_shuffle_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
-    node = _translated_compositor_filter_to_node(tree, compositor_type, settings, index, origin, label_prefix)
+    node = _translated_compositor_filter_to_node(tree, compositor_type, settings, index, origin, label_prefix, source_clip=source_clip)
     if node is None:
         return input_socket, []
-    _link_socket(tree, input_socket, _image_input(node))
-    return _image_output(node), [node]
+    input_name = settings.get("__image_input__")
+    output_name = settings.get("__image_output__")
+    node_input = _socket_by_name(node.inputs, str(input_name)) if input_name else _image_input(node)
+    node_output = _socket_by_name(node.outputs, str(output_name)) if output_name else _image_output(node)
+    _link_socket(tree, input_socket, node_input)
+    return node_output, [node]
 
 
 def _append_convolve_compositor_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
@@ -3578,7 +3594,15 @@ def _append_plane_shuffle_compositor_filter(tree, input_socket, settings: dict[s
     return _image_output(combine), [separate, combine]
 
 
-def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+def _translated_compositor_filter_to_node(
+    tree,
+    compositor_type: str,
+    settings: dict[str, object],
+    index: int,
+    origin,
+    label_prefix: str = "Translated",
+    source_clip=None,
+):
     labels = {
         "CHROMA_MATTE": "Chroma Matte",
         "COLOR_MATTE": "Color Matte",
@@ -3611,9 +3635,31 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "DENOISE": "Denoise",
         "DESPECKLE": "Despeckle",
         "ANTI_ALIASING": "Anti-Aliasing",
+        "NATIVE_NODE": "Native Node",
     }
     node_label = str(settings.get("label") or labels.get(compositor_type, compositor_type.title()))
     label = f"VTK {label_prefix} {node_label}"
+    if compositor_type == "NATIVE_NODE":
+        node_type = str(settings.get("node_type", ""))
+        if not node_type:
+            return None
+        node = _new_compositor_node(tree, node_type, label, index, origin=origin)
+        if settings.get("assign_source_clip") and source_clip is not None:
+            _assign_node_clip(node, source_clip)
+        for socket_name, value in dict(settings.get("inputs", {})).items():
+            _set_input_default(node, str(socket_name), value)
+        for attr_name, value in dict(settings.get("properties", {})).items():
+            attr = str(attr_name)
+            if hasattr(node, attr):
+                try:
+                    setattr(node, attr, value)
+                except Exception:
+                    node[f"video_toolkit_property_{attr}"] = value
+        node["video_toolkit_native_node"] = node_type
+        node["video_toolkit_native_node_label"] = node_label
+        if settings.get("note"):
+            node["video_toolkit_note"] = settings.get("note")
+        return node
     if compositor_type == "CHROMA_MATTE":
         node = _new_compositor_node(tree, "CompositorNodeChromaMatte", label, index, origin=origin)
         _set_input_default(node, "Key Color", _rgba(settings.get("key_color", (0.0, 0.0, 0.0))))

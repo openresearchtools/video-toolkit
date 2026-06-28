@@ -8,9 +8,56 @@ from video_toolkit.catalog import (
 from video_toolkit.compositor import (
     COLOR_WORKSPACE_STACK_NODE_TYPES,
     RESTORATION_WORKSPACE_STACK_NODE_TYPES,
+    compositor_node_tools,
     compositor_node_types,
 )
 from video_toolkit.ffmpeg_native import NATIVE_FFMPEG_COMPOSITOR_FILTERS
+
+
+STACK_TYPE_TO_COMPOSITOR_NODE = {
+    "ANTI_ALIASING": "CompositorNodeAntiAliasing",
+    "BILATERAL_BLUR": "CompositorNodeBilateralblur",
+    "BLUR": "CompositorNodeBlur",
+    "BRIGHT_CONTRAST": "CompositorNodeBrightContrast",
+    "CHANNEL_SHIFT": "CompositorNodeTranslate",
+    "CHROMA_MATTE": "CompositorNodeChromaMatte",
+    "COLOR_BALANCE": "CompositorNodeColorBalance",
+    "COLOR_CORRECTION": "CompositorNodeColorCorrection",
+    "COLOR_MATTE": "CompositorNodeColorMatte",
+    "CONVOLVE": "CompositorNodeConvolve",
+    "CROP": "CompositorNodeCrop",
+    "CURVE_RGB": "CompositorNodeCurveRGB",
+    "DENOISE": "CompositorNodeDenoise",
+    "DESPECKLE": "CompositorNodeDespeckle",
+    "DILATE_ERODE": "CompositorNodeDilateErode",
+    "DIRECTIONAL_BLUR": "CompositorNodeDBlur",
+    "EXPOSURE": "CompositorNodeExposure",
+    "FILTER": "CompositorNodeFilter",
+    "FLIP": "CompositorNodeFlip",
+    "HUE_CORRECT": "CompositorNodeHueCorrect",
+    "HUE_SAT": "CompositorNodeHueSat",
+    "INVERT": "CompositorNodeInvert",
+    "LENS_DISTORTION": "CompositorNodeLensdist",
+    "LUMA_MATTE": "CompositorNodeLumaMatte",
+    "PLANE_EXTRACT": "CompositorNodeRGBToBW",
+    "PLANE_SHUFFLE": "CompositorNodeSeparateColor",
+    "POSTERIZE": "CompositorNodePosterize",
+    "PREMUL_KEY": "CompositorNodePremulKey",
+    "ROTATE": "CompositorNodeRotate",
+    "SCALE": "CompositorNodeScale",
+    "TONEMAP": "CompositorNodeTonemap",
+}
+
+
+def _tool_compositor_node_classes(tool_id):
+    tool = get_tool(tool_id)
+    node_classes = set()
+    for stack_type, settings in tool.compositor_stack:
+        if stack_type == "NATIVE_NODE":
+            node_classes.add(settings["node_type"])
+        elif stack_type in STACK_TYPE_TO_COMPOSITOR_NODE:
+            node_classes.add(STACK_TYPE_TO_COMPOSITOR_NODE[stack_type])
+    return node_classes
 
 
 def test_tool_ids_are_unique():
@@ -110,6 +157,41 @@ def test_native_matte_and_channel_tools_are_exposed():
         assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
 
 
+def test_native_color_and_composite_node_tools_are_exposed():
+    expected = {
+        "native_compositor_color_space_convert": "CompositorNodeConvertColorSpace",
+        "native_compositor_display_convert": "CompositorNodeConvertToDisplay",
+        "native_compositor_set_alpha": "CompositorNodeSetAlpha",
+        "native_compositor_alpha_over": "CompositorNodeAlphaOver",
+    }
+    for tool_id, node_type in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Color & Composite"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack == (("NATIVE_NODE", tool.compositor_stack[0][1]),)
+        assert tool.compositor_stack[0][1]["node_type"] == node_type
+
+
+def test_native_matte_keying_node_tools_are_exposed():
+    expected = {
+        "native_compositor_channel_matte": "CompositorNodeChannelMatte",
+        "native_compositor_difference_matte": "CompositorNodeDiffMatte",
+        "native_compositor_distance_matte": "CompositorNodeDistanceMatte",
+        "native_compositor_keying": "CompositorNodeKeying",
+        "native_compositor_color_spill": "CompositorNodeColorSpill",
+    }
+    for tool_id, node_type in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Matte & Channel"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack[0][0] == "NATIVE_NODE"
+        assert tool.compositor_stack[0][1]["node_type"] == node_type
+
+
 def test_native_filter_and_blur_tools_are_exposed():
     expected = {
         "native_unsharp_filter": {"FILTER"},
@@ -160,6 +242,26 @@ def test_native_denoise_and_cleanup_tools_are_exposed():
         assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
 
 
+def test_native_visual_fx_node_tools_are_exposed():
+    expected = {
+        "native_compositor_bokeh_blur": "CompositorNodeBokehBlur",
+        "native_compositor_defocus": "CompositorNodeDefocus",
+        "native_compositor_glare": "CompositorNodeGlare",
+        "native_compositor_inpaint": "CompositorNodeInpaint",
+        "native_compositor_kuwahara": "CompositorNodeKuwahara",
+        "native_compositor_pixelate": "CompositorNodePixelate",
+        "native_compositor_vector_blur": "CompositorNodeVecBlur",
+    }
+    for tool_id, node_type in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Visual FX Nodes"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack[0][0] == "NATIVE_NODE"
+        assert tool.compositor_stack[0][1]["node_type"] == node_type
+
+
 def test_native_geometry_and_lens_tools_are_exposed():
     expected = {
         "native_compositor_scale_fit": {"SCALE"},
@@ -177,6 +279,56 @@ def test_native_geometry_and_lens_tools_are_exposed():
         assert not tool.is_blender_modifier
         assert not tool.is_ffmpeg
         assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
+
+
+def test_native_geometry_tracking_node_tools_are_exposed():
+    expected = {
+        "native_compositor_stabilize_node": "CompositorNodeStabilize",
+        "native_compositor_movie_distortion_node": "CompositorNodeMovieDistortion",
+        "native_compositor_corner_pin": "CompositorNodeCornerPin",
+        "native_compositor_displace": "CompositorNodeDisplace",
+        "native_compositor_transform": "CompositorNodeTransform",
+        "native_compositor_translate": "CompositorNodeTranslate",
+    }
+    for tool_id, node_type in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Geometry & Lens"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack[0][0] == "NATIVE_NODE"
+        assert tool.compositor_stack[0][1]["node_type"] == node_type
+
+
+def test_applicable_tracked_compositor_nodes_have_one_click_tools():
+    node_to_tool = {
+        "CompositorNodeAlphaOver": "native_compositor_alpha_over",
+        "CompositorNodeBokehBlur": "native_compositor_bokeh_blur",
+        "CompositorNodeChannelMatte": "native_compositor_channel_matte",
+        "CompositorNodeColorSpill": "native_compositor_color_spill",
+        "CompositorNodeConvertColorSpace": "native_compositor_color_space_convert",
+        "CompositorNodeConvertToDisplay": "native_compositor_display_convert",
+        "CompositorNodeCornerPin": "native_compositor_corner_pin",
+        "CompositorNodeDefocus": "native_compositor_defocus",
+        "CompositorNodeDiffMatte": "native_compositor_difference_matte",
+        "CompositorNodeDisplace": "native_compositor_displace",
+        "CompositorNodeDistanceMatte": "native_compositor_distance_matte",
+        "CompositorNodeGlare": "native_compositor_glare",
+        "CompositorNodeInpaint": "native_compositor_inpaint",
+        "CompositorNodeKeying": "native_compositor_keying",
+        "CompositorNodeKuwahara": "native_compositor_kuwahara",
+        "CompositorNodeMovieDistortion": "native_compositor_movie_distortion_node",
+        "CompositorNodePixelate": "native_compositor_pixelate",
+        "CompositorNodeSetAlpha": "native_compositor_set_alpha",
+        "CompositorNodeStabilize": "native_compositor_stabilize_node",
+        "CompositorNodeTransform": "native_compositor_transform",
+        "CompositorNodeTranslate": "native_compositor_translate",
+        "CompositorNodeVecBlur": "native_compositor_vector_blur",
+    }
+    tracked_nodes = {tool.node_type for tool in compositor_node_tools()}
+    assert set(node_to_tool).issubset(tracked_nodes)
+    for node_type, tool_id in node_to_tool.items():
+        assert node_type in _tool_compositor_node_classes(tool_id)
 
 
 def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
@@ -237,8 +389,10 @@ def test_categories_keep_ui_order():
     assert categories() == (
         "Live Blender Color",
         "Native Blender Primitives",
+        "Native Color & Composite",
         "Native Matte & Channel",
         "Native Filter & Blur",
+        "Native Visual FX Nodes",
         "Native Denoise & Cleanup",
         "Restoration",
         "Native Geometry & Lens",

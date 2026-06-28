@@ -135,6 +135,33 @@ def _curve_points(curve_points: dict[int, list[tuple[float, float]]]) -> tuple[s
     return ("CURVES", {"__curve_points__": curve_points})
 
 
+def _native_node(
+    node_type: str,
+    *,
+    label: str,
+    image_input: str | None = None,
+    image_output: str | None = None,
+    inputs: dict[str, Any] | None = None,
+    properties: dict[str, Any] | None = None,
+    assign_source_clip: bool = False,
+    note: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    settings: dict[str, Any] = {
+        "node_type": node_type,
+        "label": label,
+        "inputs": inputs or {},
+        "properties": properties or {},
+        "assign_source_clip": assign_source_clip,
+    }
+    if image_input:
+        settings["__image_input__"] = image_input
+    if image_output:
+        settings["__image_output__"] = image_output
+    if note:
+        settings["note"] = note
+    return ("NATIVE_NODE", settings)
+
+
 _AUTO_ENHANCE_STACK = translate_filter_chain("eq=contrast=1.08:saturation=1.08:gamma=1.02").stack
 _NEUTRAL_GRADE_STACK = translate_filter_chain("eq=contrast=1.04:saturation=1.03:gamma=1.00").stack
 _PUNCHY_COLOR_STACK = translate_filter_chain("eq=contrast=1.14:saturation=1.18:gamma=0.98").stack
@@ -1047,6 +1074,51 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=(("PREMUL_KEY", {"source": "blender_compositor", "mode": "To Premultiplied"}),),
     ),
     VideoTool(
+        id="native_compositor_color_space_convert",
+        label="Convert Color Space",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Convert Color Space node for selected-strip color pipeline work.",
+        compositor_stack=(
+            _native_node("CompositorNodeConvertColorSpace", label="Convert Color Space"),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_display_convert",
+        label="Convert to Display",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Convert to Display node for display-referred review graphs.",
+        compositor_stack=(
+            _native_node("CompositorNodeConvertToDisplay", label="Convert to Display", inputs={"Invert": False}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_set_alpha",
+        label="Set Alpha",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Set Alpha node for opacity and matte finishing.",
+        compositor_stack=(
+            _native_node("CompositorNodeSetAlpha", label="Set Alpha", inputs={"Alpha": 0.85, "Type": "Apply Mask"}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_alpha_over",
+        label="Alpha Over",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Alpha Over node for selected-strip compositing.",
+        compositor_stack=(
+            _native_node(
+                "CompositorNodeAlphaOver",
+                label="Alpha Over",
+                image_input="Background",
+                inputs={"Factor": 1.0, "Type": "Straight", "Straight Alpha": True},
+            ),
+        ),
+    ),
+    VideoTool(
         id="native_chroma_key_matte",
         label="Native Chroma Key Matte",
         category="Native Matte & Channel",
@@ -1133,6 +1205,69 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg unpremultiply intent as Blender's native Premul Key straight-alpha conversion graph.",
         compositor_stack=_STRAIGHT_ALPHA_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_compositor_channel_matte",
+        label="Channel Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Channel Matte node for channel-key matte work.",
+        compositor_stack=(
+            _native_node("CompositorNodeChannelMatte", label="Channel Matte", inputs={"Minimum": 0.08, "Maximum": 0.92}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_difference_matte",
+        label="Difference Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Difference Matte node for plate-difference keying.",
+        compositor_stack=(
+            _native_node(
+                "CompositorNodeDiffMatte",
+                label="Difference Matte",
+                image_input="Image 1",
+                inputs={"Tolerance": 0.12, "Falloff": 0.04},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_distance_matte",
+        label="Distance Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Distance Matte node for color-distance keying.",
+        compositor_stack=(
+            _native_node(
+                "CompositorNodeDistanceMatte",
+                label="Distance Matte",
+                inputs={"Key Color": (0.0, 1.0, 0.0, 1.0), "Tolerance": 0.16, "Falloff": 0.05},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_keying",
+        label="Keying",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Keying node for full green-screen keying controls.",
+        compositor_stack=(
+            _native_node(
+                "CompositorNodeKeying",
+                label="Keying",
+                inputs={"Key Color": (0.0, 1.0, 0.0, 1.0), "Blur Size": 1.0, "Black Level": 0.02, "White Level": 0.95},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_color_spill",
+        label="Color Spill Suppression",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Color Spill node for key cleanup.",
+        compositor_stack=(
+            _native_node("CompositorNodeColorSpill", label="Color Spill", inputs={"Factor": 1.0, "Strength": 0.6}),
+        ),
     ),
     VideoTool(
         id="native_unsharp_filter",
@@ -1277,6 +1412,80 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg deblock cleanup intent as Blender's native Anti-Aliasing compositor graph.",
         compositor_stack=_NATIVE_DEBLOCK_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_compositor_bokeh_blur",
+        label="Bokeh Blur",
+        category="Native Visual FX Nodes",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Bokeh Blur node for stylized video blur.",
+        compositor_stack=(
+            _native_node("CompositorNodeBokehBlur", label="Bokeh Blur", inputs={"Size": 4.0, "Extend Bounds": False}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_defocus",
+        label="Defocus",
+        category="Native Visual FX Nodes",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Defocus node for depth-style softening.",
+        compositor_stack=(
+            _native_node("CompositorNodeDefocus", label="Defocus", inputs={"Z": 1.0}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_glare",
+        label="Glare",
+        category="Native Visual FX Nodes",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Glare node for highlight glow and streak finishing.",
+        compositor_stack=(
+            _native_node(
+                "CompositorNodeGlare",
+                label="Glare",
+                inputs={"Type": "Fog Glow", "Quality": "Medium", "Threshold": 0.8, "Size": 6.0},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_inpaint",
+        label="Inpaint",
+        category="Native Visual FX Nodes",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Inpaint node for filling transparent or missing pixels.",
+        compositor_stack=(
+            _native_node("CompositorNodeInpaint", label="Inpaint", inputs={"Size": 3.0}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_kuwahara",
+        label="Kuwahara",
+        category="Native Visual FX Nodes",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Kuwahara node for edge-preserving stylized smoothing.",
+        compositor_stack=(
+            _native_node("CompositorNodeKuwahara", label="Kuwahara", inputs={"Size": 3.0}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_pixelate",
+        label="Pixelate",
+        category="Native Visual FX Nodes",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Pixelate node for pixel-grid finishing.",
+        compositor_stack=(
+            _native_node("CompositorNodePixelate", label="Pixelate", image_input="Color", image_output="Color", inputs={"Size": 6.0}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_vector_blur",
+        label="Vector Blur",
+        category="Native Visual FX Nodes",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Vector Blur node for motion-blur finishing graphs.",
+        compositor_stack=(
+            _native_node("CompositorNodeVecBlur", label="Vector Blur", inputs={"Samples": 8.0, "Shutter": 0.35}),
+        ),
     ),
     VideoTool(
         id="native_hqdn3d_denoise",
@@ -1520,6 +1729,81 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg lenscorrection intent as Blender's native Lens Distortion compositor graph.",
         compositor_stack=_NATIVE_LENS_CORRECTION_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_compositor_stabilize_node",
+        label="Native Stabilize Node",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Stabilize node and assigns the selected movie strip as its clip source.",
+        compositor_stack=(
+            _native_node(
+                "CompositorNodeStabilize",
+                label="Stabilize",
+                assign_source_clip=True,
+                inputs={"Frame": 1.0, "Invert": False, "Interpolation": "Bilinear"},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_movie_distortion_node",
+        label="Native Movie Distortion",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Movie Distortion node and assigns the selected movie strip as its clip source.",
+        compositor_stack=(
+            _native_node("CompositorNodeMovieDistortion", label="Movie Distortion", assign_source_clip=True, inputs={"Type": "Undistort"}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_corner_pin",
+        label="Corner Pin",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Corner Pin node for perspective placement work.",
+        compositor_stack=(
+            _native_node(
+                "CompositorNodeCornerPin",
+                label="Corner Pin",
+                inputs={
+                    "Upper Left": (0.0, 1.0),
+                    "Upper Right": (1.0, 1.0),
+                    "Lower Left": (0.0, 0.0),
+                    "Lower Right": (1.0, 0.0),
+                    "Interpolation": "Bilinear",
+                },
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_displace",
+        label="Displace",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Displace node for pixel displacement graphs.",
+        compositor_stack=(
+            _native_node("CompositorNodeDisplace", label="Displace", inputs={"Interpolation": "Bilinear"}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_transform",
+        label="Transform",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Transform node for translation, rotation, and scale.",
+        compositor_stack=(
+            _native_node("CompositorNodeTransform", label="Transform", inputs={"X": 12.0, "Y": 0.0, "Angle": 0.0, "Scale": 1.0}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_translate",
+        label="Translate",
+        category="Native Geometry & Lens",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Translate node for pixel-offset finishing.",
+        compositor_stack=(
+            _native_node("CompositorNodeTranslate", label="Translate", inputs={"X": 12.0, "Y": 0.0, "Interpolation": "Bilinear"}),
+        ),
     ),
     VideoTool(
         id="upscale_2x",
