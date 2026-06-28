@@ -273,6 +273,7 @@ _CHROMA_CHANNEL_SHIFT_TRANSLATION = translate_filter_chain("chromashift=cbh=3:cb
 _CHROMATIC_ABERRATION_TRANSLATION = translate_filter_chain("chromaber_vulkan=dist_x=2.0:dist_y=-1.0")
 _LUMA_PLANE_EXTRACT_TRANSLATION = translate_filter_chain("extractplanes=planes=y")
 _ALPHA_EXTRACT_TRANSLATION = translate_filter_chain("alphaextract")
+_ALPHA_MERGE_TRANSLATION = translate_filter_chain("alphamerge")
 _PREMULTIPLY_ALPHA_TRANSLATION = translate_filter_chain("premultiply")
 _PLANE_SHUFFLE_BGR_TRANSLATION = translate_filter_chain("shuffleplanes=2:1:0:3")
 _STRAIGHT_ALPHA_TRANSLATION = translate_filter_chain("unpremultiply")
@@ -1505,6 +1506,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg alphaextract intent as native Separate/Combine compositor channel nodes.",
         compositor_stack=_ALPHA_EXTRACT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_alpha_merge_luma_matte",
+        label="Native Alpha Merge Luma Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg alphamerge intent as a Blender RGB-to-BW luma matte feeding Set Alpha for editable alpha application.",
+        compositor_stack=_ALPHA_MERGE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_premultiply_alpha",

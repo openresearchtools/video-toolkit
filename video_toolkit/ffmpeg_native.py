@@ -75,6 +75,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "chromashift",
     "chromaber_vulkan",
     "alphaextract",
+    "alphamerge",
     "extractplanes",
     "premultiply",
     "unpremultiply",
@@ -335,6 +336,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(alphaextract_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Alphaextract is translated to Blender compositor Separate/Combine alpha-plane nodes.")
+        elif name == "alphamerge":
+            compositor_nodes.extend(alphamerge_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Alphamerge is translated to a Blender RGB-to-BW luma matte driving Set Alpha; secondary input luma is approximated from the selected strip.")
         elif name == "extractplanes":
             compositor_nodes.extend(extractplanes_to_blender_compositor(**args))
             supported.append(name)
@@ -1826,6 +1831,20 @@ def chromaber_vulkan_to_blender_compositor(
 
 def alphaextract_to_blender_compositor(**_unused: str) -> CompositorStack:
     return (("PLANE_EXTRACT", {"plane": "alpha", "source": "alphaextract"}),)
+
+
+def alphamerge_to_blender_compositor(**_unused: str) -> CompositorStack:
+    return (
+        (
+            "ALPHA_MERGE",
+            {
+                "label": "Alpha Merge Luma Matte",
+                "source": "alphamerge",
+                "alpha_source": "luma",
+                "approximation": "FFmpeg alphamerge normally copies luma from a second input. This graph derives an editable luma matte from the selected strip and applies it as alpha.",
+            },
+        ),
+    )
 
 
 def extractplanes_to_blender_compositor(

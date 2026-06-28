@@ -50,6 +50,7 @@ STACK_TYPE_TO_COMPOSITOR_NODE = {
 }
 
 SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES = {
+    "ALPHA_MERGE": {"CompositorNodeRGBToBW", "CompositorNodeSetAlpha"},
     "BACKGROUND_KEY": {"CompositorNodeBlur", "CompositorNodeDiffMatte", "CompositorNodeSetAlpha"},
     "BOX_MASK_ALPHA": {"CompositorNodeBoxMask", "CompositorNodeSetAlpha"},
     "BLEND_COMPOSITE": {"CompositorNodeAlphaOver"},
@@ -218,6 +219,7 @@ def test_native_matte_and_channel_tools_are_exposed():
         "native_chromatic_aberration_offset": {"CHANNEL_SHIFT"},
         "native_luma_plane_extract": {"PLANE_EXTRACT"},
         "native_alpha_extract": {"PLANE_EXTRACT"},
+        "native_alpha_merge_luma_matte": {"ALPHA_MERGE"},
         "native_premultiply_alpha": {"PREMUL_KEY"},
         "native_plane_shuffle_bgr": {"PLANE_SHUFFLE"},
         "native_straight_alpha": {"PREMUL_KEY"},
@@ -667,6 +669,7 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "chromashift": "native_chroma_channel_shift",
         "chromaber_vulkan": "native_chromatic_aberration_offset",
         "alphaextract": "native_alpha_extract",
+        "alphamerge": "native_alpha_merge_luma_matte",
         "extractplanes": "native_luma_plane_extract",
         "premultiply": "native_premultiply_alpha",
         "unpremultiply": "native_straight_alpha",

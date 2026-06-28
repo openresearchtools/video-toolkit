@@ -352,6 +352,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'chromashift=cbh=2:cbv=-1:crh=-2:crv=1,'
     'chromaber_vulkan=dist_x=2.0:dist_y=-1.0,'
     'alphaextract,'
+    'alphamerge,'
     'extractplanes=planes=y,'
     'premultiply,'
     'unpremultiply,'
@@ -412,6 +413,7 @@ for required_filter in [
     'mergeplanes',
     'rgbashift',
     'chromaber_vulkan',
+    'alphamerge',
     'unsharp',
     'hqdn3d',
     'pseudocolor',
@@ -452,6 +454,7 @@ assert 'rgbashift' in translated_workflow_supported
 assert 'chromashift' in translated_workflow_supported
 assert 'chromaber_vulkan' in translated_workflow_supported
 assert 'alphaextract' in translated_workflow_supported
+assert 'alphamerge' in translated_workflow_supported
 assert 'extractplanes' in translated_workflow_supported
 assert 'premultiply' in translated_workflow_supported
 assert 'unpremultiply' in translated_workflow_supported

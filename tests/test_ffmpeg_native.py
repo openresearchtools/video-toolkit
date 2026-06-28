@@ -1,5 +1,6 @@
 from video_toolkit.ffmpeg_native import (
     alphaextract_to_blender_compositor,
+    alphamerge_to_blender_compositor,
     backgroundkey_to_blender_compositor,
     blend_to_blender_compositor,
     chromaber_vulkan_to_blender_compositor,
@@ -671,18 +672,23 @@ def test_alpha_and_plane_extract_translate_to_compositor_graph_specs():
     alpha = alphaextract_to_blender_compositor()
     assert alpha == (("PLANE_EXTRACT", {"plane": "alpha", "source": "alphaextract"}),)
 
+    merged_alpha = alphamerge_to_blender_compositor()
+    assert merged_alpha[0][0] == "ALPHA_MERGE"
+    assert merged_alpha[0][1]["source"] == "alphamerge"
+    assert merged_alpha[0][1]["alpha_source"] == "luma"
+
     luma = extractplanes_to_blender_compositor(planes="y")
     assert luma == (("PLANE_EXTRACT", {"plane": "y", "source": "extractplanes"}),)
 
     first_multi = extractplanes_to_blender_compositor(planes="g+b")
     assert first_multi[0][1]["plane"] == "g"
 
-    result = translate_filter_chain("alphaextract,extractplanes=planes=y")
+    result = translate_filter_chain("alphaextract,alphamerge,extractplanes=planes=y")
     assert result.stack == ()
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("alphaextract", "extractplanes")
-    assert [node_type for node_type, _settings in result.compositor_nodes] == ["PLANE_EXTRACT", "PLANE_EXTRACT"]
-    assert [settings["plane"] for _node_type, settings in result.compositor_nodes] == ["alpha", "y"]
+    assert result.supported_filters == ("alphaextract", "alphamerge", "extractplanes")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["PLANE_EXTRACT", "ALPHA_MERGE", "PLANE_EXTRACT"]
+    assert [settings.get("plane") for _node_type, settings in result.compositor_nodes] == ["alpha", None, "y"]
 
 
 def test_alpha_premultiply_filters_translate_to_premul_key_nodes():
@@ -1118,6 +1124,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "chromaber_vulkan=dist_x=2.0:dist_y=-1.0,"
         "alphaextract,"
+        "alphamerge,"
         "extractplanes=planes=y,"
         "premultiply,"
         "unpremultiply,"
@@ -1221,6 +1228,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "chromashift",
         "chromaber_vulkan",
         "alphaextract",
+        "alphamerge",
         "extractplanes",
         "premultiply",
         "unpremultiply",
@@ -1284,7 +1292,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "COLOR_SPILL", "BACKGROUND_KEY", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR"}.issubset(
+    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "COLOR_SPILL", "BACKGROUND_KEY", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "ALPHA_MERGE", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

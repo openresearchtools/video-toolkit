@@ -339,6 +339,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'chromashift=cbh=2:cbv=-1:crh=-2:crv=1,'
     'chromaber_vulkan=dist_x=2.0:dist_y=-1.0,'
     'alphaextract,'
+    'alphamerge,'
     'extractplanes=planes=y,'
     'premultiply,'
     'unpremultiply,'
@@ -399,6 +400,7 @@ for required_filter in [
     'mergeplanes',
     'rgbashift',
     'chromaber_vulkan',
+    'alphamerge',
     'unsharp',
     'hqdn3d',
     'pseudocolor',
@@ -882,6 +884,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'chromashift=cbh=2:cbv=-1:crh=-2:crv=1,'
     'chromaber_vulkan=dist_x=2.0:dist_y=-1.0,'
     'alphaextract,'
+    'alphamerge,'
     'extractplanes=planes=y,'
     'premultiply,'
     'unpremultiply,'

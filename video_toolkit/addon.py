@@ -3387,6 +3387,8 @@ def _append_translated_compositor_filter(
         return _append_channel_shift_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "PLANE_EXTRACT":
         return _append_plane_extract_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "ALPHA_MERGE":
+        return _append_alpha_merge_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "PLANE_SHUFFLE":
         return _append_plane_shuffle_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "BLEND_COMPOSITE":
@@ -3603,6 +3605,22 @@ def _plane_extract_output_name(plane: str) -> str:
         "u": "Blue",
         "v": "Red",
     }.get(plane, "Red")
+
+
+def _append_alpha_merge_compositor_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Alpha Merge Luma Matte'}"
+    luma = _new_compositor_node(tree, "CompositorNodeRGBToBW", f"{label} Luma", index, y_offset=-180, origin=origin)
+    set_alpha = _new_compositor_node(tree, "CompositorNodeSetAlpha", label, index + 1, origin=origin)
+    _set_input_default(set_alpha, "Type", settings.get("type", "Apply Mask"))
+    _link_socket(tree, input_socket, _image_input(luma))
+    _link_socket(tree, input_socket, _image_input(set_alpha))
+    _link_socket(tree, _first_socket(luma.outputs), _socket_by_name(set_alpha.inputs, "Alpha"))
+    for node in (luma, set_alpha):
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "alphamerge")
+        node["video_toolkit_alpha_source"] = settings.get("alpha_source", "luma")
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
+    return _image_output(set_alpha), [luma, set_alpha]
 
 
 def _append_plane_shuffle_compositor_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
@@ -3878,6 +3896,7 @@ def _translated_compositor_filter_to_node(
         "INVERT": "Invert",
         "CHANNEL_SHIFT": "Channel Shift",
         "PLANE_EXTRACT": "Plane Extract",
+        "ALPHA_MERGE": "Alpha Merge",
         "PLANE_SHUFFLE": "Plane Shuffle",
         "POSTERIZE": "Posterize",
         "PREMUL_KEY": "Premul Key",
@@ -4907,6 +4926,7 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "chromaber_vulkan=dist_x=2.0:dist_y=-1.0,"
         "alphaextract,"
+        "alphamerge,"
         "extractplanes=planes=y,"
         "premultiply,"
         "unpremultiply,"

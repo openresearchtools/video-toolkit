@@ -100,6 +100,7 @@ def _setup_scene() -> None:
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "chromaber_vulkan=dist_x=2.0:dist_y=-1.0,"
         "alphaextract,"
+        "alphamerge,"
         "extractplanes=planes=y,"
         "premultiply,"
         "unpremultiply,"
