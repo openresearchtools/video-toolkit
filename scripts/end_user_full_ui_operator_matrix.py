@@ -466,6 +466,8 @@ def compact_evidence(result):
             pieces.append(f"{key}={md_cell(evidence[key])}")
     if "modifier_count" in evidence:
         pieces.append(f"modifiers={md_cell(evidence['modifier_count'])}")
+    if "node_count" in evidence:
+        pieces.append(f"nodes={md_cell(evidence['node_count'])}")
     if "total_vtk_nodes" in evidence:
         pieces.append(f"vtk_nodes={md_cell(evidence['total_vtk_nodes'])}")
     if "count" in evidence and "types" in evidence:
@@ -501,6 +503,7 @@ def write_markdown_report(report):
     sidecar_apply_all = Counter()
     rendered_outputs = []
     live_modifier_tools = 0
+    compositor_only_tools = 0
     live_preview_results = [result for result in report["results"] if result["group"] == "catalog_live_preview_pixels"]
     live_preview_pixel_results = [
         result
@@ -521,6 +524,8 @@ def write_markdown_report(report):
                 rendered_outputs.append(evidence["output"])
             if evidence.get("modifier_count"):
                 live_modifier_tools += 1
+            if evidence.get("node_count"):
+                compositor_only_tools += 1
         if result["group"] == "catalog_tool_nodes" and result["status"] == "passed":
             catalog_nodes[evidence.get("category", "Unknown")] += 1
         if result["group"] == "sidecar_apply_tool" and result["status"] == "passed":
@@ -561,6 +566,7 @@ def write_markdown_report(report):
         f"| Catalog tools applied through sidecar selector | {sum(sidecar_apply_all.values())} |",
         f"| Compositor-compatible catalog tools | {report['compositor_compatible_catalog_tools']} |",
         f"| Live modifier catalog tools | {live_modifier_tools} |",
+        f"| Native compositor-only catalog tools | {compositor_only_tools} |",
         f"| Rendered-output catalog tools | {len(rendered_outputs)} |",
         f"| Live tools preview-pixel checked | {len(live_preview_results)} |",
         f"| Live tools with measured pixel deltas | {len(live_preview_pixel_results)} |",
@@ -767,6 +773,19 @@ def exercise_catalog_tool(tool):
                 "live_sequencer_strip": target_strip.name,
                 **strip_evidence,
             }
+        if tool.is_compositor:
+            evidence = node_evidence(f"VTK Tool {tool.label} ")
+            if evidence["count"] <= 0:
+                raise AssertionError("compositor Apply did not create a graph")
+            return {
+                "tool_id": tool.id,
+                "category": tool.category,
+                "engine": tool.engine,
+                "node_count": evidence["count"],
+                "node_types": evidence["types"],
+                "last_summary": scene.video_toolkit_last_compositor_nodes,
+                **strip_evidence,
+            }
         output = Path(scene.video_toolkit_last_output)
         if not output.exists() or output.stat().st_size <= 0:
             raise AssertionError(f"rendered output missing: {output}")
@@ -817,6 +836,21 @@ def exercise_sidecar_tool(tool):
                 "modifier_count": len(mods),
                 "modifier_types": [item["type"] for item in mods],
                 "live_sequencer_strip": target_strip.name,
+                **sidecar_evidence,
+                **strip_evidence,
+            }
+        if tool.is_compositor:
+            evidence = node_evidence(f"VTK Tool {tool.label} ")
+            if evidence["count"] <= 0:
+                raise AssertionError("sidecar Apply did not create a compositor graph")
+            return {
+                "tool_id": tool.id,
+                "category": tool.category,
+                "engine": tool.engine,
+                "applied_via": "video_toolkit.apply_sidecar_tool",
+                "node_count": evidence["count"],
+                "node_types": evidence["types"],
+                "last_summary": scene.video_toolkit_last_compositor_nodes,
                 **sidecar_evidence,
                 **strip_evidence,
             }

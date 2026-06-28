@@ -70,9 +70,12 @@ def test_full_ui_operator_matrix_on_real_video():
         if evidence.get("output"):
             assert Path(evidence["output"]).exists()
             assert evidence["bytes"] > 0
-        else:
+        elif evidence.get("modifier_count"):
             assert evidence["modifier_count"] > 0
             assert evidence["live_sequencer_strip"] == target_strip
+        else:
+            assert evidence["node_count"] > 0
+            assert evidence["node_types"]
 
     sidecar_apply = _passed_results(report, "sidecar_apply_tool")
     assert len(sidecar_apply) == report["total_catalog_tools"]
@@ -84,9 +87,12 @@ def test_full_ui_operator_matrix_on_real_video():
         if evidence.get("output"):
             assert Path(evidence["output"]).exists()
             assert evidence["bytes"] > 0
-        else:
+        elif evidence.get("modifier_count"):
             assert evidence["modifier_count"] > 0
             assert evidence["live_sequencer_strip"] == target_strip
+        else:
+            assert evidence["node_count"] > 0
+            assert evidence["node_types"]
 
     live_previews = _passed_results(report, "catalog_live_preview_pixels")
     assert len(live_previews) == report["live_preview_checked_tools"]

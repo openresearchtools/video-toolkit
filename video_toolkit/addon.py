@@ -177,6 +177,8 @@ def _sidecar_tool_icon(tool) -> str:
         return "MODIFIER"
     if tool.is_ffmpeg:
         return "RENDER_ANIMATION"
+    if tool.is_compositor:
+        return "NODETREE"
     return "TOOL_SETTINGS"
 
 
@@ -188,7 +190,13 @@ def _tool_compositor_stack(tool):
     return ()
 
 
+def _tool_compositor_filter_stack(tool):
+    return getattr(tool, "compositor_stack", ())
+
+
 def _tool_has_compositor_stack(tool) -> bool:
+    if _tool_compositor_filter_stack(tool):
+        return True
     if not tool.is_blender_modifier:
         return False
     return any(modifier_type in COMPOSITOR_MODIFIER_TYPES for modifier_type, _settings in _tool_compositor_stack(tool))
@@ -249,6 +257,17 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
                 else:
                     modifiers = _add_blender_tool(strip, tool)
                     self.report({"INFO"}, f"Added {len(modifiers)} live Blender modifier(s) to {strip.name}")
+                return {"FINISHED"}
+            if tool.is_compositor:
+                if strip.type != "MOVIE":
+                    raise RuntimeError("Native compositor tools require an active movie strip")
+                if not _tool_has_compositor_stack(tool):
+                    raise RuntimeError(f"{tool.label} does not have a compositor node recipe")
+                created = _create_tool_compositor_color_stack(context.scene, strip, tool)
+                context.scene.video_toolkit_last_compositor_nodes = (
+                    f"tool compositor {tool.label}: {_compositor_node_summary(created)}"
+                )
+                self.report({"INFO"}, f"Created {len(created)} Blender compositor {tool.label} node(s)")
                 return {"FINISHED"}
             output_path = _render_ffmpeg_tool(context, strip, tool)
             self.report({"INFO"}, f"Rendered {tool.label}: {output_path}")
@@ -1283,10 +1302,11 @@ class VIDEO_TOOLKIT_OT_create_tool_compositor_nodes(Operator):
             strip = scene.sequence_editor.active_strip
             tool = get_tool(self.filter_id)
             stack = _tool_compositor_stack(tool)
+            compositor_stack = _tool_compositor_filter_stack(tool)
             supported_count = sum(1 for modifier_type, _settings in stack if modifier_type in COMPOSITOR_MODIFIER_TYPES)
-            if not supported_count:
+            if not supported_count and not compositor_stack:
                 raise RuntimeError(f"{tool.label} does not have a compositor-compatible Blender color stack")
-            created = _create_tool_compositor_color_stack(scene, strip, tool, stack)
+            created = _create_tool_compositor_color_stack(scene, strip, tool, stack, compositor_stack)
             skipped = len(stack) - supported_count
             summary = f"tool compositor {tool.label}: {_compositor_node_summary(created)}"
             if skipped:
@@ -1348,7 +1368,7 @@ class VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes(Operator):
             tool_ids = []
             for tool in tools:
                 stack = _tool_compositor_stack(tool)
-                nodes = _create_tool_compositor_color_stack(scene, strip, tool, stack)
+                nodes = _create_tool_compositor_color_stack(scene, strip, tool, stack, _tool_compositor_filter_stack(tool))
                 created.extend(nodes)
                 tool_ids.append(tool.id)
             scene.video_toolkit_last_compositor_nodes = (
@@ -3262,8 +3282,14 @@ def _create_compositor_nodes_from_blender_stack(scene, strip, stack, label_prefi
     return created
 
 
-def _create_tool_compositor_color_stack(scene, strip, tool, stack):
-    created = _create_compositor_nodes_from_blender_stack(scene, strip, stack, f"Tool {tool.label}")
+def _create_tool_compositor_color_stack(scene, strip, tool, stack=(), compositor_nodes=()):
+    created = _create_compositor_nodes_from_blender_stack(
+        scene,
+        strip,
+        stack,
+        f"Tool {tool.label}",
+        compositor_nodes=compositor_nodes,
+    )
     for node in created:
         node["video_toolkit_filter_id"] = tool.id
         node["video_toolkit_tool_label"] = tool.label

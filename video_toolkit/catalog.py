@@ -10,6 +10,7 @@ from .ffmpeg_native import translate_filter_chain
 
 ENGINE_BLENDER_MODIFIER = "blender_modifier"
 ENGINE_FFMPEG = "ffmpeg"
+ENGINE_COMPOSITOR = "compositor"
 BlenderStack = tuple[tuple[str, dict[str, Any]], ...]
 
 
@@ -25,6 +26,7 @@ class VideoTool:
     blender_modifier: str | None = None
     blender_settings: dict[str, Any] = field(default_factory=dict)
     blender_stack: tuple[tuple[str, dict[str, Any]], ...] = ()
+    compositor_stack: tuple[tuple[str, dict[str, Any]], ...] = ()
     ffmpeg_filter: str | None = None
     ffmpeg_filter_after_stabilize: str | None = None
     two_pass_stabilize: bool = False
@@ -43,6 +45,10 @@ class VideoTool:
     @property
     def is_ffmpeg(self) -> bool:
         return self.engine == ENGINE_FFMPEG
+
+    @property
+    def is_compositor(self) -> bool:
+        return self.engine == ENGINE_COMPOSITOR
 
 
 def _bright_contrast(bright: float = 0.0, contrast: float = 0.0) -> tuple[str, dict[str, Any]]:
@@ -925,6 +931,43 @@ TOOLS: tuple[VideoTool, ...] = (
         ffmpeg_filter="tmix=frames=3:weights='1 2 1'",
     ),
     VideoTool(
+        id="native_compositor_restore_nodes",
+        label="Native Restore Nodes",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates a Blender-native compositor restoration graph: Denoise, Despeckle, Bilateral Blur, and Anti-Aliasing.",
+        compositor_stack=(
+            ("DENOISE", {"source": "blender_compositor", "quality": "Balanced", "prefilter": "Accurate", "strength": 0.65}),
+            ("DESPECKLE", {"source": "blender_compositor", "factor": 0.28, "color_threshold": 0.32, "neighbor_threshold": 0.28}),
+            ("BILATERAL_BLUR", {"source": "blender_compositor", "size": 2, "threshold": 0.08, "strength": 0.35}),
+            ("ANTI_ALIASING", {"source": "blender_compositor", "threshold": 0.16, "contrast_limit": 1.6, "corner_rounding": 0.18}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_sharpen_cleanup",
+        label="Native Sharpen Cleanup Nodes",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates a native Blender compositor cleanup graph for soft footage using Filter sharpen, Despeckle, and Anti-Aliasing nodes.",
+        compositor_stack=(
+            ("FILTER", {"source": "blender_compositor", "filter_type": "Sharpen", "factor": 0.45}),
+            ("DESPECKLE", {"source": "blender_compositor", "factor": 0.22, "color_threshold": 0.28, "neighbor_threshold": 0.24}),
+            ("ANTI_ALIASING", {"source": "blender_compositor", "threshold": 0.18, "contrast_limit": 1.8, "corner_rounding": 0.2}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_lens_repair",
+        label="Native Lens Repair Nodes",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates a native Blender compositor lens cleanup graph with Lens Distortion, overscan scale, and gentle anti-aliasing.",
+        compositor_stack=(
+            ("LENS_DISTORTION", {"source": "blender_compositor", "distortion": -0.04, "dispersion": 0.0, "fit": True}),
+            ("SCALE", {"source": "blender_compositor", "type": "Relative", "x": 1.02, "y": 1.02, "frame_type": "Stretch", "interpolation": "Bicubic"}),
+            ("ANTI_ALIASING", {"source": "blender_compositor", "threshold": 0.2, "contrast_limit": 1.6, "corner_rounding": 0.22}),
+        ),
+    ),
+    VideoTool(
         id="upscale_2x",
         label="Upscale 2x",
         category="Resolution & Motion",
@@ -949,6 +992,29 @@ TOOLS: tuple[VideoTool, ...] = (
         description="Motion-compensated frame interpolation to 60 fps.",
         ffmpeg_filter="minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1",
         slow=True,
+    ),
+    VideoTool(
+        id="native_compositor_resize_reframe",
+        label="Native Resize/Reframe Nodes",
+        category="Resolution & Motion",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates a Blender-native compositor transform graph with Scale, Crop, and output nodes for non-rendered reframe work.",
+        compositor_stack=(
+            ("SCALE", {"source": "blender_compositor", "type": "Relative", "x": 1.05, "y": 1.05, "frame_type": "Stretch", "interpolation": "Bicubic"}),
+            ("CROP", {"source": "blender_compositor", "x": 0, "y": 0, "width": 1920, "height": 1080, "alpha_crop": False}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_motion_geometry",
+        label="Native Motion Geometry Nodes",
+        category="Resolution & Motion",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates a native Blender compositor geometry graph using Rotate, Directional Blur, and Scale for motion finishing.",
+        compositor_stack=(
+            ("ROTATE", {"source": "blender_compositor", "angle": 0.012, "interpolation": "Bicubic", "extension_x": "Clip", "extension_y": "Clip"}),
+            ("DIRECTIONAL_BLUR", {"source": "blender_compositor", "samples": 8, "rotation": 0.0, "scale": 1.0, "amount": 0.08, "direction": 0.18}),
+            ("SCALE", {"source": "blender_compositor", "type": "Relative", "x": 1.0, "y": 1.0, "frame_type": "Stretch", "interpolation": "Bilinear"}),
+        ),
     ),
     VideoTool(
         id="vse_bright_contrast",

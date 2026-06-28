@@ -43,8 +43,28 @@ def test_professional_restoration_tools_are_present():
         "deinterlace",
         "quick_deshake",
         "stabilize",
+        "native_compositor_restore_nodes",
+        "native_compositor_sharpen_cleanup",
+        "native_compositor_lens_repair",
     }
     assert expected.issubset({tool.id for tool in all_tools()})
+
+
+def test_native_compositor_catalog_tools_are_exposed():
+    expected = {
+        "native_compositor_restore_nodes": {"DENOISE", "DESPECKLE", "BILATERAL_BLUR", "ANTI_ALIASING"},
+        "native_compositor_sharpen_cleanup": {"FILTER", "DESPECKLE", "ANTI_ALIASING"},
+        "native_compositor_lens_repair": {"LENS_DISTORTION", "SCALE", "ANTI_ALIASING"},
+        "native_compositor_resize_reframe": {"SCALE", "CROP"},
+        "native_compositor_motion_geometry": {"ROTATE", "DIRECTIONAL_BLUR", "SCALE"},
+    }
+    for tool_id, node_types in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
+        assert tool.category in {"Restoration", "Resolution & Motion"}
 
 
 def test_categories_keep_ui_order():
