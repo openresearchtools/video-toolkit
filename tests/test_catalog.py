@@ -56,6 +56,7 @@ SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES = {
     "BLEND_COMPOSITE": {"CompositorNodeAlphaOver"},
     "BLANK_IMAGE_OVERLAY": {"CompositorNodeAlphaOver", "CompositorNodeBlankImage"},
     "BOKEH_IMAGE_BLUR": {"CompositorNodeBokehBlur", "CompositorNodeBokehImage"},
+    "COLOR_MODEL_BOARD": {"CompositorNodeColorBalance", "CompositorNodeColorCorrection", "CompositorNodeCombineColor", "CompositorNodeHueSat", "CompositorNodeSeparateColor"},
     "ELLIPSE_MASK_ALPHA": {"CompositorNodeEllipseMask", "CompositorNodeSetAlpha"},
     "DOUBLE_EDGE_MASK_ALPHA": {
         "CompositorNodeBoxMask",
@@ -280,6 +281,28 @@ def test_native_color_and_composite_node_tools_are_exposed():
         assert not tool.is_ffmpeg
         assert tool.compositor_stack == (("NATIVE_NODE", tool.compositor_stack[0][1]),)
         assert tool.compositor_stack[0][1]["node_type"] == node_type
+
+
+def test_native_color_model_boards_are_exposed():
+    expected = {
+        "native_rgb_channel_board": ("RGB", "ITUBT709", {"CompositorNodeSeparateColor", "CompositorNodeCombineColor", "CompositorNodeColorBalance"}),
+        "native_hsv_color_board": ("HSV", "ITUBT709", {"CompositorNodeSeparateColor", "CompositorNodeCombineColor", "CompositorNodeHueSat"}),
+        "native_hsl_color_board": ("HSL", "ITUBT709", {"CompositorNodeSeparateColor", "CompositorNodeCombineColor", "CompositorNodeHueSat"}),
+        "native_yuv_video_board": ("YUV", "ITUBT709", {"CompositorNodeSeparateColor", "CompositorNodeCombineColor", "CompositorNodeColorCorrection"}),
+        "native_ycc_601_video_board": ("YCC", "ITUBT601", {"CompositorNodeSeparateColor", "CompositorNodeCombineColor", "CompositorNodeColorCorrection"}),
+        "native_ycc_709_video_board": ("YCC", "ITUBT709", {"CompositorNodeSeparateColor", "CompositorNodeCombineColor", "CompositorNodeColorCorrection"}),
+        "native_ycc_jfif_video_board": ("YCC", "JFIF", {"CompositorNodeSeparateColor", "CompositorNodeCombineColor", "CompositorNodeColorCorrection"}),
+    }
+    for tool_id, (mode, ycc_mode, node_types) in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Color & Composite"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack[0][0] == "COLOR_MODEL_BOARD"
+        assert tool.compositor_stack[0][1]["mode"] == mode
+        assert tool.compositor_stack[0][1]["ycc_mode"] == ycc_mode
+        assert node_types.issubset(_tool_compositor_node_classes(tool_id))
 
 
 def test_native_matte_keying_node_tools_are_exposed():
@@ -817,6 +840,7 @@ def test_applicable_tracked_compositor_nodes_have_one_click_tools():
         "CompositorNodeRelativeToPixel": "native_compositor_relative_to_pixel",
         "CompositorNodeSceneTime": "native_compositor_scene_time",
         "CompositorNodeSequencerStripInfo": "native_compositor_sequencer_strip_info",
+        "CompositorNodeSeparateColor": "native_rgb_channel_board",
         "CompositorNodeSetAlpha": "native_compositor_set_alpha",
         "CompositorNodeSplit": "native_compositor_split_compare",
         "CompositorNodeStringToImage": "native_compositor_text_overlay",

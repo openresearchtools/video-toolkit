@@ -3391,6 +3391,8 @@ def _append_translated_compositor_filter(
         return _append_alpha_merge_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "PLANE_SHUFFLE":
         return _append_plane_shuffle_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "COLOR_MODEL_BOARD":
+        return _append_color_model_board_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "BLEND_COMPOSITE":
         return _append_blend_composite_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "MASKED_BLEND_COMPOSITE":
@@ -3643,6 +3645,58 @@ def _append_plane_shuffle_compositor_filter(tree, input_socket, settings: dict[s
     ):
         _link_socket(tree, _socket_by_name(separate.outputs, output_name), _socket_by_name(combine.inputs, input_name))
     return _image_output(combine), [separate, combine]
+
+
+def _append_color_model_board_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    mode = str(settings.get("mode", "RGB") or "RGB").upper()
+    ycc_mode = str(settings.get("ycc_mode", "ITUBT709") or "ITUBT709").upper()
+    label = f"VTK {label_prefix} {settings.get('label') or mode + ' Color Board'}"
+    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", f"{label} Separate", index, y_offset=-160, origin=origin)
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", f"{label} Combine", index + 1, y_offset=-160, origin=origin)
+    for node in (separate, combine):
+        _set_node_property(node, "mode", mode)
+        _set_node_property(node, "ycc_mode", ycc_mode)
+        node["video_toolkit_color_model"] = mode
+        node["video_toolkit_ycc_mode"] = ycc_mode
+        node["video_toolkit_native_color_model_board"] = True
+    _link_socket(tree, input_socket, _image_input(separate))
+    for output_socket, input_socket_target in zip(separate.outputs, combine.inputs):
+        _link_socket(tree, output_socket, input_socket_target)
+
+    grade_type = str(settings.get("grade_type", "HUE_SAT") or "HUE_SAT").upper()
+    grade = dict(settings.get("grade", {}) or {})
+    created = [separate, combine]
+    final_socket = _image_output(combine)
+    if grade_type == "COLOR_BALANCE":
+        grade_node = _new_compositor_node(tree, "CompositorNodeColorBalance", f"{label} Balance", index + 2, origin=origin)
+        _set_input_default_candidates(grade_node, ("Factor", "Fac"), grade.get("factor", 1.0))
+        _set_input_default_candidates(grade_node, ("Type",), grade.get("type", "Lift/Gamma/Gain"))
+        if "lift" in grade:
+            _set_input_default_candidates(grade_node, ("Color Lift", "Lift"), _rgba(grade.get("lift")))
+        if "gamma" in grade:
+            _set_input_default_candidates(grade_node, ("Color Gamma", "Gamma"), _rgba(grade.get("gamma")))
+        if "gain" in grade:
+            _set_input_default_candidates(grade_node, ("Color Gain", "Gain"), _rgba(grade.get("gain")))
+    elif grade_type == "COLOR_CORRECTION":
+        grade_node = _new_compositor_node(tree, "CompositorNodeColorCorrection", f"{label} Correction", index + 2, origin=origin)
+        _set_input_default_candidates(grade_node, ("Master Saturation", "Saturation"), grade.get("saturation", 1.0))
+        _set_input_default_candidates(grade_node, ("Master Contrast", "Contrast"), grade.get("contrast", 1.0))
+        _set_input_default_candidates(grade_node, ("Master Gamma", "Gamma"), grade.get("gamma", 1.0))
+        _set_input_default_candidates(grade_node, ("Master Gain", "Gain"), grade.get("gain", 1.0))
+        _set_input_default_candidates(grade_node, ("Master Offset", "Offset"), grade.get("offset", 0.0))
+    else:
+        grade_node = _new_compositor_node(tree, "CompositorNodeHueSat", f"{label} Hue Saturation", index + 2, origin=origin)
+        _set_input_default(grade_node, "Hue", grade.get("hue", 0.5))
+        _set_input_default(grade_node, "Saturation", grade.get("saturation", 1.0))
+        _set_input_default(grade_node, "Value", grade.get("value", 1.0))
+        _set_input_default_candidates(grade_node, ("Factor", "Fac"), grade.get("factor", 1.0))
+    _link_socket(tree, final_socket, _image_input(grade_node))
+    grade_node["video_toolkit_color_model"] = mode
+    grade_node["video_toolkit_ycc_mode"] = ycc_mode
+    grade_node["video_toolkit_native_color_model_board"] = True
+    final_socket = _image_output(grade_node)
+    created.append(grade_node)
+    return final_socket, created
 
 
 def _append_blend_composite_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
@@ -4566,6 +4620,18 @@ def _first_socket(sockets):
 
 def _set_input_default(node, socket_name: str, value) -> None:
     _set_input_default_candidates(node, (socket_name,), value)
+
+
+def _set_node_property(node, attr: str, value) -> bool:
+    if not hasattr(node, attr):
+        node[f"video_toolkit_property_{attr}"] = value
+        return False
+    try:
+        setattr(node, attr, value)
+        return True
+    except Exception:
+        node[f"video_toolkit_property_{attr}"] = value
+        return False
 
 
 def _set_input_default_candidates(node, socket_names, value) -> bool:

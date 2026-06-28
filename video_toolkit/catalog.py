@@ -168,6 +168,26 @@ def _native_node(
     return ("NATIVE_NODE", settings)
 
 
+def _color_model_board(
+    mode: str,
+    *,
+    label: str,
+    ycc_mode: str = "ITUBT709",
+    grade_type: str = "HUE_SAT",
+    grade: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    return (
+        "COLOR_MODEL_BOARD",
+        {
+            "label": label,
+            "mode": mode,
+            "ycc_mode": ycc_mode,
+            "grade_type": grade_type,
+            "grade": grade or {},
+        },
+    )
+
+
 _AUTO_ENHANCE_STACK = translate_filter_chain("eq=contrast=1.08:saturation=1.08:gamma=1.02").stack
 _NEUTRAL_GRADE_STACK = translate_filter_chain("eq=contrast=1.04:saturation=1.03:gamma=1.00").stack
 _PUNCHY_COLOR_STACK = translate_filter_chain("eq=contrast=1.14:saturation=1.18:gamma=0.98").stack
@@ -1418,6 +1438,116 @@ TOOLS: tuple[VideoTool, ...] = (
                 label="Alpha Over",
                 image_input="Background",
                 inputs={"Factor": 1.0, "Type": "Straight", "Straight Alpha": True},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_rgb_channel_board",
+        label="RGB Channel Board",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Splits the selected video through Blender's native RGB Separate/Combine Color nodes, then applies a subtle RGB balance grade.",
+        compositor_stack=(
+            _color_model_board(
+                "RGB",
+                label="RGB Channel Board",
+                grade_type="COLOR_BALANCE",
+                grade={
+                    "factor": 1.0,
+                    "gamma": (1.035, 1.015, 0.985, 1.0),
+                    "gain": (1.045, 1.020, 0.980, 1.0),
+                },
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_hsv_color_board",
+        label="HSV Color Board",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Uses Blender's native HSV Separate/Combine Color mode with Hue/Saturation/Value finishing controls.",
+        compositor_stack=(
+            _color_model_board(
+                "HSV",
+                label="HSV Color Board",
+                grade={"hue": 0.505, "saturation": 1.14, "value": 1.025, "factor": 1.0},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_hsl_color_board",
+        label="HSL Color Board",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Uses Blender's native HSL Separate/Combine Color mode with a restrained saturation and lightness finish.",
+        compositor_stack=(
+            _color_model_board(
+                "HSL",
+                label="HSL Color Board",
+                grade={"hue": 0.498, "saturation": 1.09, "value": 1.018, "factor": 1.0},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_yuv_video_board",
+        label="YUV Video Board",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Uses Blender's native YUV Separate/Combine Color mode with conservative broadcast-style contrast and saturation correction.",
+        compositor_stack=(
+            _color_model_board(
+                "YUV",
+                label="YUV Video Board",
+                grade_type="COLOR_CORRECTION",
+                grade={"saturation": 1.045, "contrast": 1.035, "gamma": 0.995, "gain": 1.015, "offset": 0.0},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_ycc_601_video_board",
+        label="YCbCr 601 Board",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Uses Blender's native YCbCr ITU-BT.601 Separate/Combine Color mode for SD/broadcast matrix review and correction.",
+        compositor_stack=(
+            _color_model_board(
+                "YCC",
+                label="YCbCr 601 Board",
+                ycc_mode="ITUBT601",
+                grade_type="COLOR_CORRECTION",
+                grade={"saturation": 1.035, "contrast": 1.025, "gamma": 1.0, "gain": 1.012, "offset": 0.0},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_ycc_709_video_board",
+        label="YCbCr 709 Board",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Uses Blender's native YCbCr ITU-BT.709 Separate/Combine Color mode for HD video matrix review and correction.",
+        compositor_stack=(
+            _color_model_board(
+                "YCC",
+                label="YCbCr 709 Board",
+                ycc_mode="ITUBT709",
+                grade_type="COLOR_CORRECTION",
+                grade={"saturation": 1.04, "contrast": 1.03, "gamma": 0.998, "gain": 1.014, "offset": 0.0},
+            ),
+        ),
+    ),
+    VideoTool(
+        id="native_ycc_jfif_video_board",
+        label="YCbCr JFIF Board",
+        category="Native Color & Composite",
+        engine=ENGINE_COMPOSITOR,
+        description="Uses Blender's native YCbCr JFIF Separate/Combine Color mode for full-range/JPEG-derived video review and correction.",
+        compositor_stack=(
+            _color_model_board(
+                "YCC",
+                label="YCbCr JFIF Board",
+                ycc_mode="JFIF",
+                grade_type="COLOR_CORRECTION",
+                grade={"saturation": 1.025, "contrast": 1.02, "gamma": 1.002, "gain": 1.010, "offset": 0.0},
             ),
         ),
     ),
