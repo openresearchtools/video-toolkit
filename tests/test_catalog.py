@@ -284,6 +284,7 @@ def test_native_matte_source_tools_are_exposed():
 def test_native_filter_and_blur_tools_are_exposed():
     expected = {
         "native_unsharp_filter": {"FILTER"},
+        "native_cas_sharpen": {"FILTER"},
         "native_elbg_posterize": {"POSTERIZE"},
         "native_sobel_edges": {"FILTER"},
         "native_prewitt_edges": {"FILTER"},
@@ -292,6 +293,7 @@ def test_native_filter_and_blur_tools_are_exposed():
         "native_erode_matte": {"DILATE_ERODE"},
         "native_dilate_matte": {"DILATE_ERODE"},
         "native_convolution_sharpen": {"CONVOLVE"},
+        "native_fftfilt_detail": {"FILTER"},
         "native_average_blur": {"BLUR"},
         "native_box_blur": {"BLUR"},
         "native_gaussian_blur": {"BLUR"},
@@ -300,6 +302,7 @@ def test_native_filter_and_blur_tools_are_exposed():
         "native_edge_preserving_blur": {"BILATERAL_BLUR"},
         "native_directional_blur": {"DIRECTIONAL_BLUR"},
         "native_deband_cleanup": {"BILATERAL_BLUR"},
+        "native_gradfun_deband": {"BILATERAL_BLUR"},
         "native_deblock_cleanup": {"ANTI_ALIASING"},
     }
     for tool_id, node_types in expected.items():
@@ -314,6 +317,8 @@ def test_native_filter_and_blur_tools_are_exposed():
 def test_native_denoise_and_cleanup_tools_are_exposed():
     expected = {
         "native_hqdn3d_denoise": {"DENOISE"},
+        "native_chromanr_cleanup": {"BILATERAL_BLUR"},
+        "native_fft_denoise": {"DENOISE"},
         "native_nlmeans_denoise": {"DENOISE"},
         "native_bm3d_denoise": {"DENOISE"},
         "native_wavelet_denoise": {"DENOISE"},
@@ -619,6 +624,7 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "shuffleplanes": "native_plane_shuffle_bgr",
         "elbg": "native_elbg_posterize",
         "unsharp": "native_unsharp_filter",
+        "cas": "native_cas_sharpen",
         "sobel": "native_sobel_edges",
         "prewitt": "native_prewitt_edges",
         "kirsch": "native_kirsch_edges",
@@ -626,6 +632,7 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "erosion": "native_erode_matte",
         "dilation": "native_dilate_matte",
         "convolution": "native_convolution_sharpen",
+        "fftfilt": "native_fftfilt_detail",
         "avgblur": "native_average_blur",
         "boxblur": "native_box_blur",
         "gblur": "native_gaussian_blur",
@@ -641,6 +648,8 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "vflip": "native_compositor_flip_vertical",
         "lenscorrection": "native_compositor_lens_correction",
         "hqdn3d": "native_hqdn3d_denoise",
+        "chromanr": "native_chromanr_cleanup",
+        "fftdnoiz": "native_fft_denoise",
         "nlmeans": "native_nlmeans_denoise",
         "bm3d": "native_bm3d_denoise",
         "owdenoise": "native_wavelet_denoise",
@@ -649,7 +658,9 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "median": "native_median_despeckle",
         "dedot": "native_dedot_cleanup",
         "deband": "native_deband_cleanup",
+        "gradfun": "native_gradfun_deband",
         "deblock": "native_deblock_cleanup",
+        "xbr": "native_xbr_upscale",
         "histogram": "native_ffmpeg_histogram_scope",
         "thistogram": "native_ffmpeg_temporal_histogram_scope",
         "waveform": "native_ffmpeg_waveform_scope",

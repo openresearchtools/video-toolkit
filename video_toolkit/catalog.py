@@ -258,6 +258,7 @@ _PLANE_SHUFFLE_BGR_TRANSLATION = translate_filter_chain("shuffleplanes=2:1:0:3")
 _STRAIGHT_ALPHA_TRANSLATION = translate_filter_chain("unpremultiply")
 _NATIVE_ELBG_POSTERIZE_TRANSLATION = translate_filter_chain("elbg=codebook_length=32:nb_steps=1")
 _NATIVE_UNSHARP_TRANSLATION = translate_filter_chain("unsharp=5:5:0.55:3:3:0.20")
+_NATIVE_CAS_SHARPEN_TRANSLATION = translate_filter_chain("cas=strength=0.45")
 _NATIVE_SOBEL_TRANSLATION = translate_filter_chain("sobel=scale=1.2:delta=0.02")
 _NATIVE_PREWITT_TRANSLATION = translate_filter_chain("prewitt=scale=0.9:delta=0.01")
 _NATIVE_KIRSCH_TRANSLATION = translate_filter_chain("kirsch=scale=0.8")
@@ -290,6 +291,11 @@ _NATIVE_MEDIAN_DESPECKLE_TRANSLATION = translate_filter_chain("median=radius=2:p
 _NATIVE_DEDOT_CLEANUP_TRANSLATION = translate_filter_chain("dedot=lt=0.08:tl=0.08")
 _NATIVE_DEBAND_TRANSLATION = translate_filter_chain("deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20")
 _NATIVE_DEBLOCK_TRANSLATION = translate_filter_chain("deblock=block=16:alpha=0.12:beta=0.08")
+_NATIVE_CHROMANR_CLEANUP_TRANSLATION = translate_filter_chain("chromanr=thres=24:sizew=5:sizeh=5")
+_NATIVE_FFT_DENOISE_TRANSLATION = translate_filter_chain("fftdnoiz=sigma=1.8:amount=1.0")
+_NATIVE_FFT_DETAIL_TRANSLATION = translate_filter_chain("fftfilt=dc_Y=0:weight_Y=1.35")
+_NATIVE_GRADFUN_DEBAND_TRANSLATION = translate_filter_chain("gradfun=strength=1.2:radius=12")
+_NATIVE_XBR_UPSCALE_TRANSLATION = translate_filter_chain("xbr=n=2")
 _NATIVE_SCALE_FIT_TRANSLATION = translate_filter_chain("scale=w=1920:h=1080:flags=lanczos")
 _NATIVE_CENTER_CROP_TRANSLATION = translate_filter_chain("crop=w=iw*0.9:h=ih*0.9:x=iw*0.05:y=ih*0.05")
 _NATIVE_ROTATE_LEVEL_TRANSLATION = translate_filter_chain("rotate=angle=2*PI/180:fillcolor=black")
@@ -1521,6 +1527,14 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_UNSHARP_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_cas_sharpen",
+        label="Native CAS Sharpen",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg cas contrast-adaptive sharpening intent as Blender's native compositor Filter sharpen graph.",
+        compositor_stack=_NATIVE_CAS_SHARPEN_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_elbg_posterize",
         label="Native ELBG Posterize",
         category="Native Filter & Blur",
@@ -1585,6 +1599,14 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_CONVOLUTION_SHARPEN_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_fftfilt_detail",
+        label="Native FFT Detail Filter",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg fftfilt frequency detail intent as Blender's native Filter sharpen/soften graph.",
+        compositor_stack=_NATIVE_FFT_DETAIL_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_average_blur",
         label="Native Average Blur",
         category="Native Filter & Blur",
@@ -1647,6 +1669,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg deband cleanup intent as Blender's native edge-aware Bilateral Blur graph.",
         compositor_stack=_NATIVE_DEBAND_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_gradfun_deband",
+        label="Native Gradfun Deband",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg gradfun anti-banding intent as Blender's native edge-aware Bilateral Blur graph.",
+        compositor_stack=_NATIVE_GRADFUN_DEBAND_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_deblock_cleanup",
@@ -2083,6 +2113,22 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_HQDN3D_DENOISE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_chromanr_cleanup",
+        label="Native Chroma NR Cleanup",
+        category="Native Denoise & Cleanup",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg chromanr intent as Blender's native edge-preserving Bilateral Blur cleanup graph.",
+        compositor_stack=_NATIVE_CHROMANR_CLEANUP_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_fft_denoise",
+        label="Native FFT Denoise",
+        category="Native Denoise & Cleanup",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg fftdnoiz frequency-domain denoise intent as Blender's native compositor Denoise graph.",
+        compositor_stack=_NATIVE_FFT_DENOISE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_nlmeans_denoise",
         label="Native NLMeans Denoise",
         category="Native Denoise & Cleanup",
@@ -2400,6 +2446,14 @@ TOOLS: tuple[VideoTool, ...] = (
         description="Two-times Lanczos upscale with even output dimensions.",
         ffmpeg_filter="scale=trunc(iw*2/2)*2:trunc(ih*2/2)*2:flags=lanczos",
         slow=True,
+    ),
+    VideoTool(
+        id="native_xbr_upscale",
+        label="Native XBR Upscale",
+        category="Resolution & Motion",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg xbr pixel-art upscale intent as Blender's native compositor Scale graph.",
+        compositor_stack=_NATIVE_XBR_UPSCALE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="scale_1080p",

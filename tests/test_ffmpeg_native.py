@@ -7,6 +7,7 @@ from video_toolkit.ffmpeg_native import (
     convolution_to_blender_compositor,
     colorlevels_to_blender_stack,
     curves_to_blender_stack,
+    detail_cleanup_filter_to_blender_compositor,
     blur_to_blender_compositor,
     colorcorrect_to_blender_compositor,
     colorcontrast_to_blender_compositor,
@@ -835,6 +836,44 @@ def test_restoration_filters_translate_to_native_blender_nodes():
     ]
 
 
+def test_detail_cleanup_filters_translate_to_native_blender_nodes():
+    cas = detail_cleanup_filter_to_blender_compositor("cas", strength=0.45)
+    assert cas[0][0] == "FILTER"
+    assert cas[0][1]["filter_type"] == "Box Sharpen"
+
+    chroma = detail_cleanup_filter_to_blender_compositor("chromanr", thres=24, sizew=5, sizeh=7)
+    assert chroma[0][0] == "BILATERAL_BLUR"
+    assert chroma[0][1]["source"] == "chromanr"
+
+    fft_denoise = detail_cleanup_filter_to_blender_compositor("fftdnoiz", sigma=1.8, amount=1.0)
+    assert fft_denoise[0][0] == "DENOISE"
+    assert fft_denoise[0][1]["source"] == "fftdnoiz"
+
+    fft_detail = detail_cleanup_filter_to_blender_compositor("fftfilt", dc_Y=0, weight_Y=1.35)
+    assert fft_detail[0][0] == "FILTER"
+    assert fft_detail[0][1]["source"] == "fftfilt"
+
+    gradfun = detail_cleanup_filter_to_blender_compositor("gradfun", strength=1.2, radius=12)
+    assert gradfun[0][0] == "BILATERAL_BLUR"
+    assert gradfun[0][1]["source"] == "gradfun"
+
+    xbr = detail_cleanup_filter_to_blender_compositor("xbr", n=2)
+    assert xbr[0][0] == "SCALE"
+    assert xbr[0][1]["x"] == 2.0
+
+    result = translate_filter_chain("cas=strength=0.45,chromanr=thres=24,fftdnoiz=sigma=1.8,fftfilt=weight_Y=1.35,gradfun=strength=1.2,xbr=n=2")
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("cas", "chromanr", "fftdnoiz", "fftfilt", "gradfun", "xbr")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "FILTER",
+        "BILATERAL_BLUR",
+        "DENOISE",
+        "FILTER",
+        "BILATERAL_BLUR",
+        "SCALE",
+    ]
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -868,6 +907,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "shuffleplanes=map0=2:map1=1:map2=0:map3=3,"
         "elbg=l=64:n=2:seed=17,"
         "unsharp=5:5:0.45:3:3:0.20,"
+        "cas=strength=0.45,"
         "sobel=scale=1.2:delta=0.02,"
         "prewitt=scale=0.9:delta=0.01,"
         "kirsch=scale=0.8,"
@@ -899,6 +939,11 @@ def test_filter_chain_supports_more_color_grading_filters():
         "dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,"
         "deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,"
         "deblock=block=16:alpha=0.12:beta=0.08,"
+        "chromanr=thres=24:sizew=5:sizeh=5,"
+        "fftdnoiz=sigma=1.8:amount=1.0,"
+        "fftfilt=dc_Y=0:weight_Y=1.35,"
+        "gradfun=strength=1.2:radius=12,"
+        "xbr=n=2,"
         "histogram=mode=levels,"
         "thistogram=mode=levels,"
         "waveform=display=overlay:components=7,"
@@ -945,6 +990,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "shuffleplanes",
         "elbg",
         "unsharp",
+        "cas",
         "sobel",
         "prewitt",
         "kirsch",
@@ -976,6 +1022,11 @@ def test_filter_chain_supports_more_color_grading_filters():
         "dedot",
         "deband",
         "deblock",
+        "chromanr",
+        "fftdnoiz",
+        "fftfilt",
+        "gradfun",
+        "xbr",
         "histogram",
         "thistogram",
         "waveform",

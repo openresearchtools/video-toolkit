@@ -63,6 +63,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "shuffleplanes",
     "elbg",
     "unsharp",
+    "cas",
     "sobel",
     "prewitt",
     "kirsch",
@@ -94,6 +95,11 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "dedot",
     "deband",
     "deblock",
+    "chromanr",
+    "fftdnoiz",
+    "fftfilt",
+    "gradfun",
+    "xbr",
     "histogram",
     "thistogram",
     "waveform",
@@ -301,6 +307,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(unsharp_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Unsharp is approximated with Blender compositor Filter sharpen/soften nodes.")
+        elif name in {"cas", "chromanr", "fftdnoiz", "fftfilt", "gradfun", "xbr"}:
+            compositor_nodes.extend(detail_cleanup_filter_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is translated to Blender compositor detail/cleanup nodes.")
         elif name in {"sobel", "prewitt", "kirsch", "edgedetect"}:
             compositor_nodes.extend(edge_filter_to_blender_compositor(name, **args))
             supported.append(name)
@@ -1651,6 +1661,113 @@ def unsharp_to_blender_compositor(
             },
         ),
     )
+
+
+def detail_cleanup_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    if name == "cas":
+        strength = _clamp(_float(_option(options, "strength", "s", "arg0", default=0.4), 0.4), 0.0, 1.0)
+        return (
+            (
+                "FILTER",
+                {
+                    "label": "Contrast Adaptive Sharpen",
+                    "filter_type": "Box Sharpen",
+                    "factor": _clamp(0.25 + strength * 1.35, 0.0, 2.0),
+                    "strength": strength,
+                    "planes": str(_option(options, "planes", "p", default="all")),
+                    "source": "cas",
+                    "approximation": "FFmpeg CAS edge-adaptive weighting is approximated with Blender's compositor sharpen factor.",
+                },
+            ),
+        )
+    if name == "chromanr":
+        threshold = _clamp(_float(_option(options, "thres", "threshold", "arg0", default=30), 30.0) / 255.0, 0.0, 1.0)
+        size_w = _clamp(_float(_option(options, "sizew", "sw", "arg1", default=5), 5.0), 1.0, 32.0)
+        size_h = _clamp(_float(_option(options, "sizeh", "sh", "arg2", default=size_w), size_w), 1.0, 32.0)
+        return (
+            (
+                "BILATERAL_BLUR",
+                {
+                    "label": "Chroma Noise Reduction",
+                    "size": int(_clamp(round((size_w + size_h) * 0.5), 1.0, 64.0)),
+                    "threshold": _clamp(0.04 + threshold * 0.75, 0.0, 1.0),
+                    "strength": _clamp((size_w + size_h) * 0.5, 1.0, 64.0),
+                    "source": "chromanr",
+                    "approximation": "Blender has no native chroma-only temporal NR; this uses edge-preserving bilateral smoothing as editable chroma-cleanup intent.",
+                },
+            ),
+        )
+    if name == "fftdnoiz":
+        sigma = _clamp(_float(_option(options, "sigma", "sig", "arg0", default=1.0), 1.0), 0.0, 30.0)
+        amount = _clamp(_float(_option(options, "amount", "a", "arg1", default=1.0), 1.0), 0.0, 4.0)
+        strength = _clamp(sigma * amount, 0.0, 30.0)
+        return (
+            (
+                "DENOISE",
+                {
+                    "label": "FFT Denoise",
+                    "hdr": strength >= 6.0,
+                    "prefilter": "Accurate" if strength >= 1.0 else "Fast",
+                    "quality": "High" if strength >= 2.5 else "Balanced",
+                    "strength": strength,
+                    "source": "fftdnoiz",
+                    "approximation": "Blender compositor Denoise is spatial; FFmpeg frequency-domain denoise strength is represented as editable denoise quality/prefilter metadata.",
+                },
+            ),
+        )
+    if name == "fftfilt":
+        dc_y = _float(_option(options, "dc_Y", "dc_y", "arg0", default=0), 0.0)
+        weight_y = _float(_option(options, "weight_Y", "weight_y", "arg1", default=1), 1.0)
+        factor = _clamp(abs(weight_y - 1.0) + abs(dc_y) / 255.0, 0.05, 2.0)
+        return (
+            (
+                "FILTER",
+                {
+                    "label": "FFT Detail Filter",
+                    "filter_type": "Box Sharpen" if weight_y >= 1.0 else "Soften",
+                    "factor": factor,
+                    "dc_y": dc_y,
+                    "weight_y": weight_y,
+                    "source": "fftfilt",
+                    "approximation": "FFmpeg frequency expressions are approximated with Blender sharpen/soften detail filtering.",
+                },
+            ),
+        )
+    if name == "gradfun":
+        strength = _clamp(_float(_option(options, "strength", "arg0", default=1.2), 1.2), 0.0, 10.0)
+        radius = _clamp(_float(_option(options, "radius", "r", "arg1", default=12), 12.0), 1.0, 64.0)
+        return (
+            (
+                "BILATERAL_BLUR",
+                {
+                    "label": "Gradfun Deband",
+                    "size": int(_clamp(round(radius / 4.0), 1.0, 64.0)),
+                    "threshold": _clamp(strength / 10.0, 0.0, 1.0),
+                    "strength": radius,
+                    "source": "gradfun",
+                    "approximation": "Gradfun anti-banding is represented with Blender's bilateral smoothing over low-gradient areas.",
+                },
+            ),
+        )
+    if name == "xbr":
+        factor = int(_clamp(round(_float(_option(options, "n", "arg0", default=2), 2.0)), 2.0, 4.0))
+        return (
+            (
+                "SCALE",
+                {
+                    "label": f"{factor}x XBR Upscale",
+                    "type": "Relative",
+                    "x": float(factor),
+                    "y": float(factor),
+                    "frame_type": "Stretch",
+                    "interpolation": "Bilinear",
+                    "source": "xbr",
+                    "approximation": "FFmpeg xBR pixel-art edge rules are approximated with Blender compositor scaling because Blender has no native xBR kernel.",
+                },
+            ),
+        )
+    return ()
 
 
 def edge_filter_to_blender_compositor(
