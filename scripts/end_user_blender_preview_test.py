@@ -407,6 +407,16 @@ scene.video_toolkit_ffmpeg_chain = (
     'dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,'
     'deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,'
     'deblock=block=16:alpha=0.12:beta=0.08,'
+    'deflicker=s=12:m=median,'
+    'bwdif=mode=send_frame:parity=auto:deint=all,'
+    'yadif=mode=send_frame:parity=auto:deint=all,'
+    'deshake=rx=16:ry=16,'
+    'vidstabdetect=shakiness=5:accuracy=15:result=motion.trf,'
+    'vidstabtransform=input=motion.trf:smoothing=30:zoom=2,'
+    "tmix=frames=3:weights='1 2 1',"
+    'fps=fps=30:round=near,'
+    'framerate=fps=60,'
+    'minterpolate=fps=60:mi_mode=mci,'
     'blackdetect=d=1.0:pic_th=0.96:pix_th=0.08,'
     'blackdetect_vulkan=d=1.0:pic_th=0.96:pix_th=0.08,'
     'blackframe=amount=96:threshold=28,'
@@ -470,6 +480,16 @@ for required_filter in [
     'scdet',
     'vfrdet',
     'idet',
+    'deflicker',
+    'bwdif',
+    'yadif',
+    'deshake',
+    'vidstabdetect',
+    'vidstabtransform',
+    'tmix',
+    'fps',
+    'framerate',
+    'minterpolate',
     'identity',
     'ssim',
     'psnr',
@@ -556,6 +576,16 @@ assert 'freezedetect' in translated_workflow_supported
 assert 'scdet' in translated_workflow_supported
 assert 'vfrdet' in translated_workflow_supported
 assert 'idet' in translated_workflow_supported
+assert 'deflicker' in translated_workflow_supported
+assert 'bwdif' in translated_workflow_supported
+assert 'yadif' in translated_workflow_supported
+assert 'deshake' in translated_workflow_supported
+assert 'vidstabdetect' in translated_workflow_supported
+assert 'vidstabtransform' in translated_workflow_supported
+assert 'tmix' in translated_workflow_supported
+assert 'fps' in translated_workflow_supported
+assert 'framerate' in translated_workflow_supported
+assert 'minterpolate' in translated_workflow_supported
 assert 'pseudocolor' in translated_workflow_supported
 assert 'zscale' in translated_workflow_supported
 translated_workflow_modifier_types = [
@@ -1112,7 +1142,7 @@ assert 'Native Color Management metadata filters: colorspace, colorspace_cuda, c
 assert 'Rendered-only FFmpeg filters:' in catalog_coverage_report
 assert 'deflicker' in catalog_coverage_report
 assert 'vidstabdetect' in catalog_coverage_report
-assert 'Live approximation plus rendered fallback filters: hqdn3d, nlmeans, normalize, scale, unsharp' in catalog_coverage_report
+assert 'Live approximation plus rendered fallback filters: bwdif, deflicker, deshake, hqdn3d, minterpolate, nlmeans, normalize, scale, tmix, unsharp, vidstabdetect, vidstabtransform' in catalog_coverage_report
 assert 'Representative FFmpeg color-chain translation:' in catalog_coverage_report
 
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR_MANAGEMENT')
@@ -1347,10 +1377,13 @@ assert 'color management:' in scene.video_toolkit_last_compositor_nodes
 assert 'blackdetect' in scene.video_toolkit_last_compositor_nodes
 assert 'blurdetect' in scene.video_toolkit_last_compositor_nodes
 assert 'idet' in scene.video_toolkit_last_compositor_nodes
+assert 'deflicker' in scene.video_toolkit_last_compositor_nodes
+assert 'vidstabtransform' in scene.video_toolkit_last_compositor_nodes
+assert 'minterpolate' in scene.video_toolkit_last_compositor_nodes
 translated_compositor_filter_count = int(
     scene.video_toolkit_last_compositor_nodes.split('compositor-native filter node(s): ', 1)[1].split(';', 1)[0]
 )
-assert translated_compositor_filter_count >= 79, scene.video_toolkit_last_compositor_nodes
+assert translated_compositor_filter_count >= 99, scene.video_toolkit_last_compositor_nodes
 translated_compositor_summary = scene.video_toolkit_last_compositor_nodes
 translated_compositor_node_types = [
     node.bl_idname

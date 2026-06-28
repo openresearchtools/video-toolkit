@@ -168,11 +168,30 @@ def test_professional_restoration_tools_are_present():
         "deinterlace",
         "quick_deshake",
         "stabilize",
+        "native_deflicker_preview",
+        "native_bwdif_deinterlace",
+        "native_yadif_deinterlace",
+        "native_deshake_stabilize",
+        "native_vidstab_detect_preview",
+        "native_vidstab_transform",
+        "native_temporal_mix",
         "native_compositor_restore_nodes",
         "native_compositor_sharpen_cleanup",
         "native_compositor_lens_repair",
     }
     assert expected.issubset({tool.id for tool in all_tools()})
+    for tool_id in (
+        "native_deflicker_preview",
+        "native_bwdif_deinterlace",
+        "native_yadif_deinterlace",
+        "native_deshake_stabilize",
+        "native_vidstab_detect_preview",
+        "native_vidstab_transform",
+        "native_temporal_mix",
+    ):
+        tool = get_tool(tool_id)
+        assert tool.is_compositor
+        assert tool.compositor_stack
 
 
 def test_native_compositor_catalog_tools_are_exposed():
@@ -893,6 +912,16 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "deband": "native_deband_cleanup",
         "gradfun": "native_gradfun_deband",
         "deblock": "native_deblock_cleanup",
+        "deflicker": "native_deflicker_preview",
+        "bwdif": "native_bwdif_deinterlace",
+        "yadif": "native_yadif_deinterlace",
+        "deshake": "native_deshake_stabilize",
+        "vidstabdetect": "native_vidstab_detect_preview",
+        "vidstabtransform": "native_vidstab_transform",
+        "tmix": "native_temporal_mix",
+        "fps": "native_fps_resample_preview",
+        "framerate": "native_framerate_preview",
+        "minterpolate": "native_minterpolate_preview",
         "xbr": "native_xbr_upscale",
         "histogram": "native_ffmpeg_histogram_scope",
         "thistogram": "native_ffmpeg_temporal_histogram_scope",

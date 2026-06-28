@@ -341,6 +341,16 @@ _NATIVE_MEDIAN_DESPECKLE_TRANSLATION = translate_filter_chain("median=radius=2:p
 _NATIVE_DEDOT_CLEANUP_TRANSLATION = translate_filter_chain("dedot=lt=0.08:tl=0.08")
 _NATIVE_DEBAND_TRANSLATION = translate_filter_chain("deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20")
 _NATIVE_DEBLOCK_TRANSLATION = translate_filter_chain("deblock=block=16:alpha=0.12:beta=0.08")
+_NATIVE_DEFLICKER_TRANSLATION = translate_filter_chain("deflicker=s=12:m=median")
+_NATIVE_BWDIF_DEINTERLACE_TRANSLATION = translate_filter_chain("bwdif=mode=send_frame:parity=auto:deint=all")
+_NATIVE_YADIF_DEINTERLACE_TRANSLATION = translate_filter_chain("yadif=mode=send_frame:parity=auto:deint=all")
+_NATIVE_DESHAKE_TRANSLATION = translate_filter_chain("deshake=rx=16:ry=16")
+_NATIVE_VIDSTAB_DETECT_TRANSLATION = translate_filter_chain("vidstabdetect=shakiness=5:accuracy=15:result=transforms.trf")
+_NATIVE_VIDSTAB_TRANSFORM_TRANSLATION = translate_filter_chain("vidstabtransform=input=transforms.trf:smoothing=30:zoom=2")
+_NATIVE_TEMPORAL_MIX_TRANSLATION = translate_filter_chain("tmix=frames=3:weights='1 2 1'")
+_NATIVE_FPS_RESAMPLE_TRANSLATION = translate_filter_chain("fps=fps=30:round=near")
+_NATIVE_FRAMERATE_INTERPOLATION_TRANSLATION = translate_filter_chain("framerate=fps=60:interp_start=15:interp_end=240")
+_NATIVE_MINTERPOLATE_TRANSLATION = translate_filter_chain("minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1")
 _NATIVE_CHROMANR_CLEANUP_TRANSLATION = translate_filter_chain("chromanr=thres=24:sizew=5:sizeh=5")
 _NATIVE_FFT_DENOISE_TRANSLATION = translate_filter_chain("fftdnoiz=sigma=1.8:amount=1.0")
 _NATIVE_FFT_DETAIL_TRANSLATION = translate_filter_chain("fftfilt=dc_Y=0:weight_Y=1.35")
@@ -2715,6 +2725,62 @@ TOOLS: tuple[VideoTool, ...] = (
         ffmpeg_filter="tmix=frames=3:weights='1 2 1'",
     ),
     VideoTool(
+        id="native_deflicker_preview",
+        label="Native Deflicker Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg deflicker intent as Blender Tone Map and luma monitor graphlets, with temporal window metadata for rendered fallback parity.",
+        compositor_stack=_NATIVE_DEFLICKER_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_bwdif_deinterlace",
+        label="Native BWDIF Deinterlace",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg bwdif deinterlace intent as Blender Anti-Aliasing plus vertical field-blend preview nodes.",
+        compositor_stack=_NATIVE_BWDIF_DEINTERLACE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_yadif_deinterlace",
+        label="Native YADIF Deinterlace",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg yadif deinterlace intent as Blender Anti-Aliasing plus vertical field-blend preview nodes.",
+        compositor_stack=_NATIVE_YADIF_DEINTERLACE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_deshake_stabilize",
+        label="Native Deshake Stabilize",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg deshake intent as Blender Stabilize and Transform nodes with rx/ry motion-window metadata.",
+        compositor_stack=_NATIVE_DESHAKE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vidstab_detect_preview",
+        label="Native VidStab Detect Preview",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg vidstabdetect analysis intent as Blender Stabilize plus luma motion-monitor nodes with transform-file metadata.",
+        compositor_stack=_NATIVE_VIDSTAB_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vidstab_transform",
+        label="Native VidStab Transform",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg vidstabtransform intent as Blender Stabilize and Transform crop/zoom preview nodes.",
+        compositor_stack=_NATIVE_VIDSTAB_TRANSFORM_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_temporal_mix",
+        label="Native Temporal Mix",
+        category="Restoration",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg tmix intent as Blender blur and Alpha Over temporal-smoothing preview nodes with frame-weight metadata.",
+        compositor_stack=_NATIVE_TEMPORAL_MIX_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_compositor_restore_nodes",
         label="Native Restore Nodes",
         category="Restoration",
@@ -2915,6 +2981,30 @@ TOOLS: tuple[VideoTool, ...] = (
         description="Motion-compensated frame interpolation to 60 fps.",
         ffmpeg_filter="minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1",
         slow=True,
+    ),
+    VideoTool(
+        id="native_fps_resample_preview",
+        label="Native FPS Resample Preview",
+        category="Resolution & Motion",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg fps intent as a native Blender motion-smear preview graph with target FPS metadata.",
+        compositor_stack=_NATIVE_FPS_RESAMPLE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_framerate_preview",
+        label="Native Framerate Preview",
+        category="Resolution & Motion",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg framerate interpolation intent as a Blender Directional Blur motion preview with interpolation metadata.",
+        compositor_stack=_NATIVE_FRAMERATE_INTERPOLATION_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_minterpolate_preview",
+        label="Native MInterpolate Preview",
+        category="Resolution & Motion",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg minterpolate intent as a Blender motion-preview graph with target FPS and interpolation-mode metadata.",
+        compositor_stack=_NATIVE_MINTERPOLATE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_compositor_resize_reframe",

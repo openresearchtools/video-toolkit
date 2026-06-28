@@ -122,6 +122,16 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "dedot",
     "deband",
     "deblock",
+    "deflicker",
+    "bwdif",
+    "yadif",
+    "deshake",
+    "vidstabdetect",
+    "vidstabtransform",
+    "tmix",
+    "fps",
+    "framerate",
+    "minterpolate",
     "chromanr",
     "fftdnoiz",
     "fftfilt",
@@ -461,6 +471,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(restoration_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor restoration nodes; temporal behavior is approximated spatially where Blender has no temporal node.")
+        elif name in {"deflicker", "bwdif", "yadif", "deshake", "vidstabdetect", "vidstabtransform", "tmix", "fps", "framerate", "minterpolate"}:
+            compositor_nodes.extend(temporal_motion_filter_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is translated to native Blender compositor temporal/motion graphlets with editable FFmpeg timing metadata; temporal output generation remains a rendered fallback when Blender has no frame-neighborhood node.")
         elif name in {"histogram", "thistogram", "waveform", "vectorscope", "ciescope", "datascope", "oscilloscope", "pixscope", "signalstats", "colordetect"}:
             compositor_nodes.extend(scope_filter_to_blender_compositor(name, **args))
             supported.append(name)
@@ -2744,6 +2758,229 @@ def restoration_filter_to_blender_compositor(source: str, **options: str | int |
     return ()
 
 
+def temporal_motion_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    if name == "deflicker":
+        window = int(_clamp(round(_float(_option(options, "size", "s", "arg0", default=7), 7.0)), 1.0, 129.0))
+        method = str(_option(options, "mode", "m", "arg1", default="median"))
+        return (
+            (
+                "TONEMAP",
+                {
+                    "label": "Deflicker Luma Guard",
+                    "tonemap_type": "RD_PHOTORECEPTOR",
+                    "intensity": _clamp(window / 360.0, 0.01, 0.22),
+                    "contrast": _clamp(window / 240.0, 0.02, 0.30),
+                    "gamma": 1.0,
+                    "window": window,
+                    "method": method,
+                    "source": "deflicker",
+                    "approximation": "FFmpeg deflicker is temporal median/mean smoothing. Blender has no native frame-neighborhood compositor node, so this graph gives a live luma-stabilizing tone-map preview and stores the deflicker window/method for rendered fallback parity.",
+                },
+            ),
+            (
+                "SCOPE_MONITOR",
+                {
+                    "label": "Deflicker Luma Monitor",
+                    "scope": "deflicker",
+                    "mode": "temporal_luma_guard",
+                    "components": "luma",
+                    "intensity": 0.72,
+                    "window": window,
+                    "method": method,
+                    "source": "deflicker",
+                    "approximation": "Monitor nodes expose the luma range the rendered temporal deflicker pass is meant to stabilize.",
+                },
+            ),
+        )
+    if name in {"bwdif", "yadif"}:
+        mode = str(_option(options, "mode", "arg0", default="send_frame"))
+        parity = str(_option(options, "parity", "arg1", default="auto"))
+        deint = str(_option(options, "deint", "arg2", default="all"))
+        return (
+            (
+                "ANTI_ALIASING",
+                {
+                    "label": "BWDIF Deinterlace" if name == "bwdif" else "YADIF Deinterlace",
+                    "threshold": 0.16,
+                    "contrast_limit": 1.8,
+                    "corner_rounding": 0.35,
+                    "mode": mode,
+                    "parity": parity,
+                    "deint": deint,
+                    "source": name,
+                    "approximation": "FFmpeg deinterlacers synthesize missing fields over time. Blender's native compositor can only preview edge smoothing, so this graph applies Anti-Aliasing plus a subtle vertical blur and keeps field metadata on the nodes.",
+                },
+            ),
+            (
+                "BLUR",
+                {
+                    "label": "Vertical Field Blend",
+                    "size": (0.0, 1.25),
+                    "blur_type": "Flat",
+                    "extend_bounds": False,
+                    "separable": True,
+                    "samples": 2,
+                    "mode": mode,
+                    "parity": parity,
+                    "deint": deint,
+                    "source": name,
+                    "approximation": "Subtle vertical smoothing previews field-line cleanup; full field reconstruction remains the rendered FFmpeg fallback.",
+                },
+            ),
+        )
+    if name == "deshake":
+        rx = _clamp(_float(_option(options, "rx", default=16), 16.0), 0.0, 128.0)
+        ry = _clamp(_float(_option(options, "ry", default=16), 16.0), 0.0, 128.0)
+        edge = str(_option(options, "edge", default="blank"))
+        return (
+            (
+                "NATIVE_NODE",
+                {
+                    "node_type": "CompositorNodeStabilize",
+                    "label": "Deshake Stabilize",
+                    "assign_source_clip": True,
+                    "inputs": {"Frame": 1.0, "Invert": False, "Interpolation": "Bilinear"},
+                    "source": "deshake",
+                    "metadata": {"rx": rx, "ry": ry, "edge": edge},
+                    "approximation": "FFmpeg deshake estimates frame motion internally. Blender's native Stabilize node previews the same stabilization intent when movie tracking data is available; rx/ry are stored as editable metadata.",
+                },
+            ),
+            (
+                "NATIVE_NODE",
+                {
+                    "node_type": "CompositorNodeTransform",
+                    "label": "Deshake Centering Transform",
+                    "inputs": {"X": -rx * 0.12, "Y": ry * 0.12, "Angle": 0.0, "Scale": 1.015, "Interpolation": "Bilinear"},
+                    "source": "deshake",
+                    "metadata": {"rx": rx, "ry": ry, "edge": edge},
+                    "approximation": "Small transform offset makes the deshake graph visibly editable even before tracking data is authored in Blender.",
+                },
+            ),
+        )
+    if name in {"vidstabdetect", "vidstabtransform"}:
+        shakiness = int(_clamp(round(_float(_option(options, "shakiness", default=5), 5.0)), 1.0, 10.0))
+        accuracy = int(_clamp(round(_float(_option(options, "accuracy", default=15), 15.0)), 1.0, 15.0))
+        smoothing = int(_clamp(round(_float(_option(options, "smoothing", default=30), 30.0)), 0.0, 1000.0))
+        zoom = _clamp(_float(_option(options, "zoom", default=0), 0.0), -50.0, 100.0)
+        result = str(_option(options, "result", "input", default="transforms.trf"))
+        nodes: list[tuple[str, dict[str, Any]]] = [
+            (
+                "NATIVE_NODE",
+                {
+                    "node_type": "CompositorNodeStabilize",
+                    "label": "VidStab Motion Solve" if name == "vidstabdetect" else "VidStab Transform",
+                    "assign_source_clip": True,
+                    "inputs": {"Frame": 1.0, "Invert": name == "vidstabtransform", "Interpolation": "Bilinear"},
+                    "source": name,
+                    "metadata": {
+                        "shakiness": shakiness,
+                        "accuracy": accuracy,
+                        "smoothing": smoothing,
+                        "zoom": zoom,
+                        "transform_file": result,
+                    },
+                    "approximation": "FFmpeg vidstab writes/reads transform files. Blender previews the same stabilization intent with its native Stabilize node and stores vidstab parameters for the rendered two-pass fallback.",
+                },
+            )
+        ]
+        if name == "vidstabtransform":
+            nodes.append(
+                (
+                    "NATIVE_NODE",
+                    {
+                        "node_type": "CompositorNodeTransform",
+                        "label": "VidStab Crop/Zoom",
+                        "inputs": {"X": 0.0, "Y": 0.0, "Angle": 0.0, "Scale": _clamp(1.0 + max(0.0, zoom) / 100.0, 1.0, 2.0), "Interpolation": "Bilinear"},
+                        "source": name,
+                        "metadata": {"smoothing": smoothing, "zoom": zoom, "transform_file": result},
+                        "approximation": "Optional transform node exposes the crop/zoom stage of vidstabtransform as native Blender controls.",
+                    },
+                )
+            )
+        else:
+            nodes.append(
+                (
+                    "SCOPE_MONITOR",
+                    {
+                        "label": "VidStab Motion Monitor",
+                        "scope": "vidstabdetect",
+                        "mode": "motion_solve",
+                        "components": "luma",
+                        "intensity": 0.65,
+                        "shakiness": shakiness,
+                        "accuracy": accuracy,
+                        "source": name,
+                        "approximation": "The monitor branch is a visual QC stand-in for vidstab's transform-file analysis pass.",
+                    },
+                )
+            )
+        return tuple(nodes)
+    if name == "tmix":
+        frames = int(_clamp(round(_float(_option(options, "frames", "arg0", default=3), 3.0)), 1.0, 128.0))
+        weights = str(_option(options, "weights", "arg1", default="1 1 1"))
+        factor = _tmix_current_frame_factor(weights, frames)
+        return (
+            (
+                "BLUR",
+                {
+                    "label": "Temporal Mix Spatial Preview",
+                    "size": (_clamp(frames * 0.42, 0.5, 64.0), _clamp(frames * 0.42, 0.5, 64.0)),
+                    "blur_type": "Gaussian",
+                    "extend_bounds": False,
+                    "separable": True,
+                    "samples": frames,
+                    "weights": weights,
+                    "source": "tmix",
+                    "approximation": "Blender has no native previous/next-frame stack in the compositor; this spatial blur previews temporal smoothing softness while metadata preserves FFmpeg frame weights.",
+                },
+            ),
+            (
+                "BLEND_COMPOSITE",
+                {
+                    "label": "Temporal Mix Blend",
+                    "mode": "average",
+                    "factor": factor,
+                    "temporal": True,
+                    "expression": weights,
+                    "frames": frames,
+                    "weights": weights,
+                    "source": "tmix",
+                    "approximation": "The Alpha Over blend exposes tmix blend strength; rendered output remains the exact temporal FFmpeg fallback.",
+                },
+            ),
+        )
+    if name in {"fps", "framerate", "minterpolate"}:
+        target_fps = _clamp(_float(_option(options, "fps", "arg0", default=60 if name == "minterpolate" else 30), 30.0), 1.0, 240.0)
+        mi_mode = str(_option(options, "mi_mode", default="blend" if name != "minterpolate" else "mci"))
+        samples = int(_clamp(round(target_fps / 12.0), 2.0, 32.0))
+        return (
+            (
+                "DIRECTIONAL_BLUR",
+                {
+                    "label": {
+                        "fps": "FPS Resample Motion Preview",
+                        "framerate": "Frame Rate Interpolation Preview",
+                        "minterpolate": "Motion Interpolation Preview",
+                    }[name],
+                    "samples": samples,
+                    "center": (0.5, 0.5),
+                    "rotation": 0.0,
+                    "scale": 1.0,
+                    "amount": _clamp(target_fps / 900.0, 0.01, 0.20),
+                    "direction": 0.0,
+                    "angle": 0.0,
+                    "radius": _clamp(target_fps / 6.0, 1.0, 64.0),
+                    "fps": target_fps,
+                    "mi_mode": mi_mode,
+                    "source": name,
+                    "approximation": "Frame-rate conversion needs generated intermediate frames. This native graph gives an editable motion-smear preview and stores target FPS/interpolation metadata for rendered FFmpeg output.",
+                },
+            ),
+        )
+    return ()
+
+
 def scope_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
     name = str(source).strip().lower()
     labels = {
@@ -4131,6 +4368,20 @@ def _blend_expression_opacity(expression: str, fallback: float) -> float:
     if "x" in text and "y" not in text:
         return 0.0
     return _clamp(fallback, 0.0, 1.0)
+
+
+def _tmix_current_frame_factor(weights: object, frames: int) -> float:
+    values = []
+    for raw in str(weights or "").replace("|", " ").replace(",", " ").split():
+        try:
+            values.append(abs(float(raw.strip("'\""))))
+        except Exception:
+            continue
+    if not values:
+        return _clamp(1.0 / max(1, frames), 0.0, 1.0)
+    total = sum(values) or 1.0
+    current_index = min(len(values) - 1, max(0, len(values) // 2))
+    return _clamp(values[current_index] / total, 0.0, 1.0)
 
 
 def _shift_pixels(value: str | float | int | None) -> float:

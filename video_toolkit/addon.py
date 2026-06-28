@@ -3899,6 +3899,12 @@ def _append_scope_monitor_filter(tree, input_socket, settings: dict[str, object]
             "rep_thres",
             "half_life",
             "analyze_interlaced_flag",
+            "window",
+            "method",
+            "shakiness",
+            "accuracy",
+            "smoothing",
+            "zoom",
         ):
             if key in settings:
                 node[f"video_toolkit_{key}"] = settings[key]
@@ -4078,8 +4084,14 @@ def _translated_compositor_filter_to_node(
                     node[f"video_toolkit_property_{attr}"] = value
         node["video_toolkit_native_node"] = node_type
         node["video_toolkit_native_node_label"] = node_label
+        if settings.get("source"):
+            node["video_toolkit_ffmpeg_filter"] = settings.get("source")
+        for key, value in dict(settings.get("metadata", {})).items():
+            node[f"video_toolkit_{key}"] = value
         if settings.get("note"):
             node["video_toolkit_note"] = settings.get("note")
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "CHROMA_MATTE":
         node = _new_compositor_node(tree, "CompositorNodeChromaMatte", label, index, origin=origin)
@@ -4223,6 +4235,11 @@ def _translated_compositor_filter_to_node(
                 _set_input_default(node, socket_name, settings[key])
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "tonemap")
         node["video_toolkit_modifier_type"] = settings.get("modifier_type", "")
+        for key in ("window", "method"):
+            if key in settings:
+                node[f"video_toolkit_{key}"] = settings[key]
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "INVERT":
         node = _new_compositor_node(tree, "CompositorNodeInvert", label, index, origin=origin)
@@ -4260,6 +4277,11 @@ def _translated_compositor_filter_to_node(
         _set_input_default(node, "Separable", bool(settings.get("separable", True)))
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "blur")
         node["video_toolkit_blur_samples"] = int(settings.get("samples", 1) or 1)
+        for key in ("mode", "parity", "deint", "frames", "weights"):
+            if key in settings:
+                node[f"video_toolkit_{key}"] = settings[key]
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "BILATERAL_BLUR":
         node = _new_compositor_node(tree, "CompositorNodeBilateralblur", label, index, origin=origin)
@@ -4279,6 +4301,11 @@ def _translated_compositor_filter_to_node(
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "dblur")
         node["video_toolkit_blur_angle"] = float(settings.get("angle", 0.0) or 0.0)
         node["video_toolkit_blur_radius"] = float(settings.get("radius", 0.0) or 0.0)
+        for key in ("fps", "mi_mode"):
+            if key in settings:
+                node[f"video_toolkit_{key}"] = settings[key]
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "SCALE":
         node = _new_compositor_node(tree, "CompositorNodeScale", label, index, origin=origin)
@@ -4352,6 +4379,11 @@ def _translated_compositor_filter_to_node(
         _set_input_default(node, "Corner Rounding", settings.get("corner_rounding", 0.25))
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "deblock")
         node["video_toolkit_block_size"] = float(settings.get("block", 8.0) or 8.0)
+        for key in ("mode", "parity", "deint"):
+            if key in settings:
+                node[f"video_toolkit_{key}"] = settings[key]
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     return None
 
@@ -5106,6 +5138,16 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,"
         "deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,"
         "deblock=block=16:alpha=0.12:beta=0.08,"
+        "deflicker=s=12:m=median,"
+        "bwdif=mode=send_frame:parity=auto:deint=all,"
+        "yadif=mode=send_frame:parity=auto:deint=all,"
+        "deshake=rx=16:ry=16,"
+        "vidstabdetect=shakiness=5:accuracy=15:result=motion.trf,"
+        "vidstabtransform=input=motion.trf:smoothing=30:zoom=2,"
+        "tmix=frames=3:weights='1 2 1',"
+        "fps=fps=30:round=near,"
+        "framerate=fps=60,"
+        "minterpolate=fps=60:mi_mode=mci,"
         "blackdetect=d=1.0:pic_th=0.96:pix_th=0.08,"
         "blackdetect_vulkan=d=1.0:pic_th=0.96:pix_th=0.08,"
         "blackframe=amount=96:threshold=28,"

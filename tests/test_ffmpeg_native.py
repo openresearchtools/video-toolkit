@@ -596,7 +596,8 @@ def test_filter_chain_reports_non_native_filters():
     assert "eq" in result.supported_filters
     assert "unsharp" in result.supported_filters
     assert "hqdn3d" in result.supported_filters
-    assert result.unsupported_filters == ("tmix",)
+    assert "tmix" in result.supported_filters
+    assert result.unsupported_filters == ()
     assert [modifier_type for modifier_type, _settings in result.stack][:5] == [
         "CURVES",
         "TONEMAP",
@@ -613,7 +614,52 @@ def test_filter_chain_reports_non_native_filters():
         "TONEMAP",
         "FILTER",
         "DENOISE",
+        "BLUR",
+        "BLEND_COMPOSITE",
     ]
+
+
+def test_temporal_motion_filters_translate_to_blender_graphlets():
+    result = translate_filter_chain(
+        "deflicker=s=12:m=median,"
+        "bwdif=mode=send_frame:parity=auto:deint=all,"
+        "yadif=mode=send_field:parity=tff:deint=interlaced,"
+        "deshake=rx=16:ry=12,"
+        "vidstabdetect=shakiness=6:accuracy=12:result=motion.trf,"
+        "vidstabtransform=input=motion.trf:smoothing=24:zoom=2,"
+        "tmix=frames=5:weights='1 2 3 2 1',"
+        "fps=fps=24:round=near,"
+        "framerate=fps=48,"
+        "minterpolate=fps=60:mi_mode=mci"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == (
+        "deflicker",
+        "bwdif",
+        "yadif",
+        "deshake",
+        "vidstabdetect",
+        "vidstabtransform",
+        "tmix",
+        "fps",
+        "framerate",
+        "minterpolate",
+    )
+    node_types = [node_type for node_type, _settings in result.compositor_nodes]
+    assert "TONEMAP" in node_types
+    assert node_types.count("ANTI_ALIASING") == 2
+    assert node_types.count("NATIVE_NODE") >= 4
+    assert "BLEND_COMPOSITE" in node_types
+    assert node_types[-3:] == ["DIRECTIONAL_BLUR", "DIRECTIONAL_BLUR", "DIRECTIONAL_BLUR"]
+    tmix = next(settings for node_type, settings in result.compositor_nodes if node_type == "BLEND_COMPOSITE" and settings["source"] == "tmix")
+    assert tmix["frames"] == 5
+    assert tmix["factor"] == 3 / 9
+    deshake = next(settings for node_type, settings in result.compositor_nodes if node_type == "NATIVE_NODE" and settings["source"] == "deshake")
+    assert deshake["metadata"]["rx"] == 16
+    assert deshake["metadata"]["ry"] == 12
+    minterpolate = result.compositor_nodes[-1][1]
+    assert minterpolate["source"] == "minterpolate"
+    assert minterpolate["fps"] == 60
 
 
 def test_filter_chain_supports_color_space_metadata():
@@ -1304,6 +1350,16 @@ def test_filter_chain_supports_more_color_grading_filters():
         "dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,"
         "deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,"
         "deblock=block=16:alpha=0.12:beta=0.08,"
+        "deflicker=s=12:m=median,"
+        "bwdif=mode=send_frame:parity=auto:deint=all,"
+        "yadif=mode=send_frame:parity=auto:deint=all,"
+        "deshake=rx=16:ry=16,"
+        "vidstabdetect=shakiness=5:accuracy=15:result=motion.trf,"
+        "vidstabtransform=input=motion.trf:smoothing=30:zoom=2,"
+        "tmix=frames=3:weights='1 2 1',"
+        "fps=fps=30:round=near,"
+        "framerate=fps=60,"
+        "minterpolate=fps=60:mi_mode=mci,"
         "chromanr=thres=24:sizew=5:sizeh=5,"
         "fftdnoiz=sigma=1.8:amount=1.0,"
         "fftfilt=dc_Y=0:weight_Y=1.35,"
@@ -1436,6 +1492,16 @@ def test_filter_chain_supports_more_color_grading_filters():
         "dedot",
         "deband",
         "deblock",
+        "deflicker",
+        "bwdif",
+        "yadif",
+        "deshake",
+        "vidstabdetect",
+        "vidstabtransform",
+        "tmix",
+        "fps",
+        "framerate",
+        "minterpolate",
         "chromanr",
         "fftdnoiz",
         "fftfilt",
