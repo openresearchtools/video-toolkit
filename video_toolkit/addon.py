@@ -93,6 +93,7 @@ SIDECAR_GROUP_ICONS = {
     "Live Blender Color": "COLOR",
     "Native Blender Primitives": "PROPERTIES",
     "Native Matte & Channel": "NODETREE",
+    "Native Filter & Blur": "NODETREE",
     "Live Blender Modifiers": "MODIFIER",
     "Restoration": "RENDER_ANIMATION",
     "Resolution & Motion": "RENDER_ANIMATION",

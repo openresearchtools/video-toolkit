@@ -108,11 +108,39 @@ def test_native_matte_and_channel_tools_are_exposed():
         assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
 
 
+def test_native_filter_and_blur_tools_are_exposed():
+    expected = {
+        "native_unsharp_filter": {"FILTER"},
+        "native_sobel_edges": {"FILTER"},
+        "native_prewitt_edges": {"FILTER"},
+        "native_kirsch_edges": {"FILTER"},
+        "native_edge_detect": {"FILTER"},
+        "native_erode_matte": {"DILATE_ERODE"},
+        "native_dilate_matte": {"DILATE_ERODE"},
+        "native_convolution_sharpen": {"CONVOLVE"},
+        "native_average_blur": {"BLUR"},
+        "native_box_blur": {"BLUR"},
+        "native_gaussian_blur": {"BLUR"},
+        "native_smart_blur": {"BILATERAL_BLUR"},
+        "native_directional_blur": {"DIRECTIONAL_BLUR"},
+        "native_deband_cleanup": {"BILATERAL_BLUR"},
+        "native_deblock_cleanup": {"ANTI_ALIASING"},
+    }
+    for tool_id, node_types in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Filter & Blur"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
+
+
 def test_categories_keep_ui_order():
     assert categories() == (
         "Live Blender Color",
         "Native Blender Primitives",
         "Native Matte & Channel",
+        "Native Filter & Blur",
         "Restoration",
         "Resolution & Motion",
         "Live Blender Modifiers",

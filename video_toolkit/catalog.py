@@ -180,6 +180,27 @@ _LUMA_PLANE_EXTRACT_TRANSLATION = translate_filter_chain("extractplanes=planes=y
 _ALPHA_EXTRACT_TRANSLATION = translate_filter_chain("alphaextract")
 _PLANE_SHUFFLE_BGR_TRANSLATION = translate_filter_chain("shuffleplanes=2:1:0:3")
 _STRAIGHT_ALPHA_TRANSLATION = translate_filter_chain("unpremultiply")
+_NATIVE_UNSHARP_TRANSLATION = translate_filter_chain("unsharp=5:5:0.55:3:3:0.20")
+_NATIVE_SOBEL_TRANSLATION = translate_filter_chain("sobel=scale=1.2:delta=0.02")
+_NATIVE_PREWITT_TRANSLATION = translate_filter_chain("prewitt=scale=0.9:delta=0.01")
+_NATIVE_KIRSCH_TRANSLATION = translate_filter_chain("kirsch=scale=0.8")
+_NATIVE_EDGE_DETECT_TRANSLATION = translate_filter_chain("edgedetect=high=0.20:low=0.08:mode=wires")
+_NATIVE_EROSION_TRANSLATION = translate_filter_chain(
+    "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000"
+)
+_NATIVE_DILATION_TRANSLATION = translate_filter_chain(
+    "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000"
+)
+_NATIVE_CONVOLUTION_SHARPEN_TRANSLATION = translate_filter_chain(
+    "convolution=0m='0 -1 0 -1 5 -1 0 -1 0':0rdiv=1:0bias=0"
+)
+_NATIVE_AVERAGE_BLUR_TRANSLATION = translate_filter_chain("avgblur=sizeX=4:sizeY=6")
+_NATIVE_BOX_BLUR_TRANSLATION = translate_filter_chain("boxblur=lr=3:lp=2")
+_NATIVE_GAUSSIAN_BLUR_TRANSLATION = translate_filter_chain("gblur=sigma=1.2:steps=2:sigmaV=0.8")
+_NATIVE_SMART_BLUR_TRANSLATION = translate_filter_chain("smartblur=lr=2:ls=0.8:lt=8")
+_NATIVE_DIRECTIONAL_BLUR_TRANSLATION = translate_filter_chain("dblur=angle=30:radius=12")
+_NATIVE_DEBAND_TRANSLATION = translate_filter_chain("deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20")
+_NATIVE_DEBLOCK_TRANSLATION = translate_filter_chain("deblock=block=16:alpha=0.12:beta=0.08")
 _BLACK_POINT_CLEANUP_STACK = (
     _bright_contrast(bright=-0.008, contrast=4.0),
     _curve_points({0: [(0.0, 0.0), (0.08, 0.035), (0.50, 0.50), (1.0, 1.0)]}),
@@ -1083,6 +1104,126 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg unpremultiply intent as Blender's native Premul Key straight-alpha conversion graph.",
         compositor_stack=_STRAIGHT_ALPHA_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_unsharp_filter",
+        label="Native Unsharp Filter",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg unsharp intent as Blender's native compositor Filter sharpen graph.",
+        compositor_stack=_NATIVE_UNSHARP_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_sobel_edges",
+        label="Native Sobel Edges",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg sobel edge intent as Blender's native compositor Filter graph.",
+        compositor_stack=_NATIVE_SOBEL_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_prewitt_edges",
+        label="Native Prewitt Edges",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg prewitt edge intent as Blender's native compositor Filter graph.",
+        compositor_stack=_NATIVE_PREWITT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_kirsch_edges",
+        label="Native Kirsch Edges",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg kirsch edge intent as Blender's native compositor Filter graph.",
+        compositor_stack=_NATIVE_KIRSCH_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_edge_detect",
+        label="Native Edge Detect",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg edgedetect intent as Blender's native compositor Filter graph.",
+        compositor_stack=_NATIVE_EDGE_DETECT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_erode_matte",
+        label="Native Erode Matte",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg erosion intent as Blender's native Dilate/Erode compositor graph.",
+        compositor_stack=_NATIVE_EROSION_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_dilate_matte",
+        label="Native Dilate Matte",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg dilation intent as Blender's native Dilate/Erode compositor graph.",
+        compositor_stack=_NATIVE_DILATION_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_convolution_sharpen",
+        label="Native Convolution Sharpen",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg convolution sharpen kernel as Blender's native Convolve compositor graph.",
+        compositor_stack=_NATIVE_CONVOLUTION_SHARPEN_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_average_blur",
+        label="Native Average Blur",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg avgblur intent as Blender's native Blur compositor graph.",
+        compositor_stack=_NATIVE_AVERAGE_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_box_blur",
+        label="Native Box Blur",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg boxblur intent as Blender's native Blur compositor graph.",
+        compositor_stack=_NATIVE_BOX_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_gaussian_blur",
+        label="Native Gaussian Blur",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg gblur intent as Blender's native Gaussian Blur compositor graph.",
+        compositor_stack=_NATIVE_GAUSSIAN_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_smart_blur",
+        label="Native Smart Blur",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg smartblur intent as Blender's native Bilateral Blur compositor graph.",
+        compositor_stack=_NATIVE_SMART_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_directional_blur",
+        label="Native Directional Blur",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg dblur intent as Blender's native Directional Blur compositor graph.",
+        compositor_stack=_NATIVE_DIRECTIONAL_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_deband_cleanup",
+        label="Native Deband Cleanup",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg deband cleanup intent as Blender's native edge-aware Bilateral Blur graph.",
+        compositor_stack=_NATIVE_DEBAND_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_deblock_cleanup",
+        label="Native Deblock Cleanup",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg deblock cleanup intent as Blender's native Anti-Aliasing compositor graph.",
+        compositor_stack=_NATIVE_DEBLOCK_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="deflicker",
