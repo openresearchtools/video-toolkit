@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from .ffmpeg_native import translate_filter_chain
+from .ffmpeg_native import NATIVE_FFMPEG_SOURCE_FILTERS, translate_filter_chain
 
 
 ENGINE_BLENDER_MODIFIER = "blender_modifier"
@@ -611,6 +611,63 @@ _MATCH_PREP_NEUTRALIZER_STACK = (
     _curve_points({0: [(0.0, 0.02), (0.20, 0.20), (0.50, 0.50), (0.80, 0.80), (1.0, 0.98)]}),
     ("HUE_CORRECT", {"__hue_correct__": {"saturation": 0.49, "value": 0.50}}),
 )
+
+
+_FFMPEG_SOURCE_LABELS = {
+    "allrgb": "All RGB Source",
+    "allyuv": "All YUV Source",
+    "cellauto": "Cellular Automaton Source",
+    "color": "Solid Color Source",
+    "color_vulkan": "Vulkan Color Source",
+    "colorchart": "Color Checker Source",
+    "colorspectrum": "Color Spectrum Source",
+    "frei0r_src": "Frei0r Source",
+    "gradients": "Gradient Source",
+    "haldclutsrc": "Hald CLUT Source",
+    "life": "Life Source",
+    "mandelbrot": "Mandelbrot Source",
+    "mptestsrc": "MP Test Source",
+    "nullsrc": "Null Source",
+    "openclsrc": "OpenCL Source",
+    "pal75bars": "PAL 75 Bars Source",
+    "pal100bars": "PAL 100 Bars Source",
+    "perlin": "Perlin Source",
+    "random": "Random Source",
+    "rgbtestsrc": "RGB Test Source",
+    "sierpinski": "Sierpinski Source",
+    "smptebars": "SMPTE Bars Source",
+    "smptehdbars": "SMPTE HD Bars Source",
+    "testsrc": "Test Source",
+    "testsrc2": "Test Source 2",
+    "yuvtestsrc": "YUV Test Source",
+    "zoneplate": "Zone Plate Source",
+}
+
+
+def _ffmpeg_source_chain(filter_name: str) -> str:
+    if filter_name in {"color", "color_vulkan"}:
+        return f"{filter_name}=c=gray:s=640x360"
+    if filter_name == "nullsrc":
+        return f"{filter_name}=s=640x360"
+    return f"{filter_name}=s=640x360"
+
+
+def _ffmpeg_source_tool(filter_name: str) -> VideoTool:
+    translation = translate_filter_chain(_ffmpeg_source_chain(filter_name))
+    return VideoTool(
+        id=f"native_ffmpeg_source_{filter_name}",
+        label=_FFMPEG_SOURCE_LABELS.get(filter_name, filter_name.replace("_", " ").title()),
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description=(
+            f"Translated FFmpeg {filter_name} source/generator intent as editable Blender "
+            "Blank Image and Text source overlay graphlets with generator metadata."
+        ),
+        compositor_stack=translation.compositor_nodes,
+    )
+
+
+_FFMPEG_SOURCE_GENERATOR_TOOLS = tuple(_ffmpeg_source_tool(filter_name) for filter_name in NATIVE_FFMPEG_SOURCE_FILTERS)
 
 
 TOOLS: tuple[VideoTool, ...] = (
@@ -3161,6 +3218,7 @@ TOOLS: tuple[VideoTool, ...] = (
             _native_node("CompositorNodeGroup", label="Node Group", skip_link_input=True, passthrough=True),
         ),
     ),
+    *_FFMPEG_SOURCE_GENERATOR_TOOLS,
     VideoTool(
         id="native_compositor_rgb_overlay",
         label="RGB Overlay",

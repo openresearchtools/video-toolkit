@@ -63,6 +63,36 @@ NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS = (
     "zscale",
 )
 
+NATIVE_FFMPEG_SOURCE_FILTERS = (
+    "allrgb",
+    "allyuv",
+    "cellauto",
+    "color",
+    "color_vulkan",
+    "colorchart",
+    "colorspectrum",
+    "frei0r_src",
+    "gradients",
+    "haldclutsrc",
+    "life",
+    "mandelbrot",
+    "mptestsrc",
+    "nullsrc",
+    "openclsrc",
+    "pal75bars",
+    "pal100bars",
+    "perlin",
+    "random",
+    "rgbtestsrc",
+    "sierpinski",
+    "smptebars",
+    "smptehdbars",
+    "testsrc",
+    "testsrc2",
+    "yuvtestsrc",
+    "zoneplate",
+)
+
 NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "chromakey",
     "chromakey_cuda",
@@ -234,7 +264,12 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "xcorrelate",
 )
 
-NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
+NATIVE_FFMPEG_FILTERS = (
+    NATIVE_FFMPEG_COLOR_FILTERS
+    + NATIVE_FFMPEG_SOURCE_FILTERS
+    + NATIVE_FFMPEG_COMPOSITOR_FILTERS
+    + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
+)
 
 
 @dataclass(frozen=True)
@@ -347,6 +382,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(_stack_to_compositor_nodes(palette_stack, name, "Palette"))
             supported.append(name)
             notes.append(f"{name} palette quantization/matching intent is approximated with Blender Hue Correct, RGB Curves, and Color Balance palette controls.")
+        elif name in NATIVE_FFMPEG_SOURCE_FILTERS:
+            compositor_nodes.extend(source_generator_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} FFmpeg source/generator intent is represented with native Blender Blank Image/Text source graphlets and generator metadata.")
         elif name == "normalize":
             normalize_stack = normalize_to_blender_stack(**args)
             stack.extend(normalize_stack)
@@ -1377,6 +1416,50 @@ def palette_filter_to_blender_stack(source: str, **options: str | int | float) -
                 "color_balance.gamma": (1.0, 1.0, 1.0),
                 "color_balance.gain": (1.0 + warm_bias * 0.5, 1.0, 1.0 - warm_bias * 0.5),
                 "__metadata__": {"source": name},
+            },
+        ),
+    )
+
+
+def source_generator_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    width, height = _source_generator_size(options)
+    color = _source_generator_color(name, options)
+    label = _source_generator_label(name)
+    descriptor = _source_generator_descriptor(name)
+    metadata = {
+        "source": name,
+        "width": width,
+        "height": height,
+        "rate": str(_option(options, "rate", "r", default="")),
+        "duration": str(_option(options, "duration", "d", default="")),
+        "pattern": descriptor,
+    }
+    approximation = (
+        "FFmpeg generator/source filters synthesize new frames. Blender previews the generator as editable native "
+        "Blank Image/Text source graphlets over the selected strip and stores the generator options for rendered fallback parity."
+    )
+    return (
+        (
+            "BLANK_IMAGE_OVERLAY",
+            {
+                "label": f"{label} Plate",
+                "inputs": {"Color": (*color, 1.0), "Size": (width, height)},
+                "factor": _source_generator_factor(name),
+                "source": name,
+                "metadata": metadata,
+                "approximation": approximation,
+            },
+        ),
+        (
+            "TEXT_OVERLAY",
+            {
+                "label": f"{label} Label",
+                "inputs": {"String": descriptor, "Size": 28.0},
+                "factor": 0.34,
+                "source": name,
+                "metadata": metadata,
+                "approximation": approximation,
             },
         ),
     )
@@ -4751,6 +4834,122 @@ def _cmyk_to_rgb_balance(value: tuple[float, float, float, float], *, scale: flo
         _clamp(1.0 - magenta * scale - black * scale * 0.45, 0.35, 1.85),
         _clamp(1.0 - yellow * scale - black * scale * 0.45, 0.35, 1.85),
     )
+
+
+def _source_generator_size(options: dict[str, object]) -> tuple[int, int]:
+    size_text = str(_option(options, "size", "s", "video_size", default="640x360"))
+    width_text, height_text = _parse_size_pair(size_text)
+    width = int(round(_clamp(_dimension_or_default(width_text, 640.0), 1.0, 8192.0)))
+    height = int(round(_clamp(_dimension_or_default(height_text, 360.0), 1.0, 8192.0)))
+    return width, height
+
+
+def _source_generator_color(source: str, options: dict[str, object]) -> tuple[float, float, float]:
+    explicit = _option(options, "color", "c", "arg0", default="")
+    defaults = {
+        "allrgb": (0.95, 0.20, 0.20),
+        "allyuv": (0.20, 0.55, 0.95),
+        "cellauto": (0.20, 0.95, 0.35),
+        "color": (0.50, 0.50, 0.50),
+        "color_vulkan": (0.55, 0.42, 0.95),
+        "colorchart": (0.95, 0.78, 0.28),
+        "colorspectrum": (0.95, 0.28, 0.78),
+        "frei0r_src": (0.48, 0.34, 0.86),
+        "gradients": (0.28, 0.78, 0.95),
+        "haldclutsrc": (0.95, 0.95, 0.95),
+        "life": (0.30, 0.90, 0.42),
+        "mandelbrot": (0.20, 0.18, 0.55),
+        "mptestsrc": (0.80, 0.80, 0.20),
+        "nullsrc": (0.02, 0.02, 0.02),
+        "openclsrc": (0.34, 0.80, 0.88),
+        "pal75bars": (0.75, 0.75, 0.25),
+        "pal100bars": (1.00, 0.75, 0.25),
+        "perlin": (0.36, 0.46, 0.30),
+        "random": (0.72, 0.42, 0.24),
+        "rgbtestsrc": (0.90, 0.18, 0.18),
+        "sierpinski": (0.18, 0.90, 0.70),
+        "smptebars": (0.80, 0.80, 0.80),
+        "smptehdbars": (0.72, 0.82, 0.95),
+        "testsrc": (0.35, 0.78, 0.95),
+        "testsrc2": (0.95, 0.42, 0.35),
+        "yuvtestsrc": (0.25, 0.55, 0.90),
+        "zoneplate": (0.60, 0.60, 0.95),
+    }
+    return _parse_color(str(explicit), defaults.get(source, (0.45, 0.45, 0.45)))
+
+
+def _source_generator_factor(source: str) -> float:
+    if source in {"color", "color_vulkan", "nullsrc"}:
+        return 0.62
+    if source in {"haldclutsrc", "colorchart", "smptebars", "smptehdbars", "pal75bars", "pal100bars"}:
+        return 0.44
+    return 0.36
+
+
+def _source_generator_label(source: str) -> str:
+    labels = {
+        "allrgb": "All RGB Source",
+        "allyuv": "All YUV Source",
+        "cellauto": "Cellular Automaton Source",
+        "color": "Solid Color Source",
+        "color_vulkan": "Vulkan Color Source",
+        "colorchart": "Color Checker Source",
+        "colorspectrum": "Color Spectrum Source",
+        "frei0r_src": "Frei0r Source",
+        "gradients": "Gradient Source",
+        "haldclutsrc": "Hald CLUT Source",
+        "life": "Life Source",
+        "mandelbrot": "Mandelbrot Source",
+        "mptestsrc": "MP Test Source",
+        "nullsrc": "Null Source",
+        "openclsrc": "OpenCL Source",
+        "pal75bars": "PAL 75 Bars Source",
+        "pal100bars": "PAL 100 Bars Source",
+        "perlin": "Perlin Source",
+        "random": "Random Source",
+        "rgbtestsrc": "RGB Test Source",
+        "sierpinski": "Sierpinski Source",
+        "smptebars": "SMPTE Bars Source",
+        "smptehdbars": "SMPTE HD Bars Source",
+        "testsrc": "Test Source",
+        "testsrc2": "Test Source 2",
+        "yuvtestsrc": "YUV Test Source",
+        "zoneplate": "Zone Plate Source",
+    }
+    return labels.get(source, source.replace("_", " ").title())
+
+
+def _source_generator_descriptor(source: str) -> str:
+    descriptors = {
+        "allrgb": "FFmpeg allrgb: all RGB colors",
+        "allyuv": "FFmpeg allyuv: all YUV colors",
+        "cellauto": "FFmpeg cellauto procedural source",
+        "color": "FFmpeg color solid plate",
+        "color_vulkan": "FFmpeg color_vulkan solid plate",
+        "colorchart": "FFmpeg colorchart checker",
+        "colorspectrum": "FFmpeg colorspectrum gradient",
+        "frei0r_src": "FFmpeg frei0r_src generator",
+        "gradients": "FFmpeg gradients source",
+        "haldclutsrc": "FFmpeg identity Hald CLUT",
+        "life": "FFmpeg life cellular source",
+        "mandelbrot": "FFmpeg mandelbrot source",
+        "mptestsrc": "FFmpeg mptestsrc pattern",
+        "nullsrc": "FFmpeg nullsrc blank source",
+        "openclsrc": "FFmpeg openclsrc generator",
+        "pal75bars": "FFmpeg PAL 75 color bars",
+        "pal100bars": "FFmpeg PAL 100 color bars",
+        "perlin": "FFmpeg perlin noise source",
+        "random": "FFmpeg random noise source",
+        "rgbtestsrc": "FFmpeg RGB test source",
+        "sierpinski": "FFmpeg sierpinski source",
+        "smptebars": "FFmpeg SMPTE bars",
+        "smptehdbars": "FFmpeg SMPTE HD bars",
+        "testsrc": "FFmpeg testsrc pattern",
+        "testsrc2": "FFmpeg testsrc2 pattern",
+        "yuvtestsrc": "FFmpeg YUV test source",
+        "zoneplate": "FFmpeg zoneplate source",
+    }
+    return descriptors.get(source, f"FFmpeg {source} source")
 
 
 def _parse_color(value: str, default: tuple[float, float, float]) -> tuple[float, float, float]:

@@ -69,6 +69,7 @@ from video_toolkit.ffmpeg_native import (
     selectivecolor_to_blender_stack,
     shuffleplanes_to_blender_compositor,
     scope_filter_to_blender_compositor,
+    source_generator_to_blender_compositor,
     threshold_to_blender_compositor,
     translate_filter_chain,
     transpose_to_blender_compositor,
@@ -236,6 +237,39 @@ def test_palette_and_amplify_filters_translate_to_live_controls():
     assert sources.count("palettegen") == 3
     assert sources.count("paletteuse") == 3
     assert sources.count("amplify") == 3
+
+
+def test_ffmpeg_source_generators_translate_to_native_source_graphlets():
+    color = source_generator_to_blender_compositor("color", c="red", s="320x180")
+    testsrc = source_generator_to_blender_compositor("testsrc", s="640x360")
+
+    assert [node_type for node_type, _settings in color] == ["BLANK_IMAGE_OVERLAY", "TEXT_OVERLAY"]
+    assert color[0][1]["inputs"]["Color"] == (1.0, 0.0, 0.0, 1.0)
+    assert color[0][1]["inputs"]["Size"] == (320, 180)
+    assert color[0][1]["metadata"]["source"] == "color"
+    assert testsrc[1][1]["inputs"]["String"] == "FFmpeg testsrc pattern"
+
+    result = translate_filter_chain(
+        "allrgb=s=128x128,"
+        "color=c=blue:s=320x180,"
+        "haldclutsrc=s=640x640,"
+        "testsrc2=s=640x360,"
+        "zoneplate=s=640x360"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("allrgb", "color", "haldclutsrc", "testsrc2", "zoneplate")
+    assert [settings["source"] for _node_type, settings in result.compositor_nodes] == [
+        "allrgb",
+        "allrgb",
+        "color",
+        "color",
+        "haldclutsrc",
+        "haldclutsrc",
+        "testsrc2",
+        "testsrc2",
+        "zoneplate",
+        "zoneplate",
+    ]
 
 
 def test_greyedge_and_pseudocolor_translate_to_live_controls():

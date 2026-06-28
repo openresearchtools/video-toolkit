@@ -11,7 +11,7 @@ from video_toolkit.compositor import (
     compositor_node_tools,
     compositor_node_types,
 )
-from video_toolkit.ffmpeg_native import NATIVE_FFMPEG_COMPOSITOR_FILTERS
+from video_toolkit.ffmpeg_native import NATIVE_FFMPEG_COMPOSITOR_FILTERS, NATIVE_FFMPEG_SOURCE_FILTERS
 
 
 STACK_TYPE_TO_COMPOSITOR_NODE = {
@@ -834,6 +834,19 @@ def test_native_source_and_output_tools_are_exposed():
         assert not tool.is_blender_modifier
         assert not tool.is_ffmpeg
         assert node_types.issubset(_tool_compositor_node_classes(tool_id))
+
+
+def test_every_native_ffmpeg_source_filter_has_one_click_tool():
+    for filter_name in NATIVE_FFMPEG_SOURCE_FILTERS:
+        tool = get_tool(f"native_ffmpeg_source_{filter_name}")
+        assert tool.category == "Native Source & Output"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack
+        assert {"CompositorNodeAlphaOver", "CompositorNodeBlankImage", "CompositorNodeStringToImage"}.issubset(
+            _tool_compositor_node_classes(tool.id)
+        )
 
 
 def test_native_geometry_and_lens_tools_are_exposed():

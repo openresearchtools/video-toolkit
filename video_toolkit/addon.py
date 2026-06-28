@@ -4010,6 +4010,16 @@ def _append_source_overlay_filter(tree, input_socket, settings: dict[str, object
     _set_input_default(alpha, "Straight Alpha", bool(settings.get("straight_alpha", True)))
     _link_socket(tree, input_socket, _socket_by_name(alpha.inputs, "Background"))
     _link_socket(tree, _image_output(source), _socket_by_name(alpha.inputs, "Foreground"))
+    if settings.get("source"):
+        for node in (source, alpha):
+            node["video_toolkit_ffmpeg_filter"] = settings.get("source")
+            if settings.get("approximation"):
+                node["video_toolkit_approximation"] = settings.get("approximation")
+            for key, value in dict(settings.get("metadata", {})).items():
+                try:
+                    node[f"video_toolkit_{key}"] = value
+                except Exception:
+                    node[f"video_toolkit_{key}"] = str(value)
     return _image_output(alpha), [source, alpha]
 
 
