@@ -35,10 +35,13 @@ NATIVE_FFMPEG_COLOR_FILTERS = (
     "colorhold",
     "hsvhold",
     "pseudocolor",
+    "geq",
     "lut",
     "lutrgb",
     "lutyuv",
     "histeq",
+    "midequalizer",
+    "tmidequalizer",
 )
 
 NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS = (
@@ -108,6 +111,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "datascope",
     "oscilloscope",
     "signalstats",
+    "colordetect",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -363,7 +367,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(restoration_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor restoration nodes; temporal behavior is approximated spatially where Blender has no temporal node.")
-        elif name in {"histogram", "thistogram", "waveform", "vectorscope", "ciescope", "datascope", "oscilloscope", "signalstats"}:
+        elif name in {"histogram", "thistogram", "waveform", "vectorscope", "ciescope", "datascope", "oscilloscope", "signalstats", "colordetect"}:
             compositor_nodes.extend(scope_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to a Blender compositor diagnostic graph using RGB/luma monitor nodes.")
@@ -373,6 +377,16 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(_stack_to_compositor_nodes(pseudocolor_stack, "pseudocolor", "Pseudocolor"))
             supported.append(name)
             notes.append("Pseudocolor is approximated with editable Blender Hue Correct curves, RGB curves, and Color Balance palette tinting.")
+        elif name == "geq":
+            geq_stack = geq_to_blender_stack(**args)
+            if geq_stack:
+                stack.extend(geq_stack)
+                compositor_nodes.extend(_stack_to_compositor_nodes(geq_stack, "geq", "Generic Equation"))
+                supported.append(name)
+                notes.append("Geq simple RGB/luma expressions are translated to editable Blender RGB Curves; unsupported spatial expressions remain non-native.")
+            else:
+                unsupported.append(name)
+                notes.append("Geq expression uses spatial math that does not map safely to native Blender live curves.")
         elif name in {"lut", "lutrgb", "lutyuv"}:
             lut_stack = lut_to_blender_stack(**args)
             if lut_stack:
@@ -389,6 +403,12 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(_stack_to_compositor_nodes(histeq_stack, "histeq", "Histogram Equalization"))
             supported.append(name)
             notes.append("Histogram equalization is approximated with live Blender curves and tone mapping.")
+        elif name in {"midequalizer", "tmidequalizer"}:
+            midpoint_stack = midwayequalizer_to_blender_stack(name, **args)
+            stack.extend(midpoint_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(midpoint_stack, name, "Midway Equalization"))
+            supported.append(name)
+            notes.append(f"{name} equalization intent is represented with editable Blender curves and tone mapping; multi-input/temporal sampling is approximated live.")
         elif name == "colorspace":
             color_management.extend(colorspace_to_blender_color_management(**args))
             supported.append(name)
@@ -2233,6 +2253,7 @@ def scope_filter_to_blender_compositor(source: str, **options: str | int | float
         "datascope": "Data Scope",
         "oscilloscope": "Oscilloscope",
         "signalstats": "Signal Stats",
+        "colordetect": "Color Detect",
     }
     component_text = str(_option(options, "components", "c", default="all"))
     mode_text = str(_option(options, "mode", "m", "display", default="monitor"))
@@ -2445,6 +2466,47 @@ def pseudocolor_to_blender_stack(
     )
 
 
+def geq_to_blender_stack(
+    *,
+    lum_expr: str = "",
+    lum: str = "",
+    red_expr: str = "",
+    r: str = "",
+    green_expr: str = "",
+    g: str = "",
+    blue_expr: str = "",
+    b: str = "",
+    cb_expr: str = "",
+    cb: str = "",
+    cr_expr: str = "",
+    cr: str = "",
+    alpha_expr: str = "",
+    a: str = "",
+    **_unused: str,
+) -> BlenderStack:
+    curves: dict[int, list[tuple[float, float]]] = {}
+    luma_expression = lum_expr or lum
+    luma_curve = _simple_geq_expression_curve(luma_expression, ("lum", "luma", "p"))
+    if luma_curve:
+        curves[0] = luma_curve
+
+    channel_specs = (
+        (1, red_expr or r or cr_expr or cr, ("r", "red", "cr")),
+        (2, green_expr or g, ("g", "green")),
+        (3, blue_expr or b or cb_expr or cb, ("b", "blue", "cb")),
+    )
+    for index, expression, tokens in channel_specs:
+        points = _simple_geq_expression_curve(expression or luma_expression, tokens + ("lum", "luma", "p"))
+        if points:
+            curves[index] = points
+
+    identity = [(0.0, 0.0), (1.0, 1.0)]
+    curves = {index: points for index, points in curves.items() if points != identity}
+    if not curves:
+        return ()
+    return (("CURVES", {"__curve_points__": curves}),)
+
+
 def lut_to_blender_stack(
     *,
     c0: str = "clipval",
@@ -2467,6 +2529,35 @@ def lut_to_blender_stack(
     identity = [(0.0, 0.0), (1.0, 1.0)]
     curves = {index: points for index, points in curves.items() if points != identity}
     return (("CURVES", {"__curve_points__": curves}),) if curves else ()
+
+
+def midwayequalizer_to_blender_stack(source: str, **options: str | int | float) -> BlenderStack:
+    name = str(source).strip().lower()
+    radius = _clamp(_float(_option(options, "radius", "r", "arg0", default=5), 5.0), 1.0, 127.0)
+    sigma = _clamp(_float(_option(options, "sigma", "s", "arg1", default=0.5), 0.5), 0.0, 1.0)
+    temporal_scale = radius / 127.0 if name == "tmidequalizer" else 0.08
+    strength = _clamp(0.18 + sigma * 0.32 + temporal_scale * 0.40, 0.05, 0.85)
+    shadow = _clamp(0.22 - strength * 0.11, 0.06, 0.34)
+    highlight = _clamp(0.78 + strength * 0.11, 0.66, 0.94)
+    curve_points = [
+        (0.0, 0.0),
+        (shadow, _clamp(shadow - strength * 0.12, 0.0, 1.0)),
+        (0.50, 0.50),
+        (highlight, _clamp(highlight + strength * 0.12, 0.0, 1.0)),
+        (1.0, 1.0),
+    ]
+    return (
+        ("CURVES", {"__curve_points__": {0: curve_points}}),
+        (
+            "TONEMAP",
+            {
+                "tonemap_type": "RD_PHOTORECEPTOR",
+                "intensity": _clamp(strength * 0.12, 0.0, 0.24),
+                "contrast": _clamp(strength * 0.18, 0.0, 0.28),
+                "gamma": _clamp(1.0 + (sigma - 0.5) * 0.08, 0.92, 1.08),
+            },
+        ),
+    )
 
 
 def histeq_to_blender_stack(
@@ -2685,7 +2776,7 @@ def zscale_to_blender_color_management(**args: str | int) -> tuple[tuple[str, st
 
 def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
     filters: list[tuple[str, dict[str, str]]] = []
-    for item in chain.split(","):
+    for item in _split_top_level(chain, ","):
         item = item.strip()
         if not item:
             continue
@@ -2695,7 +2786,7 @@ def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
         name, arg_text = item.split("=", 1)
         args: dict[str, str] = {}
         positional_index = 0
-        for part in arg_text.split(":"):
+        for part in _split_top_level(arg_text, ":"):
             if not part:
                 continue
             if "=" in part:
@@ -2708,6 +2799,38 @@ def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
                 positional_index += 1
         filters.append((name.strip(), args))
     return filters
+
+
+def _split_top_level(text: str, separator: str) -> list[str]:
+    parts: list[str] = []
+    current: list[str] = []
+    quote = ""
+    depth = 0
+    for character in text:
+        if quote:
+            current.append(character)
+            if character == quote:
+                quote = ""
+            continue
+        if character in {"'", '"'}:
+            quote = character
+            current.append(character)
+            continue
+        if character in "([{":
+            depth += 1
+            current.append(character)
+            continue
+        if character in ")]}":
+            depth = max(0, depth - 1)
+            current.append(character)
+            continue
+        if character == separator and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(character)
+    parts.append("".join(current))
+    return parts
 
 
 def _parse_curve_points(value: str | None) -> list[tuple[float, float]]:
@@ -3004,6 +3127,26 @@ def _simple_lut_expression_curve(expression: str | None) -> list[tuple[float, fl
         if text.startswith(f"{token}-"):
             return _linear_curve(1.0, -_lut_offset(text.split("-", 1)[1]))
     return []
+
+
+def _simple_geq_expression_curve(expression: str | None, tokens: tuple[str, ...]) -> list[tuple[float, float]]:
+    text = str(expression or "").strip().lower().replace(" ", "")
+    if not text:
+        return []
+    for token in sorted(set(tokens), key=len, reverse=True):
+        for variant in (f"{token}(x,y)", f"{token}(x,y,n)", f"{token}(x,y,t)", token):
+            if variant == token:
+                if text == token:
+                    text = "val"
+                for operator in ("*", "+", "-", "/"):
+                    if text.startswith(f"{token}{operator}"):
+                        text = f"val{operator}{text[len(token) + 1:]}"
+                    if text.endswith(f"{operator}{token}"):
+                        text = f"{text[:-(len(token) + 1)]}{operator}val"
+            else:
+                text = text.replace(variant, "val")
+    text = text.replace("clip(val)", "val").replace("clipval", "val")
+    return _simple_lut_expression_curve(text)
 
 
 def _linear_curve(scale: float, offset: float) -> list[tuple[float, float]]:

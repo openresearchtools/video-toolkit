@@ -77,6 +77,7 @@ def _setup_scene() -> None:
         "colorbalance=rs=0.05:bh=-0.04,"
         "colorcorrect=rl=0.04:bl=-0.02:saturation=1.04,"
         "greyedge=difford=2:minknorm=5:sigma=2,"
+        "geq=r='r(X,Y)*1.04':g='g(X,Y)+4':b='b(X,Y)-6',"
         "chromakey=color=green:similarity=0.12:blend=0.04,"
         "colorkey=color=blue:similarity=0.10:blend=0.03,"
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
@@ -131,8 +132,11 @@ def _setup_scene() -> None:
         "waveform=display=overlay:components=7,"
         "vectorscope=mode=color3,"
         "signalstats=stat=tout+vrep+brng,"
+        "colordetect=mode=color_range+alpha_mode+all,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "histeq=strength=0.20:intensity=0.18,"
+        "midequalizer=planes=7,"
+        "tmidequalizer=radius=9:sigma=0.55:planes=7,"
         "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"
     )
     try:

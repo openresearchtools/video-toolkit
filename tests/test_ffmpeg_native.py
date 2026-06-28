@@ -23,6 +23,7 @@ from video_toolkit.ffmpeg_native import (
     extractplanes_to_blender_compositor,
     colortemperature_to_blender_compositor,
     colorize_to_blender_compositor,
+    geq_to_blender_stack,
     greyedge_to_blender_stack,
     grayworld_to_blender_stack,
     hsvhold_to_blender_compositor,
@@ -32,6 +33,7 @@ from video_toolkit.ffmpeg_native import (
     limiter_to_blender_compositor,
     lumakey_to_blender_compositor,
     lut_to_blender_stack,
+    midwayequalizer_to_blender_stack,
     morphology_to_blender_compositor,
     monochrome_to_blender_compositor,
     negate_to_blender_compositor,
@@ -121,6 +123,37 @@ def test_grayworld_negate_and_lut_translate_to_live_controls():
     assert points[1] == [(0.0, 1.0), (1.0, 0.0)]
     assert points[2][-1][1] == 0.8
     assert points[3][0][1] > 0.0
+
+
+def test_geq_and_midway_equalizers_translate_to_live_controls():
+    geq = geq_to_blender_stack(red_expr="red(X,Y)*1.04", green_expr="g(X,Y)+4", blue_expr="b(X,Y)-6")
+    assert geq[0][0] == "CURVES"
+    geq_points = geq[0][1]["__curve_points__"]
+    assert {1, 2, 3}.issubset(geq_points)
+    assert geq_points[1][1][1] > 0.5
+    assert geq_points[2][0][1] > 0.0
+    assert geq_points[3][1][1] < 0.5
+
+    temporal = midwayequalizer_to_blender_stack("tmidequalizer", radius=9, sigma=0.55, planes=7)
+    assert [modifier_type for modifier_type, _settings in temporal] == ["CURVES", "TONEMAP"]
+    assert "source" not in temporal[0][1]
+    assert temporal[1][1]["contrast"] > 0.0
+
+    result = translate_filter_chain(
+        "geq=r='r(X,Y)*1.04':g='g(X,Y)+4':b='b(X,Y)-6',"
+        "midequalizer=planes=7,"
+        "tmidequalizer=radius=9:sigma=0.55:planes=7"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("geq", "midequalizer", "tmidequalizer")
+    sources = [settings["source"] for _node_type, settings in result.compositor_nodes]
+    assert sources.count("geq") == 1
+    assert sources.count("midequalizer") == 2
+    assert sources.count("tmidequalizer") == 2
+
+    unsupported = translate_filter_chain("geq=r='sin(X)'")
+    assert unsupported.supported_filters == ()
+    assert unsupported.unsupported_filters == ("geq",)
 
 
 def test_greyedge_and_pseudocolor_translate_to_live_controls():
@@ -295,7 +328,8 @@ def test_ffmpeg_scope_filters_translate_to_blender_diagnostic_graphlets():
         "ciescope=system=rec709,"
         "datascope=mode=color2,"
         "oscilloscope=components=7,"
-        "signalstats=stat=tout+vrep+brng"
+        "signalstats=stat=tout+vrep+brng,"
+        "colordetect=mode=color_range+alpha_mode+all"
     )
     assert result.unsupported_filters == ()
     assert result.supported_filters == (
@@ -307,8 +341,9 @@ def test_ffmpeg_scope_filters_translate_to_blender_diagnostic_graphlets():
         "datascope",
         "oscilloscope",
         "signalstats",
+        "colordetect",
     )
-    assert [node_type for node_type, _settings in result.compositor_nodes] == ["SCOPE_MONITOR"] * 8
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["SCOPE_MONITOR"] * 9
 
 
 def test_remaining_live_color_filters_emit_compositor_node_specs():
@@ -324,8 +359,11 @@ def test_remaining_live_color_filters_emit_compositor_node_specs():
         "grayworld,"
         "greyedge=difford=2:minknorm=5:sigma=2,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
+        "geq=r='r(X,Y)*1.04':g='g(X,Y)+4':b='b(X,Y)-6',"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
-        "histeq=strength=0.35:intensity=0.25:antibanding=1"
+        "histeq=strength=0.35:intensity=0.25:antibanding=1,"
+        "midequalizer=planes=7,"
+        "tmidequalizer=radius=9:sigma=0.55:planes=7"
     )
     assert result.unsupported_filters == ()
     sources = [settings["source"] for _node_type, settings in result.compositor_nodes]
@@ -341,8 +379,11 @@ def test_remaining_live_color_filters_emit_compositor_node_specs():
         "grayworld",
         "greyedge",
         "pseudocolor",
+        "geq",
         "lutrgb",
         "histeq",
+        "midequalizer",
+        "tmidequalizer",
     ):
         assert source in sources
     node_types = {node_type for node_type, _settings in result.compositor_nodes}
@@ -891,6 +932,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colorize=hue=210:saturation=0.45:lightness=0.55:mix=0.65,"
         "grayworld,"
         "greyedge=difford=2:minknorm=5:sigma=2,"
+        "geq=r='r(X,Y)*1.04':g='g(X,Y)+4':b='b(X,Y)-6',"
         "negate=components=r+g+b,"
         "colorhold=color=blue:similarity=0.12:blend=0.2,"
         "hsvhold=hue=210:similarity=0.10,"
@@ -952,9 +994,12 @@ def test_filter_chain_supports_more_color_grading_filters():
         "datascope=mode=color2,"
         "oscilloscope=components=7,"
         "signalstats=stat=tout+vrep+brng,"
+        "colordetect=mode=color_range+alpha_mode+all,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
+        "midequalizer=planes=7,"
+        "tmidequalizer=radius=9:sigma=0.55:planes=7,"
         "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"
     )
     assert result.unsupported_filters == ()
@@ -974,6 +1019,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colorize",
         "grayworld",
         "greyedge",
+        "geq",
         "negate",
         "colorhold",
         "hsvhold",
@@ -1035,9 +1081,12 @@ def test_filter_chain_supports_more_color_grading_filters():
         "datascope",
         "oscilloscope",
         "signalstats",
+        "colordetect",
         "pseudocolor",
         "lutrgb",
         "histeq",
+        "midequalizer",
+        "tmidequalizer",
         "zscale",
     )
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(

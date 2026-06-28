@@ -203,6 +203,9 @@ _LUT_INVERT_TRANSLATION = translate_filter_chain("lutrgb=r=negval:g=val*0.9:b=va
 _HISTOGRAM_EQUALIZE_TRANSLATION = translate_filter_chain("histeq=strength=0.42:intensity=0.30:antibanding=1")
 _COLOR_HOLD_TRANSLATION = translate_filter_chain("colorhold=color=blue:similarity=0.18:blend=0.15")
 _HSV_HOLD_TRANSLATION = translate_filter_chain("hsvhold=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.08")
+_GEQ_RGB_MATH_TRANSLATION = translate_filter_chain("geq=r='r(X,Y)*1.04':g='g(X,Y)+4':b='b(X,Y)-6'")
+_MIDWAY_EQUALIZE_TRANSLATION = translate_filter_chain("midequalizer=planes=7")
+_TEMPORAL_MIDWAY_EQUALIZE_TRANSLATION = translate_filter_chain("tmidequalizer=radius=9:sigma=0.55:planes=7")
 _RGB_GAMMA_BOARD_TRANSLATION = translate_filter_chain(
     "eq=brightness=0.01:contrast=1.04:saturation=1.04:gamma=1.03:gamma_r=1.09:gamma_g=1.00:gamma_b=0.94:gamma_weight=0.70"
 )
@@ -245,6 +248,7 @@ _NATIVE_CIE_SCOPE_TRANSLATION = translate_filter_chain("ciescope=system=rec709:c
 _NATIVE_DATA_SCOPE_TRANSLATION = translate_filter_chain("datascope=mode=color2:components=all")
 _NATIVE_OSCILLOSCOPE_SCOPE_TRANSLATION = translate_filter_chain("oscilloscope=components=7:intensity=0.65")
 _NATIVE_SIGNAL_STATS_TRANSLATION = translate_filter_chain("signalstats=stat=tout+vrep+brng")
+_NATIVE_COLOR_DETECT_TRANSLATION = translate_filter_chain("colordetect=mode=color_range+alpha_mode+all")
 _CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey=color=green:similarity=0.18:blend=0.06")
 _COLOR_KEY_MATTE_TRANSLATION = translate_filter_chain("colorkey=color=blue:similarity=0.16:blend=0.04")
 _HSV_KEY_MATTE_TRANSLATION = translate_filter_chain("hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.03")
@@ -1067,6 +1071,33 @@ TOOLS: tuple[VideoTool, ...] = (
         description="Translated FFmpeg hsvhold intent as native Blender Hue Correct saturation/value isolation curves.",
         blender_stack=_HSV_HOLD_TRANSLATION.stack,
         compositor_stack=_HSV_HOLD_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="geq_rgb_math",
+        label="GEQ RGB Math",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg geq simple per-channel expressions as editable native Blender RGB Curves.",
+        blender_stack=_GEQ_RGB_MATH_TRANSLATION.stack,
+        compositor_stack=_GEQ_RGB_MATH_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="midway_equalize",
+        label="Midway Equalize",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg midequalizer intent as a single-strip Blender curves and tone-map equalization stack.",
+        blender_stack=_MIDWAY_EQUALIZE_TRANSLATION.stack,
+        compositor_stack=_MIDWAY_EQUALIZE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="temporal_midway_equalize",
+        label="Temporal Midway Equalize",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg tmidequalizer temporal equalization intent as editable Blender curves and tone mapping.",
+        blender_stack=_TEMPORAL_MIDWAY_EQUALIZE_TRANSLATION.stack,
+        compositor_stack=_TEMPORAL_MIDWAY_EQUALIZE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_all_color_tools",
@@ -1963,6 +1994,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg signalstats intent as Blender Levels and Image Info diagnostic nodes for the selected strip.",
         compositor_stack=_NATIVE_SIGNAL_STATS_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_color_detect",
+        label="Color Detect",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg colordetect intent as Blender RGB/luma Levels, Separate Color, Image Info, and Viewer diagnostic nodes.",
+        compositor_stack=_NATIVE_COLOR_DETECT_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_compositor_image_coordinates",

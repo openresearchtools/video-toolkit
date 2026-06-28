@@ -120,6 +120,9 @@ def test_live_gamma_channel_math_tools_are_exposed():
         "gray_world_neutralizer": ({"WHITE_BALANCE", "COLOR_BALANCE", "BRIGHT_CONTRAST", "HUE_CORRECT"}, {"CompositorNodeColorBalance", "CompositorNodeBrightContrast", "CompositorNodeHueCorrect"}),
         "rgb_lut_trim": ({"CURVES"}, {"CompositorNodeCurveRGB"}),
         "selective_neutral_balance": ({"HUE_CORRECT", "COLOR_BALANCE"}, {"CompositorNodeHueCorrect", "CompositorNodeColorBalance"}),
+        "geq_rgb_math": ({"CURVES"}, {"CompositorNodeCurveRGB"}),
+        "midway_equalize": ({"CURVES", "TONEMAP"}, {"CompositorNodeCurveRGB", "CompositorNodeTonemap"}),
+        "temporal_midway_equalize": ({"CURVES", "TONEMAP"}, {"CompositorNodeCurveRGB", "CompositorNodeTonemap"}),
     }
     for tool_id, (modifier_types, node_classes) in expected.items():
         tool = get_tool(tool_id)
@@ -451,6 +454,14 @@ def test_native_analysis_graphlet_tools_are_exposed():
             "CompositorNodeSeparateColor",
             "CompositorNodeViewer",
         },
+        "native_ffmpeg_color_detect": {
+            "CompositorNodeCombineColor",
+            "CompositorNodeImageInfo",
+            "CompositorNodeLevels",
+            "CompositorNodeRGBToBW",
+            "CompositorNodeSeparateColor",
+            "CompositorNodeViewer",
+        },
     }
     for tool_id, node_types in expected.items():
         tool = get_tool(tool_id)
@@ -669,6 +680,7 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "datascope": "native_ffmpeg_datascope",
         "oscilloscope": "native_ffmpeg_oscilloscope",
         "signalstats": "native_ffmpeg_signal_stats",
+        "colordetect": "native_ffmpeg_color_detect",
     }
     assert set(NATIVE_FFMPEG_COMPOSITOR_FILTERS) == set(filter_to_tool)
     for tool_id in filter_to_tool.values():
