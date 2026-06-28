@@ -16,10 +16,12 @@ from video_toolkit.ffmpeg_native import (
     lut_to_blender_stack,
     negate_to_blender_stack,
     normalize_to_blender_stack,
+    premultiply_to_blender_compositor,
     pseudocolor_to_blender_stack,
     rgbashift_to_blender_compositor,
     selectivecolor_to_blender_stack,
     translate_filter_chain,
+    unpremultiply_to_blender_compositor,
     vibrance_to_blender_stack,
     zscale_to_blender_color_management,
 )
@@ -251,6 +253,21 @@ def test_alpha_and_plane_extract_translate_to_compositor_graph_specs():
     assert [settings["plane"] for _node_type, settings in result.compositor_nodes] == ["alpha", "y"]
 
 
+def test_alpha_premultiply_filters_translate_to_premul_key_nodes():
+    premul = premultiply_to_blender_compositor()
+    assert premul == (("PREMUL_KEY", {"mode": "To Premultiplied", "source": "premultiply"}),)
+
+    straight = unpremultiply_to_blender_compositor()
+    assert straight == (("PREMUL_KEY", {"mode": "To Straight", "source": "unpremultiply"}),)
+
+    result = translate_filter_chain("premultiply,unpremultiply")
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("premultiply", "unpremultiply")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["PREMUL_KEY", "PREMUL_KEY"]
+    assert [settings["mode"] for _node_type, settings in result.compositor_nodes] == ["To Premultiplied", "To Straight"]
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -279,6 +296,8 @@ def test_filter_chain_supports_more_color_grading_filters():
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "alphaextract,"
         "extractplanes=planes=y,"
+        "premultiply,"
+        "unpremultiply,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -312,6 +331,8 @@ def test_filter_chain_supports_more_color_grading_filters():
         "chromashift",
         "alphaextract",
         "extractplanes",
+        "premultiply",
+        "unpremultiply",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -320,7 +341,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

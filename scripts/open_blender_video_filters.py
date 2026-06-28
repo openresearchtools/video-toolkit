@@ -85,6 +85,8 @@ def _setup_scene() -> None:
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "alphaextract,"
         "extractplanes=planes=y,"
+        "premultiply,"
+        "unpremultiply,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "histeq=strength=0.20:intensity=0.18,"
         "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"

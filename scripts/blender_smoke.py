@@ -325,6 +325,8 @@ scene.video_toolkit_ffmpeg_chain = (
     'chromashift=cbh=2:cbv=-1:crh=-2:crv=1,'
     'alphaextract,'
     'extractplanes=planes=y,'
+    'premultiply,'
+    'unpremultiply,'
     'vibrance=intensity=0.4,'
     'pseudocolor=preset=viridis:opacity=0.75:index=1,'
     'exposure=exposure=0.25:black=0.02,'
@@ -332,8 +334,8 @@ scene.video_toolkit_ffmpeg_chain = (
     'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
 )
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
-assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, vibrance, pseudocolor, exposure, histeq, zscale' in scene.video_toolkit_last_translation
-assert 'compositor-only native node(s): 8' in scene.video_toolkit_last_translation
+assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, vibrance, pseudocolor, exposure, histeq, zscale' in scene.video_toolkit_last_translation
+assert 'compositor-only native node(s): 10' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 assert scene.sequencer_colorspace_settings.name in {'sRGB', 'Gamma 2.2 Encoded Rec.709', 'Gamma 2.4 Encoded Rec.709', 'Rec.1886', 'Linear Rec.709'}
 translated_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Chain')]
@@ -365,6 +367,7 @@ for required in [
     'CompositorNodeTranslate',
     'CompositorNodeCombineColor',
     'CompositorNodeRGBToBW',
+    'CompositorNodePremulKey',
     'CompositorNodeLevels',
     'CompositorNodeViewer',
     'CompositorNodeOutputFile',
@@ -457,9 +460,9 @@ assert 'VSE-only native tools:' in catalog_report
 assert 'native_mask_slot: Mask Slot' in catalog_report
 assert 'Rendered fallback tools:' in catalog_report
 assert 'Tracked native compositor node library:' in catalog_report
-assert 'Native-translated FFmpeg filters: 42' in catalog_report
+assert 'Native-translated FFmpeg filters: 44' in catalog_report
 assert 'Native-translated FFmpeg color filters: eq, hue, huesaturation' in catalog_report
-assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes' in catalog_report
+assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply' in catalog_report
 assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_report
 assert 'Rendered fallback FFmpeg filters:' in catalog_report
 assert 'Rendered-only FFmpeg filters:' in catalog_report
@@ -790,12 +793,14 @@ scene.video_toolkit_ffmpeg_chain = (
     'chromashift=cbh=2:cbv=-1:crh=-2:crv=1,'
     'alphaextract,'
     'extractplanes=planes=y,'
+    'premultiply,'
+    'unpremultiply,'
     'histeq=strength=0.20:intensity=0.18'
 )
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_COLOR')
 assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
 assert 'color management:' in scene.video_toolkit_last_compositor_nodes
-assert 'compositor-only filter node(s): 8' in scene.video_toolkit_last_compositor_nodes
+assert 'compositor-only filter node(s): 10' in scene.video_toolkit_last_compositor_nodes
 translated_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Translated ')]
 for required in [
     'CompositorNodeMovieClip',
@@ -811,6 +816,7 @@ for required in [
     'CompositorNodeTranslate',
     'CompositorNodeCombineColor',
     'CompositorNodeRGBToBW',
+    'CompositorNodePremulKey',
     'CompositorNodeTonemap',
     'CompositorNodeViewer',
     'CompositorNodeOutputFile',

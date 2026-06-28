@@ -3450,6 +3450,7 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "LUMA_MATTE": "Luma Matte",
         "CHANNEL_SHIFT": "Channel Shift",
         "PLANE_EXTRACT": "Plane Extract",
+        "PREMUL_KEY": "Premul Key",
     }
     label = f"VTK {label_prefix} {labels.get(compositor_type, compositor_type.title())}"
     if compositor_type == "CHROMA_MATTE":
@@ -3470,6 +3471,10 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         node = _new_compositor_node(tree, "CompositorNodeLumaMatte", label, index, origin=origin)
         _set_input_default(node, "Minimum", settings.get("minimum", 0.0))
         _set_input_default(node, "Maximum", settings.get("maximum", 1.0))
+        return node
+    if compositor_type == "PREMUL_KEY":
+        node = _new_compositor_node(tree, "CompositorNodePremulKey", label, index, origin=origin)
+        _set_input_default(node, "Type", settings.get("mode", "To Premultiplied"))
         return node
     return None
 
@@ -4172,6 +4177,8 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "alphaextract,"
         "extractplanes=planes=y,"
+        "premultiply,"
+        "unpremultiply,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"

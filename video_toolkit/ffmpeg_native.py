@@ -57,6 +57,8 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "chromashift",
     "alphaextract",
     "extractplanes",
+    "premultiply",
+    "unpremultiply",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -202,6 +204,14 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(extractplanes_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Extractplanes is translated to Blender compositor plane extraction nodes; multi-output requests use the first requested plane in this single-chain workflow.")
+        elif name == "premultiply":
+            compositor_nodes.extend(premultiply_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Premultiply is translated to Blender compositor Premul Key alpha conversion nodes.")
+        elif name == "unpremultiply":
+            compositor_nodes.extend(unpremultiply_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Unpremultiply is translated to Blender compositor Premul Key alpha conversion nodes.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -1064,6 +1074,14 @@ def extractplanes_to_blender_compositor(
     **_unused: str,
 ) -> CompositorStack:
     return (("PLANE_EXTRACT", {"plane": _extract_plane_name(planes or preset or "r"), "source": "extractplanes"}),)
+
+
+def premultiply_to_blender_compositor(**_unused: str) -> CompositorStack:
+    return (("PREMUL_KEY", {"mode": "To Premultiplied", "source": "premultiply"}),)
+
+
+def unpremultiply_to_blender_compositor(**_unused: str) -> CompositorStack:
+    return (("PREMUL_KEY", {"mode": "To Straight", "source": "unpremultiply"}),)
 
 
 def pseudocolor_to_blender_stack(
