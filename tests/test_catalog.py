@@ -142,11 +142,41 @@ def test_color_enhance_tools_are_blender_native_live_stacks():
         "palette_separation_board",
         "broadcast_safe_finish",
         "match_prep_neutralizer",
+        "selective_color_punch",
+        "colorize_blue_steel",
+        "grey_edge_balance",
+        "pseudocolor_viridis",
+        "lut_invert_curve",
+        "histogram_equalize",
+        "color_hold_blue",
+        "hsv_hold_blue",
     ):
         tool = get_tool(tool_id)
         assert tool.is_blender_modifier
         assert tool.blender_modifiers
         assert not tool.ffmpeg_filter
+
+
+def test_translated_ffmpeg_color_intent_tools_are_live_and_node_ready():
+    expected = {
+        "selective_color_punch",
+        "colorize_blue_steel",
+        "grey_edge_balance",
+        "pseudocolor_viridis",
+        "lut_invert_curve",
+        "histogram_equalize",
+        "color_hold_blue",
+        "hsv_hold_blue",
+    }
+    for tool_id in expected:
+        tool = get_tool(tool_id)
+        assert tool.category == "Live Blender Color"
+        assert tool.is_blender_modifier
+        assert tool.blender_stack
+        assert tool.compositor_stack
+    assert get_tool("pseudocolor_viridis").blender_modifiers == ("HUE_CORRECT", "CURVES", "COLOR_BALANCE")
+    assert get_tool("lut_invert_curve").blender_modifiers == ("CURVES",)
+    assert "TONEMAP" in get_tool("histogram_equalize").blender_modifiers
 
 
 def test_professional_color_board_tools_are_native_and_node_ready():

@@ -160,6 +160,16 @@ _TEMP_WARM_STACK = translate_filter_chain("colortemperature=temperature=5200:mix
 _TEMP_COOL_STACK = translate_filter_chain("colortemperature=temperature=7600:mix=0.75:pl=1").stack
 _LEGAL_RANGE_STACK = translate_filter_chain("limiter=min=16:max=235").stack
 _HDR_TONE_COMPRESS_STACK = translate_filter_chain("tonemap=tonemap=mobius:param=0.35:desat=0.4:peak=400").stack
+_SELECTIVE_COLOR_TRANSLATION = translate_filter_chain(
+    "selectivecolor=reds=0.10 -0.04 -0.02 0.00:blues=-0.04 0.02 0.10 0.03:whites=0.02 0.00 -0.08 0.01"
+)
+_COLORIZE_TRANSLATION = translate_filter_chain("colorize=hue=210:saturation=0.50:lightness=0.55:mix=0.70")
+_GREY_EDGE_TRANSLATION = translate_filter_chain("greyedge=difford=2:minknorm=5:sigma=2")
+_PSEUDOCOLOR_TRANSLATION = translate_filter_chain("pseudocolor=preset=viridis:opacity=0.85:index=1")
+_LUT_INVERT_TRANSLATION = translate_filter_chain("lutrgb=r=negval:g=val*0.9:b=val+24")
+_HISTOGRAM_EQUALIZE_TRANSLATION = translate_filter_chain("histeq=strength=0.42:intensity=0.30:antibanding=1")
+_COLOR_HOLD_TRANSLATION = translate_filter_chain("colorhold=color=blue:similarity=0.18:blend=0.15")
+_HSV_HOLD_TRANSLATION = translate_filter_chain("hsvhold=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.08")
 _BLACK_POINT_CLEANUP_STACK = (
     _bright_contrast(bright=-0.008, contrast=4.0),
     _curve_points({0: [(0.0, 0.0), (0.08, 0.035), (0.50, 0.50), (1.0, 1.0)]}),
@@ -753,6 +763,78 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_BLENDER_MODIFIER,
         description="Neutral preparation board before reference matching: soft contrast, neutral white balance, flat curves, and restrained saturation.",
         blender_stack=_MATCH_PREP_NEUTRALIZER_STACK,
+    ),
+    VideoTool(
+        id="selective_color_punch",
+        label="Selective Color Punch",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg selectivecolor intent as native Blender Hue Correct, Color Balance, and compositor nodes.",
+        blender_stack=_SELECTIVE_COLOR_TRANSLATION.stack,
+        compositor_stack=_SELECTIVE_COLOR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="colorize_blue_steel",
+        label="Colorize Blue Steel",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg colorize intent as native Blender Hue Correct, Color Balance, and White Balance controls.",
+        blender_stack=_COLORIZE_TRANSLATION.stack,
+        compositor_stack=_COLORIZE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="grey_edge_balance",
+        label="Grey Edge Balance",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg greyedge white-balance intent as Blender White Balance, Lift/Gamma/Gain, and RGB Curves.",
+        blender_stack=_GREY_EDGE_TRANSLATION.stack,
+        compositor_stack=_GREY_EDGE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="pseudocolor_viridis",
+        label="Pseudocolor Viridis",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg pseudocolor analysis look as native Blender Hue Correct, Curves, and Color Balance.",
+        blender_stack=_PSEUDOCOLOR_TRANSLATION.stack,
+        compositor_stack=_PSEUDOCOLOR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="lut_invert_curve",
+        label="LUT Invert Curve",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg lutrgb curve intent as native editable Blender RGB Curves.",
+        blender_stack=_LUT_INVERT_TRANSLATION.stack,
+        compositor_stack=_LUT_INVERT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="histogram_equalize",
+        label="Histogram Equalize",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg histeq contrast redistribution as Blender RGB Curves and Tone Map.",
+        blender_stack=_HISTOGRAM_EQUALIZE_TRANSLATION.stack,
+        compositor_stack=_HISTOGRAM_EQUALIZE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="color_hold_blue",
+        label="Color Hold Blue",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg colorhold intent as a native Blender Hue Correct isolation curve.",
+        blender_stack=_COLOR_HOLD_TRANSLATION.stack,
+        compositor_stack=_COLOR_HOLD_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="hsv_hold_blue",
+        label="HSV Hold Blue",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg hsvhold intent as native Blender Hue Correct saturation/value isolation curves.",
+        blender_stack=_HSV_HOLD_TRANSLATION.stack,
+        compositor_stack=_HSV_HOLD_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_all_color_tools",
