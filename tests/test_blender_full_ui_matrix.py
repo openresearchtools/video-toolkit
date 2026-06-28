@@ -122,6 +122,15 @@ def test_full_ui_operator_matrix_on_real_video():
         for result in _passed_results(report, group):
             evidence = result["evidence"]
             _assert_selected_target(evidence, target_strip)
+            if group == "sidecar_apply":
+                if evidence.get("output"):
+                    assert Path(evidence["output"]).exists()
+                    assert Path(evidence["output"]).is_file()
+                elif evidence.get("modifiers"):
+                    assert evidence["modifiers"]
+                else:
+                    assert evidence["node_count"] > 0
+                    assert evidence["node_types"]
 
     for result in _passed_results(report, "workflow_operators"):
         if result["name"] == "write_catalog_coverage_report":

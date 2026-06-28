@@ -86,10 +86,33 @@ def test_native_compositor_catalog_tools_are_exposed():
         assert tool.category in {"Native Blender Primitives", "Restoration", "Resolution & Motion"}
 
 
+def test_native_matte_and_channel_tools_are_exposed():
+    expected = {
+        "native_chroma_key_matte": {"CHROMA_MATTE"},
+        "native_color_key_matte": {"COLOR_MATTE"},
+        "native_hsv_key_matte": {"COLOR_MATTE"},
+        "native_luma_key_matte": {"LUMA_MATTE"},
+        "native_rgba_channel_shift": {"CHANNEL_SHIFT"},
+        "native_chroma_channel_shift": {"CHANNEL_SHIFT"},
+        "native_luma_plane_extract": {"PLANE_EXTRACT"},
+        "native_alpha_extract": {"PLANE_EXTRACT"},
+        "native_plane_shuffle_bgr": {"PLANE_SHUFFLE"},
+        "native_straight_alpha": {"PREMUL_KEY"},
+    }
+    for tool_id, node_types in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Matte & Channel"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert {node_type for node_type, _settings in tool.compositor_stack} == node_types
+
+
 def test_categories_keep_ui_order():
     assert categories() == (
         "Live Blender Color",
         "Native Blender Primitives",
+        "Native Matte & Channel",
         "Restoration",
         "Resolution & Motion",
         "Live Blender Modifiers",

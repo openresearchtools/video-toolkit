@@ -949,18 +949,29 @@ def exercise_sidecar_group(group):
             if not mods:
                 raise AssertionError("sidecar Apply did not add modifiers")
             output = None
+            nodes = None
+        elif first_tool.is_compositor:
+            evidence = node_evidence(f"VTK Tool {first_tool.label} ")
+            if evidence["count"] <= 0:
+                raise AssertionError("sidecar Apply did not create compositor nodes")
+            mods = []
+            output = None
+            nodes = evidence
         else:
             output_path = Path(scene.video_toolkit_last_output)
-            if not output_path.exists():
+            if not scene.video_toolkit_last_output or not output_path.exists() or not output_path.is_file():
                 raise AssertionError("sidecar Apply did not render output")
             mods = []
             output = str(output_path)
+            nodes = None
         return {
             "group": group,
             "selected_tool": first_tool.id,
             "apply_result": "FINISHED",
             "modifiers": mods,
             "output": output,
+            "node_count": nodes["count"] if nodes else 0,
+            "node_types": nodes["types"] if nodes else [],
             **strip_evidence,
         }
 

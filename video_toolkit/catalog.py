@@ -170,6 +170,16 @@ _LUT_INVERT_TRANSLATION = translate_filter_chain("lutrgb=r=negval:g=val*0.9:b=va
 _HISTOGRAM_EQUALIZE_TRANSLATION = translate_filter_chain("histeq=strength=0.42:intensity=0.30:antibanding=1")
 _COLOR_HOLD_TRANSLATION = translate_filter_chain("colorhold=color=blue:similarity=0.18:blend=0.15")
 _HSV_HOLD_TRANSLATION = translate_filter_chain("hsvhold=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.08")
+_CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey=color=green:similarity=0.18:blend=0.06")
+_COLOR_KEY_MATTE_TRANSLATION = translate_filter_chain("colorkey=color=blue:similarity=0.16:blend=0.04")
+_HSV_KEY_MATTE_TRANSLATION = translate_filter_chain("hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.03")
+_LUMA_KEY_MATTE_TRANSLATION = translate_filter_chain("lumakey=threshold=0.20:tolerance=0.10:softness=0.04")
+_RGBA_CHANNEL_SHIFT_TRANSLATION = translate_filter_chain("rgbashift=rh=5:rv=-2:bh=-4:bv=2")
+_CHROMA_CHANNEL_SHIFT_TRANSLATION = translate_filter_chain("chromashift=cbh=3:cbv=-1:crh=-3:crv=1")
+_LUMA_PLANE_EXTRACT_TRANSLATION = translate_filter_chain("extractplanes=planes=y")
+_ALPHA_EXTRACT_TRANSLATION = translate_filter_chain("alphaextract")
+_PLANE_SHUFFLE_BGR_TRANSLATION = translate_filter_chain("shuffleplanes=2:1:0:3")
+_STRAIGHT_ALPHA_TRANSLATION = translate_filter_chain("unpremultiply")
 _BLACK_POINT_CLEANUP_STACK = (
     _bright_contrast(bright=-0.008, contrast=4.0),
     _curve_points({0: [(0.0, 0.0), (0.08, 0.035), (0.50, 0.50), (1.0, 1.0)]}),
@@ -993,6 +1003,86 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Creates Blender's native compositor Premul Key node for straight/premultiplied alpha conversion.",
         compositor_stack=(("PREMUL_KEY", {"source": "blender_compositor", "mode": "To Premultiplied"}),),
+    ),
+    VideoTool(
+        id="native_chroma_key_matte",
+        label="Native Chroma Key Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg chromakey intent as Blender's native Chroma Matte compositor graph.",
+        compositor_stack=_CHROMA_KEY_MATTE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_color_key_matte",
+        label="Native Color Key Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg colorkey intent as Blender's native Color Matte compositor graph.",
+        compositor_stack=_COLOR_KEY_MATTE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_hsv_key_matte",
+        label="Native HSV Key Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg hsvkey intent as a native Blender HSV color matte graph.",
+        compositor_stack=_HSV_KEY_MATTE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_luma_key_matte",
+        label="Native Luma Key Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg lumakey intent as Blender's native Luma Matte compositor graph.",
+        compositor_stack=_LUMA_KEY_MATTE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_rgba_channel_shift",
+        label="Native RGBA Channel Shift",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg rgbashift intent as native Separate/Translate/Combine compositor channel nodes.",
+        compositor_stack=_RGBA_CHANNEL_SHIFT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_chroma_channel_shift",
+        label="Native Chroma Channel Shift",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg chromashift intent as native red/blue channel offset compositor nodes.",
+        compositor_stack=_CHROMA_CHANNEL_SHIFT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_luma_plane_extract",
+        label="Native Luma Plane Extract",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg extractplanes luma intent as Blender RGB-to-BW and Combine Color compositor nodes.",
+        compositor_stack=_LUMA_PLANE_EXTRACT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_alpha_extract",
+        label="Native Alpha Extract",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg alphaextract intent as native Separate/Combine compositor channel nodes.",
+        compositor_stack=_ALPHA_EXTRACT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_plane_shuffle_bgr",
+        label="Native Plane Shuffle BGR",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg shuffleplanes BGR intent as native Separate/Combine compositor channel remapping.",
+        compositor_stack=_PLANE_SHUFFLE_BGR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_straight_alpha",
+        label="Native Straight Alpha",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg unpremultiply intent as Blender's native Premul Key straight-alpha conversion graph.",
+        compositor_stack=_STRAIGHT_ALPHA_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="deflicker",
