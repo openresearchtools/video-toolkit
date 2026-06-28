@@ -128,7 +128,9 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
     for name, args in _split_filters(chain):
         name = name.lower()
         if name == "eq":
-            stack.extend(eq_to_blender_stack(**args))
+            eq_stack = eq_to_blender_stack(**args)
+            stack.extend(eq_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(eq_stack, "eq", "EQ"))
             supported.append(name)
         elif name == "hue":
             stack.extend(hue_to_blender_stack(**args))
@@ -139,20 +141,30 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(huesaturation_to_blender_compositor(**args))
             supported.append(name)
         elif name == "colorchannelmixer":
-            stack.extend(colorchannelmixer_to_blender_stack(**args))
+            mixer_stack = colorchannelmixer_to_blender_stack(**args)
+            stack.extend(mixer_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(mixer_stack, "colorchannelmixer", "Color Channel Mixer"))
             supported.append(name)
             notes.append("Color channel mixer is approximated with Blender Color Balance and White Balance.")
         elif name == "curves":
-            stack.extend(curves_to_blender_stack(**args))
+            curves_stack = curves_to_blender_stack(**args)
+            stack.extend(curves_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(curves_stack, "curves", "Curves"))
             supported.append(name)
         elif name == "colorlevels":
-            stack.extend(colorlevels_to_blender_stack(**args))
+            levels_stack = colorlevels_to_blender_stack(**args)
+            stack.extend(levels_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(levels_stack, "colorlevels", "Color Levels"))
             supported.append(name)
         elif name == "colorbalance":
-            stack.extend(colorbalance_to_blender_stack(**args))
+            balance_stack = colorbalance_to_blender_stack(**args)
+            stack.extend(balance_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(balance_stack, "colorbalance", "Color Balance"))
             supported.append(name)
         elif name == "vibrance":
-            stack.extend(vibrance_to_blender_stack(**args))
+            vibrance_stack = vibrance_to_blender_stack(**args)
+            stack.extend(vibrance_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(vibrance_stack, "vibrance", "Vibrance"))
             supported.append(name)
             notes.append("Vibrance is approximated with Blender Hue Correct and Color Balance saturation controls.")
         elif name == "exposure":
@@ -173,7 +185,9 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(tonemap_to_blender_compositor(**args))
             supported.append(name)
         elif name == "normalize":
-            stack.extend(normalize_to_blender_stack(**args))
+            normalize_stack = normalize_to_blender_stack(**args)
+            stack.extend(normalize_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(normalize_stack, "normalize", "Normalize"))
             supported.append(name)
             notes.append("Normalize is approximated as a live Blender curves/tone-map stack; temporal smoothing is not native VSE.")
         elif name == "colorcorrect":
@@ -187,7 +201,9 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             supported.append(name)
             notes.append("Colorcontrast is approximated with Blender opponent-channel Color Balance controls.")
         elif name == "selectivecolor":
-            stack.extend(selectivecolor_to_blender_stack(**args))
+            selective_stack = selectivecolor_to_blender_stack(**args)
+            stack.extend(selective_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(selective_stack, "selectivecolor", "Selective Color"))
             supported.append(name)
             notes.append("Selectivecolor is approximated with Blender Hue Correct hue-zone curves and Color Balance tonal zones.")
         elif name == "monochrome":
@@ -200,11 +216,15 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             supported.append(name)
             notes.append("Colorize is approximated with Blender Hue Correct and Color Balance tinting.")
         elif name == "grayworld":
-            stack.extend(grayworld_to_blender_stack(**args))
+            grayworld_stack = grayworld_to_blender_stack(**args)
+            stack.extend(grayworld_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(grayworld_stack, "grayworld", "Gray World"))
             supported.append(name)
             notes.append("Grayworld is exposed as editable Blender White Balance/Lift-Gamma-Gain controls; use sampled white balance for frame-measured auto values.")
         elif name == "greyedge":
-            stack.extend(greyedge_to_blender_stack(**args))
+            greyedge_stack = greyedge_to_blender_stack(**args)
+            stack.extend(greyedge_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(greyedge_stack, "greyedge", "Grey Edge"))
             supported.append(name)
             notes.append("Greyedge is approximated with editable Blender White Balance plus edge-weighted contrast curves; use sampled white balance for frame-measured auto values.")
         elif name == "negate":
@@ -326,20 +346,25 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor restoration nodes; temporal behavior is approximated spatially where Blender has no temporal node.")
         elif name == "pseudocolor":
-            stack.extend(pseudocolor_to_blender_stack(**args))
+            pseudocolor_stack = pseudocolor_to_blender_stack(**args)
+            stack.extend(pseudocolor_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(pseudocolor_stack, "pseudocolor", "Pseudocolor"))
             supported.append(name)
             notes.append("Pseudocolor is approximated with editable Blender Hue Correct curves, RGB curves, and Color Balance palette tinting.")
         elif name in {"lut", "lutrgb", "lutyuv"}:
             lut_stack = lut_to_blender_stack(**args)
             if lut_stack:
                 stack.extend(lut_stack)
+                compositor_nodes.extend(_stack_to_compositor_nodes(lut_stack, name, name.upper()))
                 supported.append(name)
                 notes.append(f"{name} linear/identity/negation expressions are approximated with Blender RGB Curves.")
             else:
                 unsupported.append(name)
                 notes.append(f"{name} uses expressions that do not map safely to native Blender live curves.")
         elif name == "histeq":
-            stack.extend(histeq_to_blender_stack(**args))
+            histeq_stack = histeq_to_blender_stack(**args)
+            stack.extend(histeq_stack)
+            compositor_nodes.extend(_stack_to_compositor_nodes(histeq_stack, "histeq", "Histogram Equalization"))
             supported.append(name)
             notes.append("Histogram equalization is approximated with live Blender curves and tone mapping.")
         elif name == "colorspace":

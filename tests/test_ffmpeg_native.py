@@ -278,6 +278,45 @@ def test_direct_pro_color_filters_translate_to_compositor_nodes():
     ]
 
 
+def test_remaining_live_color_filters_emit_compositor_node_specs():
+    result = translate_filter_chain(
+        "eq=contrast=1.2:saturation=1.3:gamma=1.05,"
+        "colorchannelmixer=rr=1.1:gg=1.0:bb=0.9,"
+        "curves=preset=strong_contrast,"
+        "colorlevels=rimin=0.02:rimax=0.98,"
+        "colorbalance=rs=0.1:bm=0.2:bh=-0.1,"
+        "vibrance=intensity=0.4,"
+        "normalize=smoothing=18:independence=0.65:strength=0.55,"
+        "selectivecolor=reds=0.10 -0.04 -0.02 0.00:blues=-0.04 0.02 0.10 0.03,"
+        "grayworld,"
+        "greyedge=difford=2:minknorm=5:sigma=2,"
+        "pseudocolor=preset=viridis:opacity=0.75:index=1,"
+        "lutrgb=r=negval:g=val*0.9:b=val+12,"
+        "histeq=strength=0.35:intensity=0.25:antibanding=1"
+    )
+    assert result.unsupported_filters == ()
+    sources = [settings["source"] for _node_type, settings in result.compositor_nodes]
+    for source in (
+        "eq",
+        "colorchannelmixer",
+        "curves",
+        "colorlevels",
+        "colorbalance",
+        "vibrance",
+        "normalize",
+        "selectivecolor",
+        "grayworld",
+        "greyedge",
+        "pseudocolor",
+        "lutrgb",
+        "histeq",
+    ):
+        assert source in sources
+    node_types = {node_type for node_type, _settings in result.compositor_nodes}
+    assert {"BRIGHT_CONTRAST", "COLOR_BALANCE", "CURVE_RGB", "HUE_CORRECT", "TONEMAP"}.issubset(node_types)
+    assert sources.count("lutrgb") == 1
+
+
 def test_filter_chain_reports_non_native_filters():
     result = translate_filter_chain(
         "normalize=smoothing=30,eq=contrast=1.08:saturation=1.1:gamma=1.02,unsharp=5:5:0.45,hqdn3d=1.5:1.5:6:6,tmix=frames=5"
@@ -294,7 +333,16 @@ def test_filter_chain_reports_non_native_filters():
         "COLOR_BALANCE",
         "HUE_CORRECT",
     ]
-    assert [node_type for node_type, _settings in result.compositor_nodes] == ["FILTER", "DENOISE"]
+    assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "CURVE_RGB",
+        "TONEMAP",
+        "BRIGHT_CONTRAST",
+        "COLOR_BALANCE",
+        "HUE_CORRECT",
+        "TONEMAP",
+        "FILTER",
+        "DENOISE",
+    ]
 
 
 def test_filter_chain_supports_color_space_metadata():
