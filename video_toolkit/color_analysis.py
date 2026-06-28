@@ -834,6 +834,75 @@ def build_color_match_stack(
     )
 
 
+def build_reference_color_board_stack(
+    target: ColorStats,
+    reference: ColorStats,
+) -> tuple[tuple[str, dict[str, object]], ...]:
+    """Build an editable color-board stack that matches target frames to a reference clip."""
+
+    mean_balance = _channel_balance(reference.mean_rgb, target.mean_rgb, power=0.36)
+    brightness = _clamp((reference.mean_luma - target.mean_luma) / 255.0 * 0.85, -0.18, 0.18)
+    contrast = _clamp((_safe_ratio(reference.luma_std, target.luma_std) - 1.0) * 20.0, -24.0, 24.0)
+    lift = _zone_balance(reference.shadow_rgb, target.shadow_rgb, fallback=reference.mean_rgb, power=0.46, low=0.82, high=1.20)
+    gamma = _zone_balance(reference.midtone_rgb, target.midtone_rgb, fallback=reference.mean_rgb, power=0.36, low=0.80, high=1.22)
+    gain = _zone_balance(reference.highlight_rgb, target.highlight_rgb, fallback=reference.mean_rgb, power=0.56, low=0.80, high=1.24)
+    cdl_offset = tuple(_clamp(1.0 + (value - 1.0) * 0.34, 0.90, 1.10) for value in lift)
+    cdl_power = tuple(_clamp(1.0 + (value - 1.0) * 0.68, 0.82, 1.20) for value in gamma)
+    cdl_slope = tuple(_clamp(1.0 + (value - 1.0) * 0.82, 0.84, 1.22) for value in gain)
+    board_curve = _contrast_curve_points(target, reference)
+    luma_delta = _clamp((reference.mean_luma - target.mean_luma) / 255.0, -0.40, 0.40)
+    highlight_delta = _clamp((reference.luma_p95 - target.luma_p95) / 255.0, -0.40, 0.40)
+    shadow_delta = _clamp((reference.luma_p05 - target.luma_p05) / 255.0, -0.40, 0.40)
+    final_curve = [
+        (0.0, 0.0),
+        (0.18, _clamp(0.18 + shadow_delta * 0.22, 0.06, 0.30)),
+        (0.50, _clamp(0.50 + luma_delta * 0.10, 0.42, 0.58)),
+        (0.82, _clamp(0.82 + highlight_delta * 0.16, 0.72, 0.92)),
+        (1.0, _clamp(0.985 + min(highlight_delta, 0.0) * 0.08, 0.94, 0.995)),
+    ]
+    saturation_delta = reference.mean_saturation - target.mean_saturation
+    chroma_delta = _safe_ratio(reference.mean_chroma, target.mean_chroma) - 1.0
+    secondary_saturation = _clamp(0.5 + saturation_delta * 0.20 + chroma_delta * 0.05, 0.32, 0.70)
+    if target.skin_ratio > 0.10 or reference.skin_ratio > 0.10:
+        secondary_saturation = _clamp(secondary_saturation, 0.44, 0.58)
+    return (
+        ("WHITE_BALANCE", {"white_value": mean_balance}),
+        ("BRIGHT_CONTRAST", {"bright": brightness, "contrast": contrast}),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.lift": lift,
+                "color_balance.gamma": gamma,
+                "color_balance.gain": gain,
+                "color_multiply": _clamp(1.0 + saturation_delta * 0.14, 0.92, 1.10),
+            },
+        ),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "OFFSET_POWER_SLOPE",
+                "color_balance.offset": cdl_offset,
+                "color_balance.power": cdl_power,
+                "color_balance.slope": cdl_slope,
+            },
+        ),
+        ("CURVES", {"__curve_points__": {0: board_curve}}),
+        ("HUE_CORRECT", {"__curve_points__": _reference_hue_match_curve_points(target, reference)}),
+        (
+            "TONEMAP",
+            {
+                "tonemap_type": "RD_PHOTORECEPTOR",
+                "intensity": _clamp((target.luma_p95 - reference.luma_p95) / 255.0, 0.0, 0.22),
+                "contrast": _clamp(abs(contrast) / 82.0 + abs(chroma_delta) * 0.02, 0.0, 0.24),
+                "gamma": _clamp(_safe_ratio(reference.mean_luma, target.mean_luma), 0.82, 1.22),
+            },
+        ),
+        ("CURVES", {"__curve_points__": {0: final_curve}}),
+        ("HUE_CORRECT", {"__hue_correct__": {"saturation": secondary_saturation, "value": _clamp(0.5 + luma_delta * 0.035, 0.44, 0.56)}}),
+    )
+
+
 def summarize_stats(stats: ColorStats) -> str:
     palette = ""
     if stats.dominant_rgb:
@@ -1105,6 +1174,42 @@ def _sampled_hue_chroma_curve_points(stats: ColorStats) -> dict[int, list[tuple[
         hue_points.append((x_value, hue_value))
         saturation_points.append((x_value, _clamp(saturation_value, 0.28, 0.72)))
         value_points.append((x_value, _clamp(value_value, 0.42, 0.58)))
+    return {0: hue_points, 1: saturation_points, 2: value_points}
+
+
+def _reference_hue_match_curve_points(target: ColorStats, reference: ColorStats) -> dict[int, list[tuple[float, float]]]:
+    anchors = (
+        (0.0, "reds"),
+        (1.0 / 6.0, "yellows"),
+        (2.0 / 6.0, "greens"),
+        (3.0 / 6.0, "cyans"),
+        (4.0 / 6.0, "blues"),
+        (5.0 / 6.0, "magentas"),
+        (1.0, "reds"),
+    )
+    target_presence = _dominant_hue_presence(target.dominant_rgb)
+    reference_presence = _dominant_hue_presence(reference.dominant_rgb)
+    saturation_delta = reference.mean_saturation - target.mean_saturation
+    luma_delta = (reference.mean_luma - target.mean_luma) / 255.0
+    warm_delta = (reference.warm_ratio - reference.cool_ratio) - (target.warm_ratio - target.cool_ratio)
+    hue_points: list[tuple[float, float]] = []
+    saturation_points: list[tuple[float, float]] = []
+    value_points: list[tuple[float, float]] = []
+    for x_value, zone in anchors:
+        zone_delta = reference_presence.get(zone, 0.0) - target_presence.get(zone, 0.0)
+        saturation_value = _clamp(0.5 + zone_delta * 0.18 + saturation_delta * 0.15, 0.30, 0.72)
+        value_value = _clamp(0.5 + luma_delta * 0.04 + zone_delta * 0.035, 0.42, 0.58)
+        hue_value = 0.5
+        if zone in {"reds", "yellows"}:
+            hue_value += _clamp(warm_delta * 0.018, -0.018, 0.018)
+        elif zone in {"cyans", "blues"}:
+            hue_value -= _clamp(warm_delta * 0.018, -0.018, 0.018)
+        if reference.skin_ratio > 0.08 and zone in {"reds", "yellows"}:
+            saturation_value = _clamp((saturation_value + 0.52) * 0.5, 0.42, 0.58)
+            value_value = _clamp((value_value + 0.51) * 0.5, 0.46, 0.55)
+        hue_points.append((x_value, _clamp(hue_value, 0.46, 0.54)))
+        saturation_points.append((x_value, saturation_value))
+        value_points.append((x_value, value_value))
     return {0: hue_points, 1: saturation_points, 2: value_points}
 
 

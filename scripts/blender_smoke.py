@@ -280,6 +280,33 @@ color_gamma_path = color_timeline_match.color_balance.path_from_id('gamma')
 color_gain_path = color_timeline_match.color_balance.path_from_id('gain')
 assert action_keyframe_count(scene.animation_data.action, color_gamma_path) >= 6
 assert action_keyframe_count(scene.animation_data.action, color_gain_path) >= 6
+result = bpy.ops.video_toolkit.apply_reference_color_board()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_reference_color_board.startswith('reference color board to')
+reference_board_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Reference Color Board')]
+assert reference_board_types == [
+    'WHITE_BALANCE', 'BRIGHT_CONTRAST', 'COLOR_BALANCE', 'COLOR_BALANCE', 'CURVES',
+    'HUE_CORRECT', 'TONEMAP', 'CURVES', 'HUE_CORRECT'
+], reference_board_types
+assert scene.get('video_toolkit_last_reference_color_board_node_count', 0) >= 10
+reference_board_node_types = [
+    node.bl_idname
+    for node in (scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree).nodes
+    if node.name.startswith('VTK Reference Color Board ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in reference_board_node_types, required
 scene.video_toolkit_ffmpeg_chain = (
     'colorspace=iall=bt709:all=bt709:irange=tv:range=pc,'
     'normalize=smoothing=18:independence=0.65:strength=0.55,'
@@ -710,6 +737,26 @@ for required in [
     assert required in matched_node_types, required
 matched_curves = next(node for node in tree.nodes if node.name.startswith('VTK Matched to ') and node.bl_idname == 'CompositorNodeCurveRGB')
 assert len(matched_curves.mapping.curves[0].points) >= 5
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='REFERENCE_COLOR_BOARD')
+assert scene.video_toolkit_last_compositor_nodes.startswith('reference color board compositor to')
+reference_board_compositor_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Reference Color Board to ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in reference_board_compositor_node_types, required
 scene.video_toolkit_ffmpeg_chain = (
     'colorspace=iall=bt709:all=bt709:irange=tv:range=pc,'
     'eq=contrast=1.12:saturation=1.08:gamma=1.02,'

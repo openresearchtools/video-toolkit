@@ -62,6 +62,7 @@ def _setup_scene() -> None:
         candidate.select = False
     strip.select = True
     reference.select = True
+    reference.mute = True
     editor.active_strip = strip
     scene.frame_start = int(strip.frame_final_start)
     scene.frame_end = int(strip.frame_final_end)
@@ -93,6 +94,7 @@ def _setup_scene() -> None:
         bpy.ops.video_toolkit.apply_sampled_hue_chroma()
         bpy.ops.video_toolkit.apply_sampled_pro_grade()
         bpy.ops.video_toolkit.apply_sampled_color_board()
+        bpy.ops.video_toolkit.apply_reference_color_board()
         bpy.ops.video_toolkit.apply_sampled_color_management()
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="NATIVE_COLOR_ROOM")
         bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id="primary_color_board")
@@ -103,6 +105,7 @@ def _setup_scene() -> None:
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="IDENTITY_COLOR")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="DIAGNOSTIC_COLOR")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="MATCHED_COLOR")
+        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="REFERENCE_COLOR_BOARD")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="COLOR_TIMELINE_MATCH")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="TRANSLATED_COLOR")
         bpy.ops.video_toolkit.create_compositor_nodes(stack_type="LIGHTING_NORMALIZE")

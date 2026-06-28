@@ -145,6 +145,8 @@ def _blender_script(video: Path, reference_video: Path, output_dir: Path) -> str
     sampled_pro_grade = output_dir / "after_sampled_pro_grade.png"
     primary_color_board = output_dir / "after_primary_color_board.png"
     sampled_color_board = output_dir / "after_sampled_color_board.png"
+    reference_color_board_base = output_dir / "before_reference_color_board.png"
+    reference_color_board = output_dir / "after_reference_color_board.png"
     blend = output_dir / "end_user_preview.blend"
     report = output_dir / "report.json"
     return f"""
@@ -168,6 +170,13 @@ strip = editor.strips.new_movie(
     channel=1,
     frame_start=1,
 )
+reference_strip = editor.strips.new_movie(
+    name='END USER REFERENCE LIGHTING VIDEO',
+    filepath={str(reference_video)!r},
+    channel=2,
+    frame_start=1,
+)
+reference_strip.mute = True
 for candidate in editor.strips_all:
     candidate.select = False
 strip.select = True
@@ -183,6 +192,13 @@ scene.render.resolution_percentage = 100
 scene.render.image_settings.file_format = 'PNG'
 
 def render_preview(path):
+    if hasattr(scene.render, "use_compositing"):
+        scene.render.use_compositing = False
+    try:
+        bpy.ops.sequencer.refresh_all()
+    except Exception:
+        pass
+    scene.frame_set(scene.frame_current)
     scene.render.filepath = str(path)
     bpy.ops.render.render(write_still=True)
     image = bpy.data.images.load(str(path), check_existing=False)
@@ -199,6 +215,65 @@ def render_preview(path):
     return stats
 
 before_stats = render_preview({str(before)!r})
+
+for candidate in editor.strips_all:
+    candidate.select = False
+strip.select = True
+reference_strip.select = True
+editor.active_strip = strip
+reference_color_board_base_stats = render_preview({str(reference_color_board_base)!r})
+
+result = bpy.ops.video_toolkit.apply_reference_color_board()
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_reference_color_board.startswith('reference color board to')
+reference_color_board_summary = scene.video_toolkit_last_reference_color_board
+reference_color_board_modifier_types = [
+    modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Reference Color Board')
+]
+assert reference_color_board_modifier_types == [
+    'WHITE_BALANCE',
+    'BRIGHT_CONTRAST',
+    'COLOR_BALANCE',
+    'COLOR_BALANCE',
+    'CURVES',
+    'HUE_CORRECT',
+    'TONEMAP',
+    'CURVES',
+    'HUE_CORRECT',
+], reference_color_board_modifier_types
+reference_color_board_node_count = scene.get('video_toolkit_last_reference_color_board_node_count', 0)
+assert reference_color_board_node_count >= 10, reference_color_board_node_count
+reference_color_board_node_types = [
+    node.bl_idname
+    for node in (scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree).nodes
+    if node.name.startswith('VTK Reference Color Board ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in reference_color_board_node_types, required
+reference_color_board_stats = render_preview({str(reference_color_board)!r})
+reference_color_board_diff = (
+    abs(reference_color_board_stats['r'] - reference_color_board_base_stats['r'])
+    + abs(reference_color_board_stats['g'] - reference_color_board_base_stats['g'])
+    + abs(reference_color_board_stats['b'] - reference_color_board_base_stats['b'])
+)
+assert reference_color_board_diff > 0.001, f'Reference Color Board did not visibly change preview pixels: {{reference_color_board_diff}}'
+result = bpy.ops.video_toolkit.clear_live_modifiers()
+assert result == {{'FINISHED'}}, result
+for candidate in editor.strips_all:
+    candidate.select = False
+strip.select = True
+editor.active_strip = strip
 
 result = bpy.ops.video_toolkit.apply_filter(filter_id='auto_enhance')
 assert result == {{'FINISHED'}}, result
@@ -640,12 +715,6 @@ assert scene.animation_data.action is not None
 normalizer_keyframes = action_keyframe_count(scene.animation_data.action, normalizer.path_from_id('bright'))
 assert normalizer_keyframes >= 2, normalizer_keyframes
 
-reference_strip = editor.strips.new_movie(
-    name='END USER REFERENCE LIGHTING VIDEO',
-    filepath={str(reference_video)!r},
-    channel=2,
-    frame_start=1,
-)
 for candidate in editor.strips_all:
     candidate.select = False
 strip.select = True
@@ -1006,6 +1075,29 @@ matched_curve_node = next(
 )
 assert len(matched_curve_node.mapping.curves[0].points) >= 5
 
+result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='REFERENCE_COLOR_BOARD')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('reference color board compositor to')
+reference_board_compositor_summary = scene.video_toolkit_last_compositor_nodes
+reference_board_compositor_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Reference Color Board to ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in reference_board_compositor_node_types, required
+
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_COLOR')
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
@@ -1089,6 +1181,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_pro_grade_png': {str(sampled_pro_grade)!r},
     'primary_color_board_png': {str(primary_color_board)!r},
     'sampled_color_board_png': {str(sampled_color_board)!r},
+    'reference_color_board_base_png': {str(reference_color_board_base)!r},
+    'reference_color_board_png': {str(reference_color_board)!r},
     'before': before_stats,
     'after': after_stats,
     'translated': translated_stats,
@@ -1103,6 +1197,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_pro_grade': sampled_pro_grade_stats,
     'primary_color_board': primary_color_board_stats,
     'sampled_color_board': sampled_color_board_stats,
+    'reference_color_board_base': reference_color_board_base_stats,
+    'reference_color_board': reference_color_board_stats,
     'rgb_abs_diff': diff,
     'translated_rgb_abs_diff': translated_diff,
     'translated_workflow_rgb_abs_diff': translated_workflow_diff,
@@ -1116,6 +1212,7 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_pro_grade_rgb_abs_diff': sampled_pro_grade_diff,
     'primary_color_board_rgb_abs_diff': primary_color_board_diff,
     'sampled_color_board_rgb_abs_diff': sampled_color_board_diff,
+    'reference_color_board_rgb_abs_diff': reference_color_board_diff,
     'edited_modifiers': edited,
     'native_modifier_types': types,
     'translated_chain_summary': scene.video_toolkit_last_translation,
@@ -1163,6 +1260,10 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_color_board_modifier_types': sampled_color_board_modifier_types,
     'sampled_color_board_node_count': sampled_color_board_node_count,
     'sampled_color_board_node_types': sampled_color_board_node_types,
+    'reference_color_board_summary': reference_color_board_summary,
+    'reference_color_board_modifier_types': reference_color_board_modifier_types,
+    'reference_color_board_node_count': reference_color_board_node_count,
+    'reference_color_board_node_types': reference_color_board_node_types,
     'primary_correction_modifier_types': primary_correction_types,
     'normalizer_keyframes': normalizer_keyframes,
     'timeline_match_reference': {str(reference_video)!r},
@@ -1205,6 +1306,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'timeline_compositor_gain_keyframes': timeline_compositor_gain_keyframes,
     'matched_compositor_summary': matched_compositor_summary,
     'matched_compositor_node_types': matched_compositor_node_types,
+    'reference_board_compositor_summary': reference_board_compositor_summary,
+    'reference_board_compositor_node_types': reference_board_compositor_node_types,
     'translated_compositor_summary': translated_compositor_summary,
     'translated_compositor_node_types': translated_compositor_node_types,
     'translated_compositor_contrast': translated_contrast_socket.default_value,

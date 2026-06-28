@@ -11,6 +11,7 @@ from video_toolkit.color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_reference_color_board_stack,
     build_sampled_color_management,
     build_sampled_color_board_stack,
     build_sampled_compositor_grade,
@@ -287,6 +288,80 @@ def test_sampled_color_board_uses_primary_secondary_and_cdl_controls():
     assert "__curve_points__" in stack[5][1]
     assert stack[6][1]["intensity"] > 0.0
     assert stack[8][1]["__hue_correct__"]["saturation"] >= 0.45
+
+
+def test_reference_color_board_matches_reference_with_editable_native_controls():
+    target = ColorStats(
+        samples=36,
+        mean_r=172.0,
+        mean_g=106.0,
+        mean_b=82.0,
+        mean_luma=118.0,
+        luma_std=28.0,
+        luma_p05=38.0,
+        luma_p95=190.0,
+        shadow_rgb=(52.0, 34.0, 28.0),
+        midtone_rgb=(166.0, 98.0, 76.0),
+        highlight_rgb=(222.0, 176.0, 142.0),
+        shadow_luma=38.0,
+        midtone_luma=110.0,
+        highlight_luma=180.0,
+        shadow_count=140,
+        midtone_count=300,
+        highlight_count=86,
+        dominant_rgb=((210.0, 84.0, 42.0), (226.0, 180.0, 60.0)),
+        warm_ratio=0.42,
+        cool_ratio=0.10,
+        skin_ratio=0.08,
+        mean_saturation=0.52,
+        mean_chroma=102.0,
+    )
+    reference = ColorStats(
+        samples=36,
+        mean_r=86.0,
+        mean_g=112.0,
+        mean_b=194.0,
+        mean_luma=124.0,
+        luma_std=46.0,
+        luma_p05=28.0,
+        luma_p95=218.0,
+        shadow_rgb=(24.0, 34.0, 66.0),
+        midtone_rgb=(80.0, 112.0, 184.0),
+        highlight_rgb=(176.0, 204.0, 236.0),
+        shadow_luma=34.0,
+        midtone_luma=118.0,
+        highlight_luma=206.0,
+        shadow_count=98,
+        midtone_count=330,
+        highlight_count=122,
+        dominant_rgb=((48.0, 96.0, 220.0), (60.0, 180.0, 210.0)),
+        warm_ratio=0.08,
+        cool_ratio=0.38,
+        skin_ratio=0.02,
+        mean_saturation=0.42,
+        mean_chroma=88.0,
+    )
+    stack = build_reference_color_board_stack(target, reference)
+    assert [modifier_type for modifier_type, _settings in stack] == [
+        "WHITE_BALANCE",
+        "BRIGHT_CONTRAST",
+        "COLOR_BALANCE",
+        "COLOR_BALANCE",
+        "CURVES",
+        "HUE_CORRECT",
+        "TONEMAP",
+        "CURVES",
+        "HUE_CORRECT",
+    ]
+    assert stack[0][1]["white_value"][2] > stack[0][1]["white_value"][0]
+    assert stack[1][1]["contrast"] > 0.0
+    assert stack[3][1]["color_balance.correction_method"] == "OFFSET_POWER_SLOPE"
+    assert stack[3][1]["color_balance.slope"][2] > stack[3][1]["color_balance.slope"][0]
+    hue_points = stack[5][1]["__curve_points__"]
+    assert set(hue_points) == {0, 1, 2}
+    assert hue_points[1][4][1] > hue_points[1][0][1]
+    assert stack[6][1]["intensity"] == 0.0
+    assert "__hue_correct__" in stack[8][1]
 
 
 def test_sampled_color_management_builds_scene_view_profile():

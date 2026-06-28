@@ -11,6 +11,7 @@ from .color_analysis import (
     build_auto_balance_stack,
     build_color_identity_stack,
     build_color_match_stack,
+    build_reference_color_board_stack,
     build_sampled_color_management,
     build_sampled_color_board_stack,
     build_sampled_compositor_grade,
@@ -58,6 +59,7 @@ COMPOSITOR_STACK_ITEMS = (
     ("SAMPLED_COLOR", "Sampled Color Node Stack", "Sample real frames and build a Blender compositor color graph from the measured footage"),
     ("IDENTITY_COLOR", "Palette Identity Node Stack", "Identify dominant colors and build a Blender compositor palette-aware graph"),
     ("MATCHED_COLOR", "Matched Color Node Stack", "Match the active movie strip to a selected reference strip with Blender compositor nodes"),
+    ("REFERENCE_COLOR_BOARD", "Reference Color Board Node Stack", "Match the active strip to a selected reference strip with a full color-board compositor graph"),
     ("COLOR_TIMELINE_MATCH", "Color Timeline Match Node Stack", "Sample active/reference RGB over time and animate Blender compositor color balance"),
     ("DIAGNOSTIC_COLOR", "Diagnostic Grade Node Stack", "Diagnose real frames and build the recommended Blender compositor color graph"),
     ("TRANSLATED_COLOR", "Translated Color Node Stack", "Translate the FFmpeg-style color chain into a Blender compositor graph"),
@@ -689,6 +691,64 @@ class VIDEO_TOOLKIT_OT_apply_sampled_color_board(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_apply_reference_color_board(Operator):
+    bl_idname = "video_toolkit.apply_reference_color_board"
+    bl_label = "Reference Color Board"
+    bl_description = "Match the active movie strip to another selected reference strip with editable live Blender color-board modifiers"
+    bl_options = {"REGISTER", "UNDO"}
+
+    target: bpy.props.EnumProperty(
+        name="Target",
+        items=APPLY_TARGET_ITEMS,
+        default="ACTIVE",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            active = scene.sequence_editor.active_strip
+            reference = _reference_movie_strip(context, active)
+            if reference is None:
+                raise RuntimeError("Select a reference movie strip as well as the active target strip")
+            target_stats = sample_video_color(_movie_path(active), max_samples=scene.video_toolkit_analysis_samples)
+            reference_stats = sample_video_color(
+                _movie_path(reference),
+                max_samples=scene.video_toolkit_analysis_samples,
+            )
+            stack = build_reference_color_board_stack(target_stats, reference_stats)
+            modifiers, targets = _add_blender_stack_for_target(context, stack, "Reference Color Board", self.target)
+            nodes = _create_compositor_nodes_from_blender_stack(scene, active, stack, "Reference Color Board")
+            for node in nodes:
+                node["video_toolkit_reference_strip"] = reference.name
+                node["video_toolkit_source_strip"] = active.name
+                node["video_toolkit_target_stats"] = summarize_stats(target_stats)
+                node["video_toolkit_reference_stats"] = summarize_stats(reference_stats)
+            scene.video_toolkit_last_reference_color_board = (
+                f"reference color board to {reference.name}, {target_stats.samples}/{reference_stats.samples} frames, "
+                f"{len(modifiers)} modifier(s) on {len(targets)} target(s), {len(nodes)} node(s): "
+                f"{summarize_stats(target_stats)} -> {summarize_stats(reference_stats)}"
+            )
+            scene.video_toolkit_last_compositor_nodes = (
+                f"reference color board nodes {len(nodes)} node(s): {_compositor_node_summary(nodes)}"
+            )
+            scene["video_toolkit_last_reference_color_board_node_count"] = len(nodes)
+            scene["video_toolkit_last_reference_color_board_modifier_count"] = len(modifiers)
+            scene["video_toolkit_last_reference_color_board_reference"] = reference.name
+            self.report({"INFO"}, scene.video_toolkit_last_reference_color_board)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_normalize_lighting(Operator):
     bl_idname = "video_toolkit.normalize_lighting"
     bl_label = "Normalize Lighting Flicker"
@@ -1079,6 +1139,33 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
                 label = "matched color"
                 summary = (
                     f"matched compositor to {reference.name}, "
+                    f"{summarize_stats(target_stats)} -> {summarize_stats(reference_stats)}; "
+                    f"{_compositor_node_summary(created)}"
+                )
+            elif self.stack_type == "REFERENCE_COLOR_BOARD":
+                reference = _reference_movie_strip(context, strip)
+                if reference is None:
+                    raise RuntimeError("Select a reference movie strip as well as the active target strip")
+                target_stats = sample_video_color(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
+                reference_stats = sample_video_color(
+                    _movie_path(reference),
+                    max_samples=context.scene.video_toolkit_analysis_samples,
+                )
+                stack = build_reference_color_board_stack(target_stats, reference_stats)
+                created = _create_compositor_nodes_from_blender_stack(
+                    context.scene,
+                    strip,
+                    stack,
+                    f"Reference Color Board to {reference.name}",
+                )
+                for node in created:
+                    node["video_toolkit_reference_strip"] = reference.name
+                    node["video_toolkit_source_strip"] = strip.name
+                    node["video_toolkit_target_stats"] = summarize_stats(target_stats)
+                    node["video_toolkit_reference_stats"] = summarize_stats(reference_stats)
+                label = "reference color board"
+                summary = (
+                    f"reference color board compositor to {reference.name}, "
                     f"{summarize_stats(target_stats)} -> {summarize_stats(reference_stats)}; "
                     f"{_compositor_node_summary(created)}"
                 )
@@ -1521,6 +1608,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
         layout.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Analyze: Normalize Flicker", icon="IPO_EASE_IN_OUT")
         layout.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Analyze: Match Lighting Timeline", icon="GRAPH")
         layout.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Analyze: Match Color Timeline", icon="COLOR")
+        layout.operator(VIDEO_TOOLKIT_OT_apply_reference_color_board.bl_idname, text="Analyze: Reference Color Board", icon="EYEDROPPER")
         layout.menu("VIDEO_TOOLKIT_MT_color_management", icon="WORLD")
         layout.operator(
             VIDEO_TOOLKIT_OT_translate_ffmpeg_chain.bl_idname,
@@ -1567,6 +1655,12 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
             icon="NODETREE",
         )
         op.stack_type = "MATCHED_COLOR"
+        op = layout.operator(
+            VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
+            text="Create Reference Color Board Node Stack",
+            icon="NODETREE",
+        )
+        op.stack_type = "REFERENCE_COLOR_BOARD"
         op = layout.operator(
             VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname,
             text="Create Timeline Color Match Node Stack",
@@ -1855,6 +1949,7 @@ def _draw_sidecar_browser(layout, scene, strip, context) -> None:
     _draw_sidecar_selection(layout, scene, strip)
     _draw_sidecar_tabs(layout, scene)
     _draw_sidecar_section_body(layout, scene, strip, context)
+    _draw_sidecar_inline_modifier_stack(layout, scene, strip)
     _draw_sidecar_status(layout, scene)
 
 
@@ -1927,8 +2022,18 @@ def _draw_sidecar_section_body(layout, scene, strip, context) -> None:
         _draw_sidecar_tool_browser(layout, scene, strip)
 
 
+def _draw_sidecar_inline_modifier_stack(layout, scene, strip) -> None:
+    section = getattr(scene, "video_toolkit_sidecar_section", "BROWSER")
+    if section == "MODIFIERS" or strip is None or not hasattr(strip, "modifiers"):
+        return
+    if len(strip.modifiers) == 0:
+        return
+    _draw_live_modifier_editor(layout, strip)
+
+
 def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
     selected_tool = _selected_sidecar_tool(scene)
+    group_tools = _sidecar_tools_for_scene(scene)
 
     browser = layout.box()
     browser.label(text="Video Effects Browser", icon="TOOL_SETTINGS")
@@ -1936,6 +2041,7 @@ def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
     browser.use_property_decorate = False
     browser.prop(scene, "video_toolkit_sidecar_group", text="Group")
     browser.prop(scene, "video_toolkit_sidecar_tool", text="Tool")
+    browser.prop(scene, "video_toolkit_apply_target", text="Target")
     action = browser.row(align=True)
     apply_action = action.row(align=True)
     apply_action.enabled = strip is not None and selected_tool is not None
@@ -1956,6 +2062,19 @@ def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
             browser.label(text="Live Blender effect", icon="MODIFIER")
         elif selected_tool.is_ffmpeg:
             browser.label(text="Rendered video effect", icon="RENDER_ANIMATION")
+    if group_tools:
+        tools_col = browser.column(align=True)
+        tools_col.label(text=f"Supported Tools ({len(group_tools)})", icon="SORT_ASC")
+        for tool in group_tools:
+            row = tools_col.row(align=True)
+            row.enabled = strip is not None
+            op = row.operator(VIDEO_TOOLKIT_OT_apply_filter.bl_idname, text=tool.label, icon=_sidecar_tool_icon(tool))
+            op.filter_id = tool.id
+            op.target = "SCENE"
+            node_row = row.row(align=True)
+            node_row.enabled = strip is not None and _tool_has_compositor_stack(tool)
+            node = node_row.operator(VIDEO_TOOLKIT_OT_create_tool_compositor_nodes.bl_idname, text="", icon="NODETREE")
+            node.filter_id = tool.id
 
 
 def _draw_one_click_video_effects(layout, scene, strip) -> None:
@@ -1982,6 +2101,9 @@ def _draw_one_click_video_effects(layout, scene, strip) -> None:
     row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Pro Grade", icon="MODIFIER")
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_board.bl_idname, text="Color Board", icon="COLOR")
+    row = controls.row(align=True)
+    row.operator(VIDEO_TOOLKIT_OT_apply_reference_color_board.bl_idname, text="Ref Board", icon="EYEDROPPER")
+    row.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color", icon="COLOR")
     controls.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname, text="Color Mgmt", icon="WORLD")
     row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="White Balance", icon="EYEDROPPER")
@@ -1998,7 +2120,6 @@ def _draw_one_click_video_effects(layout, scene, strip) -> None:
     row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Deflicker", icon="IPO_EASE_IN_OUT")
     row.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Light", icon="GRAPH")
-    row.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color", icon="COLOR")
     row = controls.row(align=True)
     row.menu("VIDEO_TOOLKIT_MT_compositor_recipes", text="Recipe Nodes", icon="NODETREE")
     controls.operator(
@@ -2033,6 +2154,8 @@ def _draw_sidecar_status(layout, scene) -> None:
         layout.label(text=scene.video_toolkit_last_recommended_recipe_mix, icon="MODIFIER")
     if scene.video_toolkit_last_sampled_color_board:
         layout.label(text=scene.video_toolkit_last_sampled_color_board, icon="COLOR")
+    if scene.video_toolkit_last_reference_color_board:
+        layout.label(text=scene.video_toolkit_last_reference_color_board, icon="EYEDROPPER")
     if scene.video_toolkit_last_output:
         layout.label(text=scene.video_toolkit_last_output, icon="FILE_MOVIE")
 
@@ -2056,6 +2179,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     box.operator(VIDEO_TOOLKIT_OT_normalize_lighting.bl_idname, text="Normalize Lighting Flicker", icon="IPO_EASE_IN_OUT")
     box.operator(VIDEO_TOOLKIT_OT_match_lighting_timeline.bl_idname, text="Match Lighting Timeline", icon="GRAPH")
     box.operator(VIDEO_TOOLKIT_OT_match_color_timeline.bl_idname, text="Match Color Timeline", icon="COLOR")
+    box.operator(VIDEO_TOOLKIT_OT_apply_reference_color_board.bl_idname, text="Reference Color Board", icon="EYEDROPPER")
     box.operator(VIDEO_TOOLKIT_OT_color_diagnostics.bl_idname, text="Color Diagnostics Report", icon="TEXT")
     box.operator(VIDEO_TOOLKIT_OT_apply_professional_color_workflow.bl_idname, text="Apply Pro Color Workflow", icon="COLOR")
     box.operator(VIDEO_TOOLKIT_OT_recommend_catalog_recipes.bl_idname, text="Recommend Catalog Recipes", icon="SORT_ASC")
@@ -2095,6 +2219,8 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
         box.label(text=scene.video_toolkit_last_sampled_pro_grade, icon="MODIFIER")
     if scene.video_toolkit_last_sampled_color_board:
         box.label(text=scene.video_toolkit_last_sampled_color_board, icon="COLOR")
+    if scene.video_toolkit_last_reference_color_board:
+        box.label(text=scene.video_toolkit_last_reference_color_board, icon="EYEDROPPER")
     if scene.video_toolkit_last_sampled_color_management:
         box.label(text=scene.video_toolkit_last_sampled_color_management, icon="WORLD")
 
@@ -2159,6 +2285,8 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Matched", icon="EYEDROPPER")
     op.stack_type = "MATCHED_COLOR"
     row = box.row(align=True)
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Ref Board", icon="EYEDROPPER")
+    op.stack_type = "REFERENCE_COLOR_BOARD"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Timeline", icon="GRAPH")
     op.stack_type = "COLOR_TIMELINE_MATCH"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Translated", icon="MODIFIER")
@@ -3966,6 +4094,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_apply_sampled_hue_chroma,
     VIDEO_TOOLKIT_OT_apply_sampled_pro_grade,
     VIDEO_TOOLKIT_OT_apply_sampled_color_board,
+    VIDEO_TOOLKIT_OT_apply_reference_color_board,
     VIDEO_TOOLKIT_OT_normalize_lighting,
     VIDEO_TOOLKIT_OT_match_lighting_timeline,
     VIDEO_TOOLKIT_OT_match_color_timeline,
@@ -4110,6 +4239,10 @@ def register() -> None:
         name="Last Sampled Color Board",
         default="",
     )
+    bpy.types.Scene.video_toolkit_last_reference_color_board = bpy.props.StringProperty(
+        name="Last Reference Color Board",
+        default="",
+    )
     bpy.types.Scene.video_toolkit_last_sampled_color_management = bpy.props.StringProperty(
         name="Last Sampled Color Management",
         default="",
@@ -4222,6 +4355,7 @@ def unregister() -> None:
         "video_toolkit_last_sampled_hue_chroma",
         "video_toolkit_last_sampled_pro_grade",
         "video_toolkit_last_sampled_color_board",
+        "video_toolkit_last_reference_color_board",
         "video_toolkit_last_sampled_color_management",
         "video_toolkit_last_professional_workflow",
         "video_toolkit_apply_target",
