@@ -169,8 +169,10 @@ def test_native_compositor_video_nodes_are_tracked():
         "CompositorNodeHueCorrect",
         "CompositorNodeTonemap",
         "CompositorNodeDenoise",
+        "CompositorNodeDBlur",
         "CompositorNodeStabilize",
         "CompositorNodeMovieDistortion",
+        "CompositorNodeGroup",
         "CompositorNodeOutputFile",
         "CompositorNodeViewer",
     }.issubset(nodes)

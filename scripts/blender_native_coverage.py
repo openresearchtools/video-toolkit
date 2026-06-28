@@ -85,11 +85,23 @@ for node_type in compositor_node_types():
         tree.nodes.remove(node)
     except Exception as exc:
         available_compositor_nodes[node_type] = {{'error': str(exc)}}
+creatable_compositor_nodes = []
+uncreatable_compositor_node_classes = {{}}
+for node_type in sorted(name for name in dir(bpy.types) if name.startswith('CompositorNode')):
+    try:
+        node = tree.nodes.new(node_type)
+        creatable_compositor_nodes.append(node_type)
+        tree.nodes.remove(node)
+    except Exception as exc:
+        uncreatable_compositor_node_classes[node_type] = str(exc)
 print(json.dumps({{
     'available': available,
     'covered': covered,
     'available_compositor_nodes': available_compositor_nodes,
     'covered_compositor_nodes': list(compositor_node_types()),
+    'creatable_compositor_nodes': creatable_compositor_nodes,
+    'untracked_creatable_compositor_nodes': sorted(set(creatable_compositor_nodes) - set(compositor_node_types())),
+    'uncreatable_compositor_node_classes': uncreatable_compositor_node_classes,
     'scene_view_settings': scene_props,
     'sequencer_colorspace_settings': sequencer_color_props,
 }}, indent=2))
@@ -124,6 +136,9 @@ print(json.dumps({{
     }
     if failed_nodes:
         raise SystemExit(f"Missing Blender compositor video nodes: {json.dumps(failed_nodes, indent=2)}")
+    untracked_nodes = payload["untracked_creatable_compositor_nodes"]
+    if untracked_nodes:
+        raise SystemExit(f"Untracked creatable Blender compositor nodes: {json.dumps(untracked_nodes, indent=2)}")
     print(json.dumps(payload, indent=2))
     return 0
 

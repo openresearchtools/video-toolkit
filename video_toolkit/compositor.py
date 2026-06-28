@@ -45,6 +45,7 @@ COMPOSITOR_RESTORATION_NODES: tuple[CompositorNodeTool, ...] = (
     CompositorNodeTool("CompositorNodeBilateralblur", "Bilateral Blur", "Restoration", "Edge-aware blur."),
     CompositorNodeTool("CompositorNodeBlur", "Blur", "Restoration", "General-purpose blur."),
     CompositorNodeTool("CompositorNodeBokehBlur", "Bokeh Blur", "Restoration", "Bokeh-style blur."),
+    CompositorNodeTool("CompositorNodeDBlur", "Directional Blur", "Restoration", "Directional or radial blur for motion cleanup and stylized video finishing."),
     CompositorNodeTool("CompositorNodeDefocus", "Defocus", "Restoration", "Depth-aware defocus."),
     CompositorNodeTool("CompositorNodeDenoise", "Denoise", "Restoration", "Blender compositor denoise."),
     CompositorNodeTool("CompositorNodeDespeckle", "Despeckle", "Restoration", "Removes small speckles."),
@@ -117,6 +118,7 @@ COMPOSITOR_INPUT_OUTPUT_NODES: tuple[CompositorNodeTool, ...] = (
 COMPOSITOR_UTILITY_NODES: tuple[CompositorNodeTool, ...] = (
     CompositorNodeTool("CompositorNodeConvolve", "Convolve", "Utility", "Custom convolution kernels."),
     CompositorNodeTool("CompositorNodeCryptomatteV2", "Cryptomatte V2", "Utility", "Modern cryptomatte node."),
+    CompositorNodeTool("CompositorNodeGroup", "Node Group", "Utility", "Reusable grouped compositor graph for professional video workflows."),
     CompositorNodeTool("CompositorNodeSplit", "Split", "Utility", "Compares two images in one output."),
     CompositorNodeTool("CompositorNodeStringToImage", "String to Image", "Utility", "Renders text to an image."),
     CompositorNodeTool("CompositorNodeSwitch", "Switch", "Utility", "Switches between inputs."),
