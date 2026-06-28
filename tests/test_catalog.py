@@ -50,6 +50,8 @@ STACK_TYPE_TO_COMPOSITOR_NODE = {
 
 SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES = {
     "BOX_MASK_ALPHA": {"CompositorNodeBoxMask", "CompositorNodeSetAlpha"},
+    "BLANK_IMAGE_OVERLAY": {"CompositorNodeAlphaOver", "CompositorNodeBlankImage"},
+    "BOKEH_IMAGE_BLUR": {"CompositorNodeBokehBlur", "CompositorNodeBokehImage"},
     "ELLIPSE_MASK_ALPHA": {"CompositorNodeEllipseMask", "CompositorNodeSetAlpha"},
     "DOUBLE_EDGE_MASK_ALPHA": {
         "CompositorNodeBoxMask",
@@ -58,6 +60,9 @@ SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES = {
         "CompositorNodeSetAlpha",
     },
     "MASK_TO_SDF_ALPHA": {"CompositorNodeBoxMask", "CompositorNodeMaskToSDF", "CompositorNodeSetAlpha"},
+    "NORMALIZE_LUMA": {"CompositorNodeCombineColor", "CompositorNodeNormalize", "CompositorNodeRGBToBW"},
+    "RGB_OVERLAY": {"CompositorNodeAlphaOver", "CompositorNodeRGB"},
+    "TEXT_OVERLAY": {"CompositorNodeAlphaOver", "CompositorNodeStringToImage"},
 }
 
 
@@ -227,6 +232,22 @@ def test_native_matte_mask_alpha_tools_are_exposed():
         assert node_types.issubset(_tool_compositor_node_classes(tool_id))
 
 
+def test_native_matte_source_tools_are_exposed():
+    expected = {
+        "native_compositor_blender_mask_source": "CompositorNodeMask",
+        "native_compositor_keying_screen": "CompositorNodeKeyingScreen",
+        "native_compositor_id_mask": "CompositorNodeIDMask",
+    }
+    for tool_id, node_type in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Matte & Channel"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack[0][0] == "NATIVE_NODE"
+        assert tool.compositor_stack[0][1]["node_type"] == node_type
+
+
 def test_native_filter_and_blur_tools_are_exposed():
     expected = {
         "native_unsharp_filter": {"FILTER"},
@@ -312,6 +333,8 @@ def test_native_analysis_and_utility_node_tools_are_exposed():
         "native_compositor_scene_time": "CompositorNodeSceneTime",
         "native_compositor_time": "CompositorNodeTime",
         "native_compositor_track_position": "CompositorNodeTrackPos",
+        "native_compositor_image_coordinates": "CompositorNodeImageCoordinates",
+        "native_compositor_relative_to_pixel": "CompositorNodeRelativeToPixel",
     }
     for tool_id, node_type in expected.items():
         tool = get_tool(tool_id)
@@ -321,6 +344,54 @@ def test_native_analysis_and_utility_node_tools_are_exposed():
         assert not tool.is_ffmpeg
         assert tool.compositor_stack[0][0] == "NATIVE_NODE"
         assert tool.compositor_stack[0][1]["node_type"] == node_type
+
+
+def test_native_analysis_graphlet_tools_are_exposed():
+    expected = {
+        "native_compositor_normalize_luma": {"CompositorNodeCombineColor", "CompositorNodeNormalize", "CompositorNodeRGBToBW"},
+    }
+    for tool_id, node_types in expected.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Analysis & Utility"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert node_types.issubset(_tool_compositor_node_classes(tool_id))
+
+
+def test_native_source_and_output_tools_are_exposed():
+    expected_native = {
+        "native_compositor_movie_clip_source": "CompositorNodeMovieClip",
+        "native_compositor_viewer_tap": "CompositorNodeViewer",
+        "native_compositor_output_file_tap": "CompositorNodeOutputFile",
+        "native_compositor_image_source": "CompositorNodeImage",
+        "native_compositor_render_layers_source": "CompositorNodeRLayers",
+        "native_compositor_normal_source": "CompositorNodeNormal",
+        "native_compositor_node_group_placeholder": "CompositorNodeGroup",
+        "native_compositor_switch_view": "CompositorNodeSwitchView",
+    }
+    for tool_id, node_type in expected_native.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Source & Output"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert tool.compositor_stack[0][0] == "NATIVE_NODE"
+        assert tool.compositor_stack[0][1]["node_type"] == node_type
+
+    expected_graphlets = {
+        "native_compositor_rgb_overlay": {"CompositorNodeAlphaOver", "CompositorNodeRGB"},
+        "native_compositor_blank_image_overlay": {"CompositorNodeAlphaOver", "CompositorNodeBlankImage"},
+        "native_compositor_text_overlay": {"CompositorNodeAlphaOver", "CompositorNodeStringToImage"},
+        "native_compositor_bokeh_image_blur": {"CompositorNodeBokehBlur", "CompositorNodeBokehImage"},
+    }
+    for tool_id, node_types in expected_graphlets.items():
+        tool = get_tool(tool_id)
+        assert tool.category == "Native Source & Output"
+        assert tool.is_compositor
+        assert not tool.is_blender_modifier
+        assert not tool.is_ffmpeg
+        assert node_types.issubset(_tool_compositor_node_classes(tool_id))
 
 
 def test_native_geometry_and_lens_tools_are_exposed():
@@ -364,10 +435,13 @@ def test_native_geometry_tracking_node_tools_are_exposed():
 def test_applicable_tracked_compositor_nodes_have_one_click_tools():
     node_to_tool = {
         "CompositorNodeAlphaOver": "native_compositor_alpha_over",
+        "CompositorNodeBlankImage": "native_compositor_blank_image_overlay",
         "CompositorNodeBokehBlur": "native_compositor_bokeh_blur",
+        "CompositorNodeBokehImage": "native_compositor_bokeh_image_blur",
         "CompositorNodeBoxMask": "native_compositor_box_mask_alpha",
         "CompositorNodeChannelMatte": "native_compositor_channel_matte",
         "CompositorNodeColorSpill": "native_compositor_color_spill",
+        "CompositorNodeCombineColor": "native_compositor_normalize_luma",
         "CompositorNodeConvertColorSpace": "native_compositor_color_space_convert",
         "CompositorNodeConvertToDisplay": "native_compositor_display_convert",
         "CompositorNodeCornerPin": "native_compositor_corner_pin",
@@ -380,33 +454,57 @@ def test_applicable_tracked_compositor_nodes_have_one_click_tools():
         "CompositorNodeDoubleEdgeMask": "native_compositor_double_edge_mask_alpha",
         "CompositorNodeEllipseMask": "native_compositor_ellipse_mask_alpha",
         "CompositorNodeGlare": "native_compositor_glare",
+        "CompositorNodeGroup": "native_compositor_node_group_placeholder",
+        "CompositorNodeIDMask": "native_compositor_id_mask",
+        "CompositorNodeImage": "native_compositor_image_source",
+        "CompositorNodeImageCoordinates": "native_compositor_image_coordinates",
         "CompositorNodeImageInfo": "native_compositor_image_info",
         "CompositorNodeInpaint": "native_compositor_inpaint",
         "CompositorNodeKeying": "native_compositor_keying",
+        "CompositorNodeKeyingScreen": "native_compositor_keying_screen",
         "CompositorNodeKuwahara": "native_compositor_kuwahara",
         "CompositorNodeLevels": "native_compositor_levels_monitor",
         "CompositorNodeMapUV": "native_compositor_map_uv",
+        "CompositorNodeMask": "native_compositor_blender_mask_source",
         "CompositorNodeMaskToSDF": "native_compositor_mask_to_sdf_alpha",
+        "CompositorNodeMovieClip": "native_compositor_movie_clip_source",
         "CompositorNodeMovieDistortion": "native_compositor_movie_distortion_node",
+        "CompositorNodeNormal": "native_compositor_normal_source",
+        "CompositorNodeNormalize": "native_compositor_normalize_luma",
+        "CompositorNodeOutputFile": "native_compositor_output_file_tap",
         "CompositorNodePixelate": "native_compositor_pixelate",
         "CompositorNodePlaneTrackDeform": "native_compositor_plane_track_deform",
+        "CompositorNodeRGB": "native_compositor_rgb_overlay",
+        "CompositorNodeRLayers": "native_compositor_render_layers_source",
+        "CompositorNodeRelativeToPixel": "native_compositor_relative_to_pixel",
         "CompositorNodeSceneTime": "native_compositor_scene_time",
         "CompositorNodeSequencerStripInfo": "native_compositor_sequencer_strip_info",
         "CompositorNodeSetAlpha": "native_compositor_set_alpha",
         "CompositorNodeSplit": "native_compositor_split_compare",
+        "CompositorNodeStringToImage": "native_compositor_text_overlay",
         "CompositorNodeStabilize": "native_compositor_stabilize_node",
         "CompositorNodeSwitch": "native_compositor_switch_compare",
+        "CompositorNodeSwitchView": "native_compositor_switch_view",
         "CompositorNodeTime": "native_compositor_time",
         "CompositorNodeTrackPos": "native_compositor_track_position",
         "CompositorNodeTransform": "native_compositor_transform",
         "CompositorNodeTranslate": "native_compositor_translate",
         "CompositorNodeVecBlur": "native_compositor_vector_blur",
+        "CompositorNodeViewer": "native_compositor_viewer_tap",
         "CompositorNodeZcombine": "native_compositor_z_combine",
     }
     tracked_nodes = {tool.node_type for tool in compositor_node_tools()}
     assert set(node_to_tool).issubset(tracked_nodes)
     for node_type, tool_id in node_to_tool.items():
         assert node_type in _tool_compositor_node_classes(tool_id)
+
+
+def test_all_tracked_compositor_nodes_have_one_click_catalog_coverage():
+    tracked_nodes = {tool.node_type for tool in compositor_node_tools()}
+    catalog_nodes = set()
+    for tool in all_tools():
+        catalog_nodes.update(_tool_compositor_node_classes(tool.id))
+    assert tracked_nodes.issubset(catalog_nodes)
 
 
 def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
@@ -472,6 +570,7 @@ def test_categories_keep_ui_order():
         "Native Filter & Blur",
         "Native Visual FX Nodes",
         "Native Analysis & Utility",
+        "Native Source & Output",
         "Native Denoise & Cleanup",
         "Restoration",
         "Native Geometry & Lens",

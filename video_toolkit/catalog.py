@@ -1342,6 +1342,36 @@ TOOLS: tuple[VideoTool, ...] = (
         ),
     ),
     VideoTool(
+        id="native_compositor_blender_mask_source",
+        label="Blender Mask Source",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Mask source node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeMask", label="Mask Source", skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_keying_screen",
+        label="Keying Screen",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Keying Screen node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeKeyingScreen", label="Keying Screen", inputs={"Smoothness": 0.2}, skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_id_mask",
+        label="ID Mask",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor ID Mask node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeIDMask", label="ID Mask", inputs={"ID value": 1.0, "Index": 1.0, "Anti-Alias": True}, skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
         id="native_unsharp_filter",
         label="Native Unsharp Filter",
         category="Native Filter & Blur",
@@ -1687,6 +1717,156 @@ TOOLS: tuple[VideoTool, ...] = (
         description="Creates Blender's native compositor Track Position node beside the selected-strip graph.",
         compositor_stack=(
             _native_node("CompositorNodeTrackPos", label="Track Position", inputs={"Frame": 1.0}, assign_source_clip=True, skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_normalize_luma",
+        label="Normalize Luma",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender RGB-to-BW, Normalize, and Combine Color nodes to normalize selected-strip luminance.",
+        compositor_stack=(
+            ("NORMALIZE_LUMA", {"label": "Normalize Luma"}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_image_coordinates",
+        label="Image Coordinates",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Image Coordinates node as a selected-strip coordinate monitor.",
+        compositor_stack=(
+            _native_node("CompositorNodeImageCoordinates", label="Image Coordinates", passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_relative_to_pixel",
+        label="Relative to Pixel",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Relative to Pixel node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeRelativeToPixel", label="Relative to Pixel", passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_movie_clip_source",
+        label="Movie Clip Source",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates a second Blender Movie Clip source node assigned to the selected video strip.",
+        compositor_stack=(
+            _native_node("CompositorNodeMovieClip", label="Movie Clip Source", assign_source_clip=True, skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_viewer_tap",
+        label="Viewer Tap",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Viewer node as a selected-strip tap.",
+        compositor_stack=(
+            _native_node("CompositorNodeViewer", label="Viewer Tap", passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_output_file_tap",
+        label="Output File Tap",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Output File node as a selected-strip output tap.",
+        compositor_stack=(
+            _native_node("CompositorNodeOutputFile", label="Output File Tap", passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_image_source",
+        label="Image Source",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Image source node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeImage", label="Image Source", skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_render_layers_source",
+        label="Render Layers Source",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Render Layers source node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeRLayers", label="Render Layers Source", skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_normal_source",
+        label="Normal Source",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Normal source node beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeNormal", label="Normal Source", skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_node_group_placeholder",
+        label="Node Group Placeholder",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Group node placeholder beside the selected-strip graph.",
+        compositor_stack=(
+            _native_node("CompositorNodeGroup", label="Node Group", skip_link_input=True, passthrough=True),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_rgb_overlay",
+        label="RGB Overlay",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender RGB and Alpha Over nodes to overlay an editable generated color on the selected strip.",
+        compositor_stack=(
+            ("RGB_OVERLAY", {"label": "RGB Overlay", "outputs": {"Color": (1.0, 1.0, 1.0, 1.0)}, "factor": 0.18}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_blank_image_overlay",
+        label="Blank Image Overlay",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender Blank Image and Alpha Over nodes to overlay a generated image on the selected strip.",
+        compositor_stack=(
+            ("BLANK_IMAGE_OVERLAY", {"label": "Blank Image Overlay", "inputs": {"Color": (0.0, 0.0, 0.0, 1.0), "Size": (640, 360)}, "factor": 0.15}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_text_overlay",
+        label="Text Overlay",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender String to Image and Alpha Over nodes to overlay editable text on the selected strip.",
+        compositor_stack=(
+            ("TEXT_OVERLAY", {"label": "Text Overlay", "inputs": {"String": "VIDEO TOOLKIT", "Size": 48.0}, "factor": 0.35}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_bokeh_image_blur",
+        label="Bokeh Image Blur",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender Bokeh Image and Bokeh Blur nodes to blur the selected strip with an editable bokeh kernel.",
+        compositor_stack=(
+            ("BOKEH_IMAGE_BLUR", {"label": "Bokeh Image Blur", "bokeh_inputs": {"Flaps": 6.0, "Angle": 0.0, "Roundness": 0.5}, "blur_inputs": {"Size": 4.0, "Extend Bounds": False}}),
+        ),
+    ),
+    VideoTool(
+        id="native_compositor_switch_view",
+        label="Switch View",
+        category="Native Source & Output",
+        engine=ENGINE_COMPOSITOR,
+        description="Creates Blender's native compositor Switch View node using the selected strip as the left view input.",
+        compositor_stack=(
+            _native_node("CompositorNodeSwitchView", label="Switch View", image_input="left"),
         ),
     ),
     VideoTool(

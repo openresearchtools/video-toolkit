@@ -97,6 +97,7 @@ SIDECAR_GROUP_ICONS = {
     "Native Filter & Blur": "NODETREE",
     "Native Visual FX Nodes": "NODETREE",
     "Native Analysis & Utility": "NODETREE",
+    "Native Source & Output": "NODETREE",
     "Native Denoise & Cleanup": "NODETREE",
     "Native Geometry & Lens": "NODETREE",
     "Live Blender Modifiers": "MODIFIER",
@@ -3394,6 +3395,12 @@ def _append_translated_compositor_filter(
         return _append_double_edge_mask_alpha_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "MASK_TO_SDF_ALPHA":
         return _append_mask_to_sdf_alpha_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type in {"RGB_OVERLAY", "BLANK_IMAGE_OVERLAY", "TEXT_OVERLAY"}:
+        return _append_source_overlay_filter(tree, input_socket, settings, index, origin, label_prefix, compositor_type)
+    if compositor_type == "BOKEH_IMAGE_BLUR":
+        return _append_bokeh_image_blur_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "NORMALIZE_LUMA":
+        return _append_normalize_luma_filter(tree, input_socket, settings, index, origin, label_prefix)
     node = _translated_compositor_filter_to_node(tree, compositor_type, settings, index, origin, label_prefix, source_clip=source_clip)
     if node is None:
         return input_socket, []
@@ -3649,6 +3656,53 @@ def _append_mask_to_sdf_alpha_filter(tree, input_socket, settings: dict[str, obj
     _link_socket(tree, input_socket, _image_input(set_alpha))
     _link_socket(tree, _socket_by_name(sdf.outputs, "SDF"), _socket_by_name(set_alpha.inputs, "Alpha"))
     return _image_output(set_alpha), [mask, sdf, set_alpha]
+
+
+def _append_source_overlay_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str, compositor_type: str):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Source Overlay'}"
+    source_type = {
+        "RGB_OVERLAY": "CompositorNodeRGB",
+        "BLANK_IMAGE_OVERLAY": "CompositorNodeBlankImage",
+        "TEXT_OVERLAY": "CompositorNodeStringToImage",
+    }[compositor_type]
+    source = _new_compositor_node(tree, source_type, f"{label} Source", index, y_offset=-160, origin=origin)
+    for socket_name, value in dict(settings.get("inputs", {})).items():
+        _set_input_default(source, str(socket_name), value)
+    for socket_name, value in dict(settings.get("outputs", {})).items():
+        _set_output_default(source, str(socket_name), value)
+    alpha = _new_compositor_node(tree, "CompositorNodeAlphaOver", label, index + 1, origin=origin)
+    _set_input_default(alpha, "Factor", settings.get("factor", 0.25))
+    _set_input_default(alpha, "Type", settings.get("type", "Straight"))
+    _set_input_default(alpha, "Straight Alpha", bool(settings.get("straight_alpha", True)))
+    _link_socket(tree, input_socket, _socket_by_name(alpha.inputs, "Background"))
+    _link_socket(tree, _image_output(source), _socket_by_name(alpha.inputs, "Foreground"))
+    return _image_output(alpha), [source, alpha]
+
+
+def _append_bokeh_image_blur_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Bokeh Image Blur'}"
+    bokeh = _new_compositor_node(tree, "CompositorNodeBokehImage", f"{label} Bokeh", index, y_offset=-180, origin=origin)
+    for socket_name, value in dict(settings.get("bokeh_inputs", {})).items():
+        _set_input_default(bokeh, str(socket_name), value)
+    blur = _new_compositor_node(tree, "CompositorNodeBokehBlur", label, index + 1, origin=origin)
+    for socket_name, value in dict(settings.get("blur_inputs", {})).items():
+        _set_input_default(blur, str(socket_name), value)
+    _link_socket(tree, input_socket, _image_input(blur))
+    _link_socket(tree, _image_output(bokeh), _socket_by_name(blur.inputs, "Bokeh"))
+    return _image_output(blur), [bokeh, blur]
+
+
+def _append_normalize_luma_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Normalize Luma'}"
+    luma = _new_compositor_node(tree, "CompositorNodeRGBToBW", f"{label} Luma", index, y_offset=-160, origin=origin)
+    normalize = _new_compositor_node(tree, "CompositorNodeNormalize", label, index + 1, y_offset=-160, origin=origin)
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", f"{label} Combine", index + 2, origin=origin)
+    _set_input_default(combine, "Alpha", 1.0)
+    _link_socket(tree, input_socket, _image_input(luma))
+    _link_socket(tree, _first_socket(luma.outputs), _socket_by_name(normalize.inputs, "Value"))
+    for input_name in ("Red", "Green", "Blue"):
+        _link_socket(tree, _first_socket(normalize.outputs), _socket_by_name(combine.inputs, input_name))
+    return _image_output(combine), [luma, normalize, combine]
 
 
 def _translated_compositor_filter_to_node(
