@@ -1177,6 +1177,38 @@ tool_recipe_filter_ids = [
 ]
 assert set(tool_recipe_filter_ids) == {{'live_pro_color_stack'}}, tool_recipe_filter_ids
 
+result = bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id='channel_mixer_balance')
+assert result == {{'FINISHED'}}, result
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Channel Mixer Balance')
+channel_mixer_summary = scene.video_toolkit_last_compositor_nodes
+channel_mixer_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Tool Channel Mixer Balance ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeSeparateColor',
+    'ShaderNodeMath',
+    'CompositorNodeCombineColor',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in channel_mixer_node_types, required
+channel_mixer_matrix_nodes = [
+    node for node in tree.nodes
+    if node.name.startswith('VTK Tool Channel Mixer Balance Color Channel Mixer Matrix')
+    and node.bl_idname == 'ShaderNodeMath'
+]
+assert len(channel_mixer_matrix_nodes) >= 15, len(channel_mixer_matrix_nodes)
+channel_mixer_matrix_values = [
+    node.get('video_toolkit_rgb_matrix', '')
+    for node in channel_mixer_matrix_nodes
+]
+assert any('1.06,-0.02,-0.01' in matrix for matrix in channel_mixer_matrix_values), channel_mixer_matrix_values[:1]
+
 from video_toolkit.addon import _tool_has_compositor_stack
 from video_toolkit.catalog import all_tools
 expected_all_recipe_ids = [tool.id for tool in all_tools() if _tool_has_compositor_stack(tool)]
@@ -1693,6 +1725,9 @@ Path({str(report)!r}).write_text(json.dumps({{
     'tool_recipe_summary': tool_recipe_summary,
     'tool_recipe_node_types': tool_recipe_node_types,
     'tool_recipe_filter_ids': tool_recipe_filter_ids,
+    'channel_mixer_summary': channel_mixer_summary,
+    'channel_mixer_node_types': channel_mixer_node_types,
+    'channel_mixer_matrix_values': channel_mixer_matrix_values[:3],
     'all_recipe_summary': all_recipe_summary,
     'all_recipe_ids': all_recipe_ids,
     'all_recipe_count': len(all_recipe_ids),

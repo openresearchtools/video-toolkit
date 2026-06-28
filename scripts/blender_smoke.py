@@ -654,6 +654,32 @@ for required in [
     'CompositorNodeOutputFile',
 ]:
     assert required in primary_board_node_types, required
+scene.video_toolkit_sidecar_tool = 'channel_mixer_balance'
+bpy.ops.video_toolkit.create_sidecar_compositor_nodes()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Channel Mixer Balance')
+channel_mixer_node_types = [
+    node.bl_idname
+    for node in tree.nodes
+    if node.name.startswith('VTK Tool Channel Mixer Balance ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeSeparateColor',
+    'ShaderNodeMath',
+    'CompositorNodeCombineColor',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in channel_mixer_node_types, required
+channel_mixer_math_nodes = [
+    node for node in tree.nodes
+    if node.name.startswith('VTK Tool Channel Mixer Balance Color Channel Mixer Matrix')
+    and node.bl_idname == 'ShaderNodeMath'
+]
+assert len(channel_mixer_math_nodes) >= 15, len(channel_mixer_math_nodes)
+assert any('1.06,-0.02,-0.01' in node.get('video_toolkit_rgb_matrix', '') for node in channel_mixer_math_nodes)
 scene.video_toolkit_sidecar_group = 'NATIVE_BLENDER_PRIMITIVES'
 scene.video_toolkit_sidecar_tool = 'native_compositor_bright_contrast'
 bpy.ops.video_toolkit.apply_sidecar_tool()

@@ -3570,6 +3570,8 @@ def _append_translated_compositor_filter(
         return _append_alpha_merge_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "PLANE_SHUFFLE":
         return _append_plane_shuffle_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "RGB_MATRIX":
+        return _append_rgb_matrix_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "COLOR_MODEL_BOARD":
         return _append_color_model_board_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "BLEND_COMPOSITE":
@@ -3824,6 +3826,115 @@ def _append_plane_shuffle_compositor_filter(tree, input_socket, settings: dict[s
     ):
         _link_socket(tree, _socket_by_name(separate.outputs, output_name), _socket_by_name(combine.inputs, input_name))
     return _image_output(combine), [separate, combine]
+
+
+def _append_rgb_matrix_compositor_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    matrix = _rgb_matrix_values(settings.get("matrix"))
+    label = f"VTK {label_prefix} {settings.get('label') or 'RGB Matrix'}"
+    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", f"{label} Separate", index, y_offset=-220, origin=origin)
+    _set_node_property(separate, "mode", "RGB")
+    _link_socket(tree, input_socket, _image_input(separate))
+    created = [separate]
+    source_sockets = (
+        _socket_by_name(separate.outputs, "Red"),
+        _socket_by_name(separate.outputs, "Green"),
+        _socket_by_name(separate.outputs, "Blue"),
+    )
+    combine_inputs: list[tuple[str, object]] = []
+    row_specs = (("Red", matrix[0], -380), ("Green", matrix[1], -160), ("Blue", matrix[2], 60))
+    for row_name, coefficients, y_offset in row_specs:
+        scaled_outputs = []
+        for channel_name, source_socket, coefficient in zip(("Red", "Green", "Blue"), source_sockets, coefficients):
+            multiply = _new_compositor_node(
+                tree,
+                "ShaderNodeMath",
+                f"{label} {row_name} from {channel_name}",
+                index + len(created),
+                y_offset=y_offset,
+                origin=origin,
+            )
+            _set_node_property(multiply, "operation", "MULTIPLY")
+            _set_math_input_default(multiply, 1, coefficient)
+            _link_socket(tree, source_socket, _math_input_socket(multiply, 0))
+            scaled_outputs.append(_first_socket(multiply.outputs))
+            created.append(multiply)
+        add_a = _new_compositor_node(
+            tree,
+            "ShaderNodeMath",
+            f"{label} {row_name} Add RG",
+            index + len(created),
+            y_offset=y_offset,
+            origin=origin,
+        )
+        _set_node_property(add_a, "operation", "ADD")
+        _link_socket(tree, scaled_outputs[0], _math_input_socket(add_a, 0))
+        _link_socket(tree, scaled_outputs[1], _math_input_socket(add_a, 1))
+        created.append(add_a)
+        add_b = _new_compositor_node(
+            tree,
+            "ShaderNodeMath",
+            f"{label} {row_name} Add B",
+            index + len(created),
+            y_offset=y_offset,
+            origin=origin,
+        )
+        _set_node_property(add_b, "operation", "ADD")
+        _link_socket(tree, _first_socket(add_a.outputs), _math_input_socket(add_b, 0))
+        _link_socket(tree, scaled_outputs[2], _math_input_socket(add_b, 1))
+        combine_inputs.append((row_name, _first_socket(add_b.outputs)))
+        created.append(add_b)
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", f"{label} Combine", index + len(created), y_offset=-160, origin=origin)
+    _set_node_property(combine, "mode", "RGB")
+    for input_name, output_socket in combine_inputs:
+        _link_socket(tree, output_socket, _socket_by_name(combine.inputs, input_name))
+    alpha_socket = _socket_by_name(separate.outputs, "Alpha")
+    if alpha_socket is not None:
+        _link_socket(tree, alpha_socket, _socket_by_name(combine.inputs, "Alpha"))
+    else:
+        _set_input_default(combine, "Alpha", 1.0)
+    created.append(combine)
+    flat_matrix = ",".join(f"{value:.6g}" for row in matrix for value in row)
+    for node in created:
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "colorchannelmixer")
+        node["video_toolkit_rgb_matrix"] = flat_matrix
+        node["video_toolkit_rgb_matrix_rows"] = "red,green,blue"
+        if "alpha_matrix" in settings:
+            node["video_toolkit_alpha_matrix"] = ",".join(str(value) for value in settings.get("alpha_matrix", ()))
+        if "preserve_color" in settings:
+            node["video_toolkit_preserve_color"] = settings.get("preserve_color")
+        if "preserve_amount" in settings:
+            node["video_toolkit_preserve_amount"] = float(settings.get("preserve_amount", 0.0) or 0.0)
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
+    return _image_output(combine), created
+
+
+def _rgb_matrix_values(value) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    rows: list[tuple[float, float, float]] = []
+    if isinstance(value, (tuple, list)):
+        for row in value[:3]:
+            if isinstance(row, (tuple, list)):
+                values = [float(item) for item in row[:3]]
+                while len(values) < 3:
+                    values.append(0.0)
+                rows.append(tuple(values[:3]))
+    defaults = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    while len(rows) < 3:
+        rows.append(defaults[len(rows)])
+    return (rows[0], rows[1], rows[2])
+
+
+def _math_input_socket(node, index: int):
+    try:
+        return list(node.inputs)[index]
+    except Exception:
+        return _first_socket(node.inputs)
+
+
+def _set_math_input_default(node, index: int, value) -> None:
+    socket = _math_input_socket(node, index)
+    if socket is not None:
+        _try_set_socket_default(socket, float(value))
 
 
 def _append_color_model_board_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):

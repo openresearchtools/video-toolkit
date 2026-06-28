@@ -15,6 +15,7 @@ from video_toolkit.ffmpeg_native import (
     chromaber_vulkan_to_blender_compositor,
     chromakey_to_blender_compositor,
     colorbalance_to_blender_stack,
+    colorchannelmixer_to_blender_compositor,
     colorchannelmixer_to_blender_stack,
     colormap_to_blender_stack,
     colorkey_to_blender_compositor,
@@ -132,6 +133,23 @@ def test_colorchannelmixer_translates_to_balance_and_white_point():
     stack = colorchannelmixer_to_blender_stack(rr=1.1, gg=1.0, bb=0.9)
     assert [modifier_type for modifier_type, _settings in stack] == ["COLOR_BALANCE", "WHITE_BALANCE"]
     assert stack[0][1]["color_balance.gain"] == (1.1, 1.0, 0.9)
+    compositor = colorchannelmixer_to_blender_compositor(
+        rr=1.1,
+        rg=-0.2,
+        rb=0.05,
+        gr=0.1,
+        gg=0.95,
+        gb=0.0,
+        br=-0.05,
+        bg=0.1,
+        bb=0.9,
+        pc="lum",
+        pa=0.25,
+    )
+    assert compositor[0][0] == "RGB_MATRIX"
+    assert compositor[0][1]["matrix"] == ((1.1, -0.2, 0.05), (0.1, 0.95, 0.0), (-0.05, 0.1, 0.9))
+    assert compositor[0][1]["preserve_color"] == "lum"
+    assert compositor[0][1]["preserve_amount"] == 0.25
 
 
 def test_curves_preset_translates_to_curve_points():
@@ -805,7 +823,7 @@ def test_remaining_live_color_filters_emit_compositor_node_specs():
     ):
         assert source in sources
     node_types = {node_type for node_type, _settings in result.compositor_nodes}
-    assert {"BRIGHT_CONTRAST", "COLOR_BALANCE", "CURVE_RGB", "HUE_CORRECT", "TONEMAP"}.issubset(node_types)
+    assert {"BRIGHT_CONTRAST", "RGB_MATRIX", "CURVE_RGB", "HUE_CORRECT", "TONEMAP"}.issubset(node_types)
     assert sources.count("lut1d") == 2
     assert sources.count("lut3d") == 3
     assert sources.count("haldclut") == 3
@@ -1701,6 +1719,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
         "colorspace_cuda=range=pc,"
+        "colorchannelmixer=rr=1.1:rg=-0.02:rb=-0.01:gr=-0.01:gg=1.04:gb=-0.01:br=-0.04:bg=0.02:bb=1.08,"
         "colorlevels=rimin=0.02:rimax=0.98,"
         "colorbalance=rs=0.1:bm=0.2,"
         "vibrance=intensity=0.4,"
@@ -1843,6 +1862,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert result.supported_filters == (
         "colorspace",
         "colorspace_cuda",
+        "colorchannelmixer",
         "colorlevels",
         "colorbalance",
         "vibrance",
@@ -1984,7 +2004,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "COLOR_SPILL", "BACKGROUND_KEY", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "ALPHA_MERGE", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR", "IDENTITY_COMPARE", "QUALITY_COMPARE"}.issubset(
+    assert {"COLOR_BALANCE", "RGB_MATRIX", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "COLOR_SPILL", "BACKGROUND_KEY", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "ALPHA_MERGE", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR", "IDENTITY_COMPARE", "QUALITY_COMPARE"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

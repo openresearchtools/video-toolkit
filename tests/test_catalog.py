@@ -85,6 +85,7 @@ SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES = {
     "MASK_TO_SDF_ALPHA": {"CompositorNodeBoxMask", "CompositorNodeMaskToSDF", "CompositorNodeSetAlpha"},
     "MASKED_BLEND_COMPOSITE": {"CompositorNodeAlphaOver", "CompositorNodeLumaMatte"},
     "NORMALIZE_LUMA": {"CompositorNodeCombineColor", "CompositorNodeNormalize", "CompositorNodeRGBToBW"},
+    "RGB_MATRIX": {"CompositorNodeCombineColor", "CompositorNodeSeparateColor", "ShaderNodeMath"},
     "RGB_OVERLAY": {"CompositorNodeAlphaOver", "CompositorNodeRGB"},
     "SCOPE_MONITOR": {
         "CompositorNodeCombineColor",
@@ -134,7 +135,7 @@ def test_expected_blender_vse_modifiers_are_covered():
 def test_live_gamma_channel_math_tools_are_exposed():
     expected = {
         "rgb_gamma_board": ({"BRIGHT_CONTRAST", "COLOR_BALANCE", "HUE_CORRECT", "TONEMAP"}, {"CompositorNodeBrightContrast", "CompositorNodeColorBalance", "CompositorNodeHueCorrect", "CompositorNodeTonemap"}),
-        "channel_mixer_balance": ({"COLOR_BALANCE", "WHITE_BALANCE"}, {"CompositorNodeColorBalance"}),
+        "channel_mixer_balance": ({"COLOR_BALANCE", "WHITE_BALANCE"}, {"CompositorNodeCombineColor", "CompositorNodeSeparateColor", "ShaderNodeMath"}),
         "opponent_color_contrast": ({"COLOR_BALANCE", "WHITE_BALANCE"}, {"CompositorNodeColorBalance"}),
         "low_high_colorcorrect": ({"COLOR_BALANCE", "HUE_CORRECT"}, {"CompositorNodeColorCorrection"}),
         "independent_rgb_normalize": ({"CURVES", "TONEMAP"}, {"CompositorNodeCurveRGB", "CompositorNodeTonemap"}),

@@ -491,9 +491,9 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
         elif name == "colorchannelmixer":
             mixer_stack = colorchannelmixer_to_blender_stack(**args)
             stack.extend(mixer_stack)
-            compositor_nodes.extend(_stack_to_compositor_nodes(mixer_stack, "colorchannelmixer", "Color Channel Mixer"))
+            compositor_nodes.extend(colorchannelmixer_to_blender_compositor(**args))
             supported.append(name)
-            notes.append("Color channel mixer is approximated with Blender Color Balance and White Balance.")
+            notes.append("Color channel mixer is previewed live with Blender Color Balance and represented exactly in compositor nodes with native RGB matrix math.")
         elif name == "curves":
             curves_stack = curves_to_blender_stack(**args)
             stack.extend(curves_stack)
@@ -1062,9 +1062,10 @@ def colorchannelmixer_to_blender_stack(
     bb: str | float = 1.0,
     **_unused: str,
 ) -> BlenderStack:
-    red_gain = _clamp(_float(rr, 1.0) + 0.5 * _float(rg, 0.0) + 0.5 * _float(rb, 0.0), 0.2, 2.0)
-    green_gain = _clamp(_float(gg, 1.0) + 0.5 * _float(gr, 0.0) + 0.5 * _float(gb, 0.0), 0.2, 2.0)
-    blue_gain = _clamp(_float(bb, 1.0) + 0.5 * _float(br, 0.0) + 0.5 * _float(bg, 0.0), 0.2, 2.0)
+    matrix = _colorchannelmixer_matrix(rr=rr, rg=rg, rb=rb, gr=gr, gg=gg, gb=gb, br=br, bg=bg, bb=bb)
+    red_gain = _clamp(matrix[0][0] + 0.5 * matrix[0][1] + 0.5 * matrix[0][2], 0.2, 2.0)
+    green_gain = _clamp(matrix[1][1] + 0.5 * matrix[1][0] + 0.5 * matrix[1][2], 0.2, 2.0)
+    blue_gain = _clamp(matrix[2][2] + 0.5 * matrix[2][0] + 0.5 * matrix[2][1], 0.2, 2.0)
     return (
         (
             "COLOR_BALANCE",
@@ -1079,6 +1080,60 @@ def colorchannelmixer_to_blender_stack(
             },
         ),
         ("WHITE_BALANCE", {"white_value": (red_gain, green_gain, blue_gain)}),
+    )
+
+
+def colorchannelmixer_to_blender_compositor(
+    *,
+    rr: str | float = 1.0,
+    rg: str | float = 0.0,
+    rb: str | float = 0.0,
+    gr: str | float = 0.0,
+    gg: str | float = 1.0,
+    gb: str | float = 0.0,
+    br: str | float = 0.0,
+    bg: str | float = 0.0,
+    bb: str | float = 1.0,
+    ar: str | float = 0.0,
+    ag: str | float = 0.0,
+    ab: str | float = 0.0,
+    aa: str | float = 1.0,
+    pc: str = "none",
+    pa: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    return (
+        (
+            "RGB_MATRIX",
+            {
+                "label": "Color Channel Mixer Matrix",
+                "source": "colorchannelmixer",
+                "matrix": _colorchannelmixer_matrix(rr=rr, rg=rg, rb=rb, gr=gr, gg=gg, gb=gb, br=br, bg=bg, bb=bb),
+                "alpha_matrix": (_float(ar, 0.0), _float(ag, 0.0), _float(ab, 0.0), _float(aa, 1.0)),
+                "preserve_color": str(pc or "none"),
+                "preserve_amount": _clamp(_float(pa, 0.0), 0.0, 1.0),
+                "approximation": "Blender compositor Math nodes reproduce FFmpeg colorchannelmixer RGB matrix coefficients; alpha/preserve-color controls are stored as editable metadata because Blender's Combine Color alpha path is image-alpha based.",
+            },
+        ),
+    )
+
+
+def _colorchannelmixer_matrix(
+    *,
+    rr: str | float = 1.0,
+    rg: str | float = 0.0,
+    rb: str | float = 0.0,
+    gr: str | float = 0.0,
+    gg: str | float = 1.0,
+    gb: str | float = 0.0,
+    br: str | float = 0.0,
+    bg: str | float = 0.0,
+    bb: str | float = 1.0,
+) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    return (
+        (_float(rr, 1.0), _float(rg, 0.0), _float(rb, 0.0)),
+        (_float(gr, 0.0), _float(gg, 1.0), _float(gb, 0.0)),
+        (_float(br, 0.0), _float(bg, 0.0), _float(bb, 1.0)),
     )
 
 

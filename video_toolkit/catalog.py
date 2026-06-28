@@ -1576,7 +1576,7 @@ TOOLS: tuple[VideoTool, ...] = (
         label="Channel Mixer Balance",
         category="Live Blender Color",
         engine=ENGINE_BLENDER_MODIFIER,
-        description="Translated FFmpeg colorchannelmixer channel math as Blender Lift/Gamma/Gain and White Balance controls.",
+        description="Translated FFmpeg colorchannelmixer channel math as live Blender Lift/Gamma/Gain controls plus exact RGB Matrix compositor Math nodes.",
         blender_stack=_CHANNEL_MIXER_BALANCE_TRANSLATION.stack,
         compositor_stack=_CHANNEL_MIXER_BALANCE_TRANSLATION.compositor_nodes,
     ),
