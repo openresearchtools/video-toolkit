@@ -94,6 +94,14 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "dedot",
     "deband",
     "deblock",
+    "histogram",
+    "thistogram",
+    "waveform",
+    "vectorscope",
+    "ciescope",
+    "datascope",
+    "oscilloscope",
+    "signalstats",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -345,6 +353,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(restoration_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor restoration nodes; temporal behavior is approximated spatially where Blender has no temporal node.")
+        elif name in {"histogram", "thistogram", "waveform", "vectorscope", "ciescope", "datascope", "oscilloscope", "signalstats"}:
+            compositor_nodes.extend(scope_filter_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is translated to a Blender compositor diagnostic graph using RGB/luma monitor nodes.")
         elif name == "pseudocolor":
             pseudocolor_stack = pseudocolor_to_blender_stack(**args)
             stack.extend(pseudocolor_stack)
@@ -2091,6 +2103,38 @@ def restoration_filter_to_blender_compositor(source: str, **options: str | int |
     if name == "deblock":
         return _deblock_to_blender_compositor(options)
     return ()
+
+
+def scope_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    labels = {
+        "histogram": "Histogram Scope",
+        "thistogram": "Temporal Histogram Scope",
+        "waveform": "Waveform Scope",
+        "vectorscope": "Vectorscope",
+        "ciescope": "CIE Scope",
+        "datascope": "Data Scope",
+        "oscilloscope": "Oscilloscope",
+        "signalstats": "Signal Stats",
+    }
+    component_text = str(_option(options, "components", "c", default="all"))
+    mode_text = str(_option(options, "mode", "m", "display", default="monitor"))
+    intensity = _clamp(_float(_option(options, "intensity", "i", default=0.7), 0.7), 0.0, 1.0)
+    return (
+        (
+            "SCOPE_MONITOR",
+            {
+                "label": labels.get(name, name.title()),
+                "scope": name,
+                "mode": mode_text,
+                "components": component_text,
+                "intensity": intensity,
+                "stat": str(_option(options, "stat", default="")),
+                "source": name,
+                "approximation": "Blender has no VSE waveform/vectorscope filter output; this creates linked RGB/luma Levels, Separate Color, Image Info, and Viewer monitor nodes beside the selected-strip graph.",
+            },
+        ),
+    )
 
 
 def _denoise_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:

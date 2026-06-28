@@ -237,6 +237,14 @@ _SELECTIVE_NEUTRAL_BALANCE_TRANSLATION = translate_filter_chain(
     "blues=-0.03 0.02 0.05 0.00:magentas=0.03 -0.02 0.00 0.00:"
     "neutrals=0.00 0.00 0.00 0.02"
 )
+_NATIVE_HISTOGRAM_SCOPE_TRANSLATION = translate_filter_chain("histogram=mode=levels:components=all:intensity=0.75")
+_NATIVE_TEMPORAL_HISTOGRAM_SCOPE_TRANSLATION = translate_filter_chain("thistogram=mode=levels:components=all:intensity=0.70")
+_NATIVE_WAVEFORM_SCOPE_TRANSLATION = translate_filter_chain("waveform=display=overlay:components=7:intensity=0.75")
+_NATIVE_VECTOR_SCOPE_TRANSLATION = translate_filter_chain("vectorscope=mode=color3:components=7:intensity=0.80")
+_NATIVE_CIE_SCOPE_TRANSLATION = translate_filter_chain("ciescope=system=rec709:cie=xyy:intensity=0.75")
+_NATIVE_DATA_SCOPE_TRANSLATION = translate_filter_chain("datascope=mode=color2:components=all")
+_NATIVE_OSCILLOSCOPE_SCOPE_TRANSLATION = translate_filter_chain("oscilloscope=components=7:intensity=0.65")
+_NATIVE_SIGNAL_STATS_TRANSLATION = translate_filter_chain("signalstats=stat=tout+vrep+brng")
 _CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey=color=green:similarity=0.18:blend=0.06")
 _COLOR_KEY_MATTE_TRANSLATION = translate_filter_chain("colorkey=color=blue:similarity=0.16:blend=0.04")
 _HSV_KEY_MATTE_TRANSLATION = translate_filter_chain("hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.03")
@@ -1861,6 +1869,70 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=(
             ("NORMALIZE_LUMA", {"label": "Normalize Luma"}),
         ),
+    ),
+    VideoTool(
+        id="native_ffmpeg_histogram_scope",
+        label="Histogram Scope",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg histogram intent as a Blender RGB/luma Levels diagnostic graph for the selected strip.",
+        compositor_stack=_NATIVE_HISTOGRAM_SCOPE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_temporal_histogram_scope",
+        label="Temporal Histogram Scope",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg thistogram intent as a Blender RGB/luma Levels diagnostic graph for the selected strip.",
+        compositor_stack=_NATIVE_TEMPORAL_HISTOGRAM_SCOPE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_waveform_scope",
+        label="Waveform Scope",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg waveform intent as a Blender RGB/luma scope monitor graph.",
+        compositor_stack=_NATIVE_WAVEFORM_SCOPE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_vectorscope",
+        label="Vectorscope",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg vectorscope intent as a Blender RGB/luma scope monitor graph with editable metadata.",
+        compositor_stack=_NATIVE_VECTOR_SCOPE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_cie_scope",
+        label="CIE Scope",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg ciescope intent as a Blender color diagnostic monitor graph.",
+        compositor_stack=_NATIVE_CIE_SCOPE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_datascope",
+        label="Data Scope",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg datascope intent as Blender Image Info plus RGB/luma Levels monitor nodes.",
+        compositor_stack=_NATIVE_DATA_SCOPE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_oscilloscope",
+        label="Oscilloscope",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg oscilloscope intent as a Blender RGB/luma scope monitor graph.",
+        compositor_stack=_NATIVE_OSCILLOSCOPE_SCOPE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_signal_stats",
+        label="Signal Stats",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg signalstats intent as Blender Levels and Image Info diagnostic nodes for the selected strip.",
+        compositor_stack=_NATIVE_SIGNAL_STATS_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_compositor_image_coordinates",

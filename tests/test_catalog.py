@@ -62,6 +62,14 @@ SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES = {
     "MASK_TO_SDF_ALPHA": {"CompositorNodeBoxMask", "CompositorNodeMaskToSDF", "CompositorNodeSetAlpha"},
     "NORMALIZE_LUMA": {"CompositorNodeCombineColor", "CompositorNodeNormalize", "CompositorNodeRGBToBW"},
     "RGB_OVERLAY": {"CompositorNodeAlphaOver", "CompositorNodeRGB"},
+    "SCOPE_MONITOR": {
+        "CompositorNodeCombineColor",
+        "CompositorNodeImageInfo",
+        "CompositorNodeLevels",
+        "CompositorNodeRGBToBW",
+        "CompositorNodeSeparateColor",
+        "CompositorNodeViewer",
+    },
     "TEXT_OVERLAY": {"CompositorNodeAlphaOver", "CompositorNodeStringToImage"},
 }
 
@@ -374,6 +382,70 @@ def test_native_analysis_and_utility_node_tools_are_exposed():
 def test_native_analysis_graphlet_tools_are_exposed():
     expected = {
         "native_compositor_normalize_luma": {"CompositorNodeCombineColor", "CompositorNodeNormalize", "CompositorNodeRGBToBW"},
+        "native_ffmpeg_histogram_scope": {
+            "CompositorNodeCombineColor",
+            "CompositorNodeImageInfo",
+            "CompositorNodeLevels",
+            "CompositorNodeRGBToBW",
+            "CompositorNodeSeparateColor",
+            "CompositorNodeViewer",
+        },
+        "native_ffmpeg_temporal_histogram_scope": {
+            "CompositorNodeCombineColor",
+            "CompositorNodeImageInfo",
+            "CompositorNodeLevels",
+            "CompositorNodeRGBToBW",
+            "CompositorNodeSeparateColor",
+            "CompositorNodeViewer",
+        },
+        "native_ffmpeg_waveform_scope": {
+            "CompositorNodeCombineColor",
+            "CompositorNodeImageInfo",
+            "CompositorNodeLevels",
+            "CompositorNodeRGBToBW",
+            "CompositorNodeSeparateColor",
+            "CompositorNodeViewer",
+        },
+        "native_ffmpeg_vectorscope": {
+            "CompositorNodeCombineColor",
+            "CompositorNodeImageInfo",
+            "CompositorNodeLevels",
+            "CompositorNodeRGBToBW",
+            "CompositorNodeSeparateColor",
+            "CompositorNodeViewer",
+        },
+        "native_ffmpeg_cie_scope": {
+            "CompositorNodeCombineColor",
+            "CompositorNodeImageInfo",
+            "CompositorNodeLevels",
+            "CompositorNodeRGBToBW",
+            "CompositorNodeSeparateColor",
+            "CompositorNodeViewer",
+        },
+        "native_ffmpeg_datascope": {
+            "CompositorNodeCombineColor",
+            "CompositorNodeImageInfo",
+            "CompositorNodeLevels",
+            "CompositorNodeRGBToBW",
+            "CompositorNodeSeparateColor",
+            "CompositorNodeViewer",
+        },
+        "native_ffmpeg_oscilloscope": {
+            "CompositorNodeCombineColor",
+            "CompositorNodeImageInfo",
+            "CompositorNodeLevels",
+            "CompositorNodeRGBToBW",
+            "CompositorNodeSeparateColor",
+            "CompositorNodeViewer",
+        },
+        "native_ffmpeg_signal_stats": {
+            "CompositorNodeCombineColor",
+            "CompositorNodeImageInfo",
+            "CompositorNodeLevels",
+            "CompositorNodeRGBToBW",
+            "CompositorNodeSeparateColor",
+            "CompositorNodeViewer",
+        },
     }
     for tool_id, node_types in expected.items():
         tool = get_tool(tool_id)
@@ -578,6 +650,14 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "dedot": "native_dedot_cleanup",
         "deband": "native_deband_cleanup",
         "deblock": "native_deblock_cleanup",
+        "histogram": "native_ffmpeg_histogram_scope",
+        "thistogram": "native_ffmpeg_temporal_histogram_scope",
+        "waveform": "native_ffmpeg_waveform_scope",
+        "vectorscope": "native_ffmpeg_vectorscope",
+        "ciescope": "native_ffmpeg_cie_scope",
+        "datascope": "native_ffmpeg_datascope",
+        "oscilloscope": "native_ffmpeg_oscilloscope",
+        "signalstats": "native_ffmpeg_signal_stats",
     }
     assert set(NATIVE_FFMPEG_COMPOSITOR_FILTERS) == set(filter_to_tool)
     for tool_id in filter_to_tool.values():

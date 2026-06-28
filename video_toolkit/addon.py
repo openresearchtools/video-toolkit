@@ -3401,6 +3401,8 @@ def _append_translated_compositor_filter(
         return _append_bokeh_image_blur_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "NORMALIZE_LUMA":
         return _append_normalize_luma_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "SCOPE_MONITOR":
+        return _append_scope_monitor_filter(tree, input_socket, settings, index, origin, label_prefix)
     node = _translated_compositor_filter_to_node(tree, compositor_type, settings, index, origin, label_prefix, source_clip=source_clip)
     if node is None:
         return input_socket, []
@@ -3703,6 +3705,34 @@ def _append_normalize_luma_filter(tree, input_socket, settings: dict[str, object
     for input_name in ("Red", "Green", "Blue"):
         _link_socket(tree, _first_socket(normalize.outputs), _socket_by_name(combine.inputs, input_name))
     return _image_output(combine), [luma, normalize, combine]
+
+
+def _append_scope_monitor_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Scope Monitor'}"
+    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", f"{label} Separate RGB", index, y_offset=-360, origin=origin)
+    image_levels = _new_compositor_node(tree, "CompositorNodeLevels", f"{label} Image Levels", index + 1, y_offset=-180, origin=origin)
+    luma = _new_compositor_node(tree, "CompositorNodeRGBToBW", f"{label} Luma", index + 2, y_offset=0, origin=origin)
+    luma_image = _new_compositor_node(tree, "CompositorNodeCombineColor", f"{label} Luma Image", index + 3, y_offset=0, origin=origin)
+    luma_levels = _new_compositor_node(tree, "CompositorNodeLevels", f"{label} Luma Levels", index + 4, y_offset=180, origin=origin)
+    info = _new_compositor_node(tree, "CompositorNodeImageInfo", f"{label} Image Info", index + 5, y_offset=360, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", f"{label} Viewer", index + 6, y_offset=0, origin=origin)
+    _set_input_default(luma_image, "Alpha", 1.0)
+    _link_socket(tree, input_socket, _image_input(separate))
+    _link_socket(tree, input_socket, _image_input(image_levels))
+    _link_socket(tree, input_socket, _image_input(luma))
+    _link_socket(tree, input_socket, _image_input(info))
+    for input_name in ("Red", "Green", "Blue"):
+        _link_socket(tree, _first_socket(luma.outputs), _socket_by_name(luma_image.inputs, input_name))
+    _link_socket(tree, _image_output(luma_image), _image_input(luma_levels))
+    _link_socket(tree, _image_output(luma_image), _image_input(viewer))
+    for node in (separate, image_levels, luma, luma_image, luma_levels, info, viewer):
+        node["video_toolkit_scope"] = settings.get("scope", "scope")
+        node["video_toolkit_scope_mode"] = settings.get("mode", "")
+        node["video_toolkit_scope_components"] = settings.get("components", "")
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", settings.get("scope", "scope"))
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
+    return input_socket, [separate, image_levels, luma, luma_image, luma_levels, info, viewer]
 
 
 def _translated_compositor_filter_to_node(

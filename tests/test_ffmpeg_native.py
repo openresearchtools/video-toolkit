@@ -46,6 +46,7 @@ from video_toolkit.ffmpeg_native import (
     scale_to_blender_compositor,
     selectivecolor_to_blender_stack,
     shuffleplanes_to_blender_compositor,
+    scope_filter_to_blender_compositor,
     translate_filter_chain,
     transpose_to_blender_compositor,
     tonemap_to_blender_compositor,
@@ -276,6 +277,37 @@ def test_direct_pro_color_filters_translate_to_compositor_nodes():
         "HUE_CORRECT",
         "HUE_CORRECT",
     ]
+
+
+def test_ffmpeg_scope_filters_translate_to_blender_diagnostic_graphlets():
+    scope = scope_filter_to_blender_compositor("waveform", display="overlay", components=7, intensity=0.8)
+    assert scope[0][0] == "SCOPE_MONITOR"
+    assert scope[0][1]["scope"] == "waveform"
+    assert scope[0][1]["components"] == "7"
+    assert scope[0][1]["intensity"] == 0.8
+
+    result = translate_filter_chain(
+        "histogram=mode=levels,"
+        "thistogram=mode=levels,"
+        "waveform=display=overlay:components=7,"
+        "vectorscope=mode=color3,"
+        "ciescope=system=rec709,"
+        "datascope=mode=color2,"
+        "oscilloscope=components=7,"
+        "signalstats=stat=tout+vrep+brng"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == (
+        "histogram",
+        "thistogram",
+        "waveform",
+        "vectorscope",
+        "ciescope",
+        "datascope",
+        "oscilloscope",
+        "signalstats",
+    )
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["SCOPE_MONITOR"] * 8
 
 
 def test_remaining_live_color_filters_emit_compositor_node_specs():
@@ -867,6 +899,14 @@ def test_filter_chain_supports_more_color_grading_filters():
         "dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,"
         "deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,"
         "deblock=block=16:alpha=0.12:beta=0.08,"
+        "histogram=mode=levels,"
+        "thistogram=mode=levels,"
+        "waveform=display=overlay:components=7,"
+        "vectorscope=mode=color3,"
+        "ciescope=system=rec709,"
+        "datascope=mode=color2,"
+        "oscilloscope=components=7,"
+        "signalstats=stat=tout+vrep+brng,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -936,6 +976,14 @@ def test_filter_chain_supports_more_color_grading_filters():
         "dedot",
         "deband",
         "deblock",
+        "histogram",
+        "thistogram",
+        "waveform",
+        "vectorscope",
+        "ciescope",
+        "datascope",
+        "oscilloscope",
+        "signalstats",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -944,7 +992,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING"}.issubset(
+    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management
