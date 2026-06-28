@@ -367,6 +367,7 @@ def test_ffmpeg_scope_filters_translate_to_blender_diagnostic_graphlets():
         "ciescope=system=rec709,"
         "datascope=mode=color2,"
         "oscilloscope=components=7,"
+        "pixscope=x=0.55:y=0.45:w=11:h=9:o=0.7,"
         "signalstats=stat=tout+vrep+brng,"
         "colordetect=mode=color_range+alpha_mode+all"
     )
@@ -379,10 +380,18 @@ def test_ffmpeg_scope_filters_translate_to_blender_diagnostic_graphlets():
         "ciescope",
         "datascope",
         "oscilloscope",
+        "pixscope",
         "signalstats",
         "colordetect",
     )
-    assert [node_type for node_type, _settings in result.compositor_nodes] == ["SCOPE_MONITOR"] * 9
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["SCOPE_MONITOR"] * 10
+    pixscope = result.compositor_nodes[7][1]
+    assert pixscope["scope"] == "pixscope"
+    assert pixscope["pixel_x"] == 0.55
+    assert pixscope["pixel_y"] == 0.45
+    assert pixscope["pixel_width"] == 11
+    assert pixscope["pixel_height"] == 9
+    assert pixscope["window_opacity"] == 0.7
 
 
 def test_remaining_live_color_filters_emit_compositor_node_specs():
@@ -570,6 +579,11 @@ def test_blend_lut2_maskedmerge_and_mergeplanes_translate_to_native_graph_specs(
     assert lut2[0][1]["factor"] == 0.5
     assert lut2[0][1]["expressions"][0] == "(x+y)/2"
 
+    tlut2 = lut2_to_blender_compositor(source="tlut2", c0="(x+y)/2", c1="(x+y)/2", c2="(x+y)/2", c3="x")
+    assert tlut2[0][0] == "BLEND_COMPOSITE"
+    assert tlut2[0][1]["source"] == "tlut2"
+    assert tlut2[0][1]["temporal"] is True
+
     masked = maskedmerge_to_blender_compositor(planes=15)
     assert masked[0][0] == "MASKED_BLEND_COMPOSITE"
     assert masked[0][1]["source"] == "maskedmerge"
@@ -584,13 +598,15 @@ def test_blend_lut2_maskedmerge_and_mergeplanes_translate_to_native_graph_specs(
         "blend=all_mode=overlay:all_opacity=0.35,"
         "tblend=all_mode=average:all_opacity=0.45,"
         "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
+        "tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
         "maskedmerge=planes=15,"
         "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3"
     )
     assert result.stack == ()
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("blend", "tblend", "lut2", "maskedmerge", "mergeplanes")
+    assert result.supported_filters == ("blend", "tblend", "lut2", "tlut2", "maskedmerge", "mergeplanes")
     assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "BLEND_COMPOSITE",
         "BLEND_COMPOSITE",
         "BLEND_COMPOSITE",
         "BLEND_COMPOSITE",
@@ -1057,6 +1073,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "blend=all_mode=overlay:all_opacity=0.35,"
         "tblend=all_mode=average:all_opacity=0.45,"
         "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
+        "tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
         "maskedmerge=planes=15,"
         "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
@@ -1112,6 +1129,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "ciescope=system=rec709,"
         "datascope=mode=color2,"
         "oscilloscope=components=7,"
+        "pixscope=x=0.55:y=0.45:w=11:h=9:o=0.7,"
         "signalstats=stat=tout+vrep+brng,"
         "colordetect=mode=color_range+alpha_mode+all,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
@@ -1155,6 +1173,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "blend",
         "tblend",
         "lut2",
+        "tlut2",
         "maskedmerge",
         "mergeplanes",
         "rgbashift",
@@ -1210,6 +1229,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "ciescope",
         "datascope",
         "oscilloscope",
+        "pixscope",
         "signalstats",
         "colordetect",
         "pseudocolor",

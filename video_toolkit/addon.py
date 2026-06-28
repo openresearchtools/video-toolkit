@@ -3810,6 +3810,9 @@ def _append_scope_monitor_filter(tree, input_socket, settings: dict[str, object]
         node["video_toolkit_scope_mode"] = settings.get("mode", "")
         node["video_toolkit_scope_components"] = settings.get("components", "")
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", settings.get("scope", "scope"))
+        for key in ("pixel_x", "pixel_y", "pixel_width", "pixel_height", "window_opacity", "window_x", "window_y"):
+            if key in settings:
+                node[f"video_toolkit_{key}"] = settings[key]
         if settings.get("approximation"):
             node["video_toolkit_approximation"] = settings.get("approximation")
     return input_socket, [separate, image_levels, luma, luma_image, luma_levels, info, viewer]
@@ -4842,6 +4845,7 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "blend=all_mode=overlay:all_opacity=0.35,"
         "tblend=all_mode=average:all_opacity=0.45,"
         "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
+        "tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
         "maskedmerge=planes=15,"
         "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"

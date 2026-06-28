@@ -251,6 +251,7 @@ _NATIVE_VECTOR_SCOPE_TRANSLATION = translate_filter_chain("vectorscope=mode=colo
 _NATIVE_CIE_SCOPE_TRANSLATION = translate_filter_chain("ciescope=system=rec709:cie=xyy:intensity=0.75")
 _NATIVE_DATA_SCOPE_TRANSLATION = translate_filter_chain("datascope=mode=color2:components=all")
 _NATIVE_OSCILLOSCOPE_SCOPE_TRANSLATION = translate_filter_chain("oscilloscope=components=7:intensity=0.65")
+_NATIVE_PIXEL_SCOPE_TRANSLATION = translate_filter_chain("pixscope=x=0.5:y=0.5:w=9:h=9:o=0.65")
 _NATIVE_SIGNAL_STATS_TRANSLATION = translate_filter_chain("signalstats=stat=tout+vrep+brng")
 _NATIVE_COLOR_DETECT_TRANSLATION = translate_filter_chain("colordetect=mode=color_range+alpha_mode+all")
 _CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey=color=green:similarity=0.18:blend=0.06")
@@ -262,6 +263,7 @@ _MASKED_THRESHOLD_MATTE_TRANSLATION = translate_filter_chain("maskedthreshold=th
 _BLEND_OVERLAY_TRANSLATION = translate_filter_chain("blend=all_mode=overlay:all_opacity=0.35")
 _TEMPORAL_BLEND_TRANSLATION = translate_filter_chain("tblend=all_mode=average:all_opacity=0.45")
 _LUT2_EXPRESSION_MIX_TRANSLATION = translate_filter_chain("lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x")
+_TEMPORAL_LUT2_EXPRESSION_TRANSLATION = translate_filter_chain("tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x")
 _MASKED_MERGE_TRANSLATION = translate_filter_chain("maskedmerge=planes=15")
 _MERGEPLANES_ROUTER_TRANSLATION = translate_filter_chain("mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3")
 _RGBA_CHANNEL_SHIFT_TRANSLATION = translate_filter_chain("rgbashift=rh=5:rv=-2:bh=-4:bv=2")
@@ -1422,6 +1424,14 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_LUT2_EXPRESSION_MIX_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_tlut2_temporal_expression",
+        label="Native Temporal LUT2 Expression",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg tlut2 successive-frame expression intent as an editable Blender Alpha Over composite graph with temporal expression metadata.",
+        compositor_stack=_TEMPORAL_LUT2_EXPRESSION_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_masked_merge",
         label="Native Masked Merge",
         category="Native Matte & Channel",
@@ -2089,6 +2099,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg oscilloscope intent as a Blender RGB/luma scope monitor graph.",
         compositor_stack=_NATIVE_OSCILLOSCOPE_SCOPE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_pixel_scope",
+        label="Pixel Scope",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg pixscope intent as Blender Image Info, RGB/luma Levels, and Viewer monitor nodes with sampled window metadata.",
+        compositor_stack=_NATIVE_PIXEL_SCOPE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_ffmpeg_signal_stats",

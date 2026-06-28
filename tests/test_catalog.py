@@ -206,6 +206,7 @@ def test_native_matte_and_channel_tools_are_exposed():
         "native_blend_overlay_composite": {"BLEND_COMPOSITE"},
         "native_temporal_blend_ghost": {"BLEND_COMPOSITE"},
         "native_lut2_expression_mix": {"BLEND_COMPOSITE"},
+        "native_tlut2_temporal_expression": {"BLEND_COMPOSITE"},
         "native_masked_merge": {"MASKED_BLEND_COMPOSITE"},
         "native_mergeplanes_router": {"PLANE_SHUFFLE"},
         "native_rgba_channel_shift": {"CHANNEL_SHIFT"},
@@ -459,6 +460,14 @@ def test_native_analysis_graphlet_tools_are_exposed():
             "CompositorNodeSeparateColor",
             "CompositorNodeViewer",
         },
+        "native_ffmpeg_pixel_scope": {
+            "CompositorNodeCombineColor",
+            "CompositorNodeImageInfo",
+            "CompositorNodeLevels",
+            "CompositorNodeRGBToBW",
+            "CompositorNodeSeparateColor",
+            "CompositorNodeViewer",
+        },
         "native_ffmpeg_signal_stats": {
             "CompositorNodeCombineColor",
             "CompositorNodeImageInfo",
@@ -644,6 +653,7 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "blend": "native_blend_overlay_composite",
         "tblend": "native_temporal_blend_ghost",
         "lut2": "native_lut2_expression_mix",
+        "tlut2": "native_tlut2_temporal_expression",
         "maskedmerge": "native_masked_merge",
         "mergeplanes": "native_mergeplanes_router",
         "rgbashift": "native_rgba_channel_shift",
@@ -699,6 +709,7 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "ciescope": "native_ffmpeg_cie_scope",
         "datascope": "native_ffmpeg_datascope",
         "oscilloscope": "native_ffmpeg_oscilloscope",
+        "pixscope": "native_ffmpeg_pixel_scope",
         "signalstats": "native_ffmpeg_signal_stats",
         "colordetect": "native_ffmpeg_color_detect",
     }

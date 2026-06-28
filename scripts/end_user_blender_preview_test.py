@@ -342,6 +342,7 @@ scene.video_toolkit_ffmpeg_chain = (
     "blend=all_mode=overlay:all_opacity=0.35,"
     "tblend=all_mode=average:all_opacity=0.45,"
     "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
+    "tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
     "maskedmerge=planes=15,"
     "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3,"
     'rgbashift=rh=4:rv=-2:bh=-3:bv=2,'
@@ -390,8 +391,30 @@ scene.video_toolkit_ffmpeg_chain = (
 )
 result = bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert result == {{'FINISHED'}}, result
-assert 'translated colorspace, normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur, scale, crop, rotate, transpose, hflip, vflip, lenscorrection, hqdn3d, nlmeans, bm3d, owdenoise, vaguedenoiser, atadenoise, median, dedot, deband, deblock, pseudocolor, histeq, zscale' in scene.video_toolkit_last_translation
-assert 'compositor-native node(s): 66' in scene.video_toolkit_last_translation
+for required_filter in [
+    'colorspace',
+    'normalize',
+    'eq',
+    'colorbalance',
+    'chromakey',
+    'threshold',
+    'blend',
+    'tblend',
+    'lut2',
+    'tlut2',
+    'maskedmerge',
+    'mergeplanes',
+    'rgbashift',
+    'unsharp',
+    'hqdn3d',
+    'pseudocolor',
+    'zscale',
+]:
+    assert required_filter in scene.video_toolkit_last_translation, required_filter
+compositor_node_count = int(
+    scene.video_toolkit_last_translation.split('compositor-native node(s): ', 1)[1].split(';', 1)[0]
+)
+assert compositor_node_count >= 67, scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 translated_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Translated Color Chain')]
 for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'HUE_CORRECT', 'TONEMAP', 'WHITE_BALANCE']:

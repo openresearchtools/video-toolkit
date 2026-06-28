@@ -66,6 +66,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "blend",
     "tblend",
     "lut2",
+    "tlut2",
     "maskedmerge",
     "mergeplanes",
     "rgbashift",
@@ -121,6 +122,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "ciescope",
     "datascope",
     "oscilloscope",
+    "pixscope",
     "signalstats",
     "colordetect",
 )
@@ -294,10 +296,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(blend_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is represented with Blender Alpha Over plus native color-processing branches; exact two-stream/temporal blend math is approximated for the selected strip.")
-        elif name == "lut2":
-            compositor_nodes.extend(lut2_to_blender_compositor(**args))
+        elif name in {"lut2", "tlut2"}:
+            compositor_nodes.extend(lut2_to_blender_compositor(source=name, **args))
             supported.append(name)
-            notes.append("Lut2 two-stream expressions are represented with a Blender Alpha Over composite plus expression metadata; simple x/y averaging maps to editable opacity.")
+            notes.append(f"{name} two-frame/two-stream expressions are represented with a Blender Alpha Over composite plus expression metadata; simple x/y averaging maps to editable opacity.")
         elif name == "maskedmerge":
             compositor_nodes.extend(maskedmerge_to_blender_compositor(**args))
             supported.append(name)
@@ -398,7 +400,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(restoration_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor restoration nodes; temporal behavior is approximated spatially where Blender has no temporal node.")
-        elif name in {"histogram", "thistogram", "waveform", "vectorscope", "ciescope", "datascope", "oscilloscope", "signalstats", "colordetect"}:
+        elif name in {"histogram", "thistogram", "waveform", "vectorscope", "ciescope", "datascope", "oscilloscope", "pixscope", "signalstats", "colordetect"}:
             compositor_nodes.extend(scope_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to a Blender compositor diagnostic graph using RGB/luma monitor nodes.")
@@ -1571,6 +1573,7 @@ def blend_to_blender_compositor(source: str, **options: str | int | float) -> Co
 
 def lut2_to_blender_compositor(
     *,
+    source: str = "lut2",
     c0: str = "x",
     c1: str = "x",
     c2: str = "x",
@@ -1581,13 +1584,16 @@ def lut2_to_blender_compositor(
     expression_text = " ".join(expressions)
     mode = _blend_expression_mode(expression_text, fallback="average" if "y" in expression_text else "normal")
     factor = _blend_expression_opacity(expression_text, 0.5 if "y" in expression_text else 0.0)
+    source_name = str(source).strip().lower()
     return (
         (
             "BLEND_COMPOSITE",
             {
+                "label": "Temporal LUT2 Expression Mix" if source_name == "tlut2" else "LUT2 Expression Mix",
                 "mode": mode,
                 "factor": factor,
-                "source": "lut2",
+                "source": source_name,
+                "temporal": source_name == "tlut2",
                 "expressions": expressions,
                 "approximation": "Lut2 is a two-input pixel expression filter; this single-strip Blender graph keeps the editable composite intent and records the channel expressions.",
             },
@@ -2416,12 +2422,20 @@ def scope_filter_to_blender_compositor(source: str, **options: str | int | float
         "ciescope": "CIE Scope",
         "datascope": "Data Scope",
         "oscilloscope": "Oscilloscope",
+        "pixscope": "Pixel Scope",
         "signalstats": "Signal Stats",
         "colordetect": "Color Detect",
     }
     component_text = str(_option(options, "components", "c", default="all"))
     mode_text = str(_option(options, "mode", "m", "display", default="monitor"))
     intensity = _clamp(_float(_option(options, "intensity", "i", default=0.7), 0.7), 0.0, 1.0)
+    pixel_x = _clamp(_float(_option(options, "x", default=0.5), 0.5), 0.0, 1.0)
+    pixel_y = _clamp(_float(_option(options, "y", default=0.5), 0.5), 0.0, 1.0)
+    pixel_w = int(_clamp(_float(_option(options, "w", default=7), 7.0), 1.0, 80.0))
+    pixel_h = int(_clamp(_float(_option(options, "h", default=7), 7.0), 1.0, 80.0))
+    window_opacity = _clamp(_float(_option(options, "o", default=0.5), 0.5), 0.0, 1.0)
+    window_x = _clamp(_float(_option(options, "wx", default=-1.0), -1.0), -1.0, 1.0)
+    window_y = _clamp(_float(_option(options, "wy", default=-1.0), -1.0), -1.0, 1.0)
     return (
         (
             "SCOPE_MONITOR",
@@ -2432,6 +2446,13 @@ def scope_filter_to_blender_compositor(source: str, **options: str | int | float
                 "components": component_text,
                 "intensity": intensity,
                 "stat": str(_option(options, "stat", default="")),
+                "pixel_x": pixel_x,
+                "pixel_y": pixel_y,
+                "pixel_width": pixel_w,
+                "pixel_height": pixel_h,
+                "window_opacity": window_opacity,
+                "window_x": window_x,
+                "window_y": window_y,
                 "source": name,
                 "approximation": "Blender has no VSE waveform/vectorscope filter output; this creates linked RGB/luma Levels, Separate Color, Image Info, and Viewer monitor nodes beside the selected-strip graph.",
             },
