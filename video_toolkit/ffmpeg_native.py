@@ -60,6 +60,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "premultiply",
     "unpremultiply",
     "shuffleplanes",
+    "elbg",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -217,6 +218,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(shuffleplanes_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Shuffleplanes is translated to Blender compositor Separate/Combine channel routing nodes.")
+        elif name == "elbg":
+            compositor_nodes.extend(elbg_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Elbg posterization is translated to Blender compositor Posterize nodes.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -1123,6 +1128,44 @@ def shuffleplanes_to_blender_compositor(
     )
 
 
+def elbg_to_blender_compositor(
+    *,
+    codebook_length: str | int = 256,
+    l: str | int | None = None,
+    nb_steps: str | int = 1,
+    n: str | int | None = None,
+    seed: str | int = -1,
+    s: str | int | None = None,
+    pal8: str | int | bool = False,
+    use_alpha: str | int | bool = False,
+    arg0: str | int | None = None,
+    arg1: str | int | None = None,
+    arg2: str | int | None = None,
+    **_unused: str,
+) -> CompositorStack:
+    length = codebook_length if l is None else l
+    length = length if arg0 is None else arg0
+    steps_count = nb_steps if n is None else n
+    steps_count = steps_count if arg1 is None else arg1
+    seed_value = seed if s is None else s
+    seed_value = seed_value if arg2 is None else arg2
+    include_alpha = _truthy(use_alpha)
+    return (
+        (
+            "POSTERIZE",
+            {
+                "steps": _posterize_steps(length, include_alpha),
+                "codebook_length": max(1, int(round(_float(length, 256.0)))),
+                "nb_steps": max(1, int(round(_float(steps_count, 1.0)))),
+                "seed": int(round(_float(seed_value, -1.0))),
+                "pal8": _truthy(pal8),
+                "use_alpha": include_alpha,
+                "source": "elbg",
+            },
+        ),
+    )
+
+
 def pseudocolor_to_blender_stack(
     *,
     preset: str | int = "turbo",
@@ -1788,6 +1831,12 @@ def _shuffle_plane_name(value: str | int | None) -> str:
         "alpha": "alpha",
     }
     return aliases.get(text, "red")
+
+
+def _posterize_steps(codebook_length: str | int | None, use_alpha: bool = False) -> float:
+    colors = max(1.0, _float(codebook_length, 256.0))
+    channels = 4.0 if use_alpha else 3.0
+    return float(_clamp(round(colors ** (1.0 / channels)), 2.0, 256.0))
 
 
 def _truthy(value: str | int | bool) -> bool:

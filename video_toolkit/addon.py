@@ -3471,6 +3471,7 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "CHANNEL_SHIFT": "Channel Shift",
         "PLANE_EXTRACT": "Plane Extract",
         "PLANE_SHUFFLE": "Plane Shuffle",
+        "POSTERIZE": "Posterize",
         "PREMUL_KEY": "Premul Key",
     }
     label = f"VTK {label_prefix} {labels.get(compositor_type, compositor_type.title())}"
@@ -3496,6 +3497,10 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
     if compositor_type == "PREMUL_KEY":
         node = _new_compositor_node(tree, "CompositorNodePremulKey", label, index, origin=origin)
         _set_input_default(node, "Type", settings.get("mode", "To Premultiplied"))
+        return node
+    if compositor_type == "POSTERIZE":
+        node = _new_compositor_node(tree, "CompositorNodePosterize", label, index, origin=origin)
+        _set_input_default(node, "Steps", settings.get("steps", 8.0))
         return node
     return None
 
@@ -4201,6 +4206,7 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "premultiply,"
         "unpremultiply,"
         "shuffleplanes=map0=2:map1=1:map2=0:map3=3,"
+        "elbg=l=64:n=2:seed=17,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"

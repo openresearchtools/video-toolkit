@@ -6,6 +6,7 @@ from video_toolkit.ffmpeg_native import (
     colorkey_to_blender_compositor,
     colorlevels_to_blender_stack,
     curves_to_blender_stack,
+    elbg_to_blender_compositor,
     eq_to_blender_stack,
     exposure_to_blender_stack,
     extractplanes_to_blender_compositor,
@@ -290,6 +291,33 @@ def test_shuffleplanes_translates_to_plane_shuffle_graph_specs():
     assert result.compositor_nodes[1][1]["outputs"]["green"] == "blue"
 
 
+def test_elbg_translates_to_posterize_graph_specs():
+    posterize = elbg_to_blender_compositor(l=64, n=3, seed=17, use_alpha=0)
+    assert posterize == (
+        (
+            "POSTERIZE",
+            {
+                "steps": 4.0,
+                "codebook_length": 64,
+                "nb_steps": 3,
+                "seed": 17,
+                "pal8": False,
+                "use_alpha": False,
+                "source": "elbg",
+            },
+        ),
+    )
+
+    result = translate_filter_chain("elbg=64:2:17,elbg=codebook_length=81:nb_steps=4:use_alpha=1")
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("elbg", "elbg")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["POSTERIZE", "POSTERIZE"]
+    assert result.compositor_nodes[0][1]["steps"] == 4.0
+    assert result.compositor_nodes[1][1]["steps"] == 3.0
+    assert result.compositor_nodes[1][1]["use_alpha"] is True
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -321,6 +349,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "premultiply,"
         "unpremultiply,"
         "shuffleplanes=map0=2:map1=1:map2=0:map3=3,"
+        "elbg=l=64:n=2:seed=17,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -357,6 +386,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "premultiply",
         "unpremultiply",
         "shuffleplanes",
+        "elbg",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -365,7 +395,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management
