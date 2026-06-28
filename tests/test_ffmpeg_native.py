@@ -1,12 +1,16 @@
 from video_toolkit.ffmpeg_native import (
+    chromakey_to_blender_compositor,
     colorbalance_to_blender_stack,
     colorchannelmixer_to_blender_stack,
+    colorkey_to_blender_compositor,
     colorlevels_to_blender_stack,
     curves_to_blender_stack,
     eq_to_blender_stack,
     exposure_to_blender_stack,
     greyedge_to_blender_stack,
     grayworld_to_blender_stack,
+    hsvkey_to_blender_compositor,
+    lumakey_to_blender_compositor,
     lut_to_blender_stack,
     negate_to_blender_stack,
     normalize_to_blender_stack,
@@ -176,6 +180,40 @@ def test_zscale_metadata_translates_to_blender_color_management():
     assert ("output_range", "full") in pairs
 
 
+def test_key_filters_translate_to_compositor_only_nodes():
+    chroma = chromakey_to_blender_compositor(color="green", similarity=0.12, blend=0.04)
+    assert chroma[0][0] == "CHROMA_MATTE"
+    assert chroma[0][1]["key_color"] == (0.0, 1.0, 0.0)
+
+    color = colorkey_to_blender_compositor(color="blue", similarity=0.10, blend=0.03)
+    assert color[0][0] == "COLOR_MATTE"
+    assert color[0][1]["key_color"] == (0.0, 0.0, 1.0)
+
+    hsv = hsvkey_to_blender_compositor(hue=210, sat=0.75, val=0.85, similarity=0.10, blend=0.02)
+    assert hsv[0][0] == "COLOR_MATTE"
+    assert hsv[0][1]["key_color"][2] > hsv[0][1]["key_color"][0]
+
+    luma = lumakey_to_blender_compositor(threshold=0.20, tolerance=0.08, softness=0.02)
+    assert luma[0][0] == "LUMA_MATTE"
+    assert luma[0][1]["minimum"] < 0.20 < luma[0][1]["maximum"]
+
+    result = translate_filter_chain(
+        "chromakey=color=green:similarity=0.12:blend=0.04,"
+        "colorkey=color=blue:similarity=0.10:blend=0.03,"
+        "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
+        "lumakey=threshold=0.20:tolerance=0.08:softness=0.02"
+    )
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("chromakey", "colorkey", "hsvkey", "lumakey")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "CHROMA_MATTE",
+        "COLOR_MATTE",
+        "COLOR_MATTE",
+        "LUMA_MATTE",
+    ]
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -196,6 +234,10 @@ def test_filter_chain_supports_more_color_grading_filters():
         "negate=components=r+g+b,"
         "colorhold=color=blue:similarity=0.12:blend=0.2,"
         "hsvhold=hue=210:similarity=0.10,"
+        "chromakey=color=green:similarity=0.12:blend=0.04,"
+        "colorkey=color=blue:similarity=0.10:blend=0.03,"
+        "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
+        "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -221,6 +263,10 @@ def test_filter_chain_supports_more_color_grading_filters():
         "negate",
         "colorhold",
         "hsvhold",
+        "chromakey",
+        "colorkey",
+        "hsvkey",
+        "lumakey",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -228,5 +274,8 @@ def test_filter_chain_supports_more_color_grading_filters():
     )
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
+    )
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE"}.issubset(
+        {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

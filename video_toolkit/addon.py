@@ -33,6 +33,7 @@ from .ffmpeg_backend import FFmpegError, process_video
 from .ffmpeg_native import (
     NATIVE_FFMPEG_COLOR_FILTERS,
     NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS,
+    NATIVE_FFMPEG_COMPOSITOR_FILTERS,
     NATIVE_FFMPEG_FILTERS,
     translate_filter_chain,
 )
@@ -929,7 +930,7 @@ class VIDEO_TOOLKIT_OT_translate_ffmpeg_chain(Operator):
             if not chain:
                 raise RuntimeError("Enter an FFmpeg-style color chain before translating")
             translation = translate_filter_chain(chain)
-            if not translation.stack and not translation.color_management:
+            if not translation.stack and not translation.compositor_nodes and not translation.color_management:
                 unsupported = ", ".join(translation.unsupported_filters) or "none"
                 raise RuntimeError(f"No native Blender live color stack could be built. Unsupported: {unsupported}")
             modifiers, targets = [], []
@@ -987,7 +988,7 @@ class VIDEO_TOOLKIT_OT_apply_translated_color_workflow(Operator):
             if not chain:
                 raise RuntimeError("Enter an FFmpeg-style color chain before running the workflow")
             translation = translate_filter_chain(chain)
-            if not translation.stack and not translation.color_management:
+            if not translation.stack and not translation.compositor_nodes and not translation.color_management:
                 unsupported = ", ".join(translation.unsupported_filters) or "none"
                 raise RuntimeError(f"No native Blender color workflow could be built. Unsupported: {unsupported}")
 
@@ -999,6 +1000,7 @@ class VIDEO_TOOLKIT_OT_apply_translated_color_workflow(Operator):
                     "Translated Color Workflow",
                     self.target,
                 )
+            if translation.stack or translation.compositor_nodes:
                 nodes = _create_translated_compositor_color_stack(
                     scene,
                     strip,
@@ -1223,7 +1225,7 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
                 if not chain:
                     raise RuntimeError("Enter an FFmpeg-style color chain before creating translated compositor nodes")
                 translation = translate_filter_chain(chain)
-                if not translation.stack and not translation.color_management:
+                if not translation.stack and not translation.compositor_nodes and not translation.color_management:
                     unsupported = ", ".join(translation.unsupported_filters) or "none"
                     raise RuntimeError(f"No native Blender compositor graph could be built. Unsupported: {unsupported}")
                 created = _create_translated_compositor_color_stack(context.scene, strip, translation)
@@ -2655,6 +2657,8 @@ def _translation_summary(translation, modifier_count: int, target_count: int, co
     supported = ", ".join(translation.supported_filters) or "none"
     unsupported = ", ".join(translation.unsupported_filters)
     summary = f"translated {supported} into {modifier_count} live modifier(s) on {target_count} target(s)"
+    if translation.compositor_nodes:
+        summary += f"; compositor-only native node(s): {len(translation.compositor_nodes)}"
     if color_management:
         summary += f"; color management: {', '.join(color_management)}"
     if unsupported:
@@ -2666,6 +2670,8 @@ def _translated_compositor_summary(translation, node_count: int, color_managemen
     supported = ", ".join(translation.supported_filters) or "none"
     unsupported = ", ".join(translation.unsupported_filters)
     summary = f"translated compositor {supported} into {node_count} node(s)"
+    if translation.compositor_nodes:
+        summary += f"; compositor-only filter node(s): {len(translation.compositor_nodes)}"
     if color_management:
         summary += f"; color management: {', '.join(color_management)}"
     if unsupported:
@@ -3108,7 +3114,13 @@ def _create_sampled_compositor_color_stack(scene, strip, profile):
 
 
 def _create_translated_compositor_color_stack(scene, strip, translation, label_prefix: str = "Translated"):
-    return _create_compositor_nodes_from_blender_stack(scene, strip, translation.stack, label_prefix)
+    return _create_compositor_nodes_from_blender_stack(
+        scene,
+        strip,
+        translation.stack,
+        label_prefix,
+        translation.compositor_nodes,
+    )
 
 
 def _create_identity_compositor_color_stack(scene, strip, stack):
@@ -3198,7 +3210,7 @@ def _create_lighting_normalizer_compositor_stack(scene, strip, keyframes):
     return created, inserted
 
 
-def _create_compositor_nodes_from_blender_stack(scene, strip, stack, label_prefix: str):
+def _create_compositor_nodes_from_blender_stack(scene, strip, stack, label_prefix: str, compositor_nodes=()):
     tree = _ensure_compositor_tree(scene)
     origin = _next_node_origin(tree)
     movie = _new_compositor_node(tree, "CompositorNodeMovieClip", f"VTK {label_prefix} Movie Clip", 0, origin=origin)
@@ -3210,6 +3222,19 @@ def _create_compositor_nodes_from_blender_stack(scene, strip, stack, label_prefi
         node = _translated_modifier_to_compositor_node(
             tree,
             modifier_type,
+            settings,
+            len(chain_nodes),
+            origin,
+            label_prefix,
+        )
+        if node is None:
+            skipped += 1
+            continue
+        chain_nodes.append(node)
+    for compositor_type, settings in compositor_nodes:
+        node = _translated_compositor_filter_to_node(
+            tree,
+            compositor_type,
             settings,
             len(chain_nodes),
             origin,
@@ -3303,6 +3328,35 @@ def _translated_modifier_to_compositor_node(tree, modifier_type: str, settings: 
         _set_input_default_candidates(node, ("Type",), "LIFT_GAMMA_GAIN")
         _set_input_default_candidates(node, ("Color Gamma", "Gamma"), white_value)
         _set_input_default_candidates(node, ("Color Gain", "Gain"), white_value)
+        return node
+    return None
+
+
+def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    labels = {
+        "CHROMA_MATTE": "Chroma Matte",
+        "COLOR_MATTE": "Color Matte",
+        "LUMA_MATTE": "Luma Matte",
+    }
+    label = f"VTK {label_prefix} {labels.get(compositor_type, compositor_type.title())}"
+    if compositor_type == "CHROMA_MATTE":
+        node = _new_compositor_node(tree, "CompositorNodeChromaMatte", label, index, origin=origin)
+        _set_input_default(node, "Key Color", _rgba(settings.get("key_color", (0.0, 0.0, 0.0))))
+        _set_input_default(node, "Minimum", settings.get("minimum", 0.0))
+        _set_input_default(node, "Maximum", settings.get("maximum", 0.1))
+        _set_input_default(node, "Falloff", settings.get("falloff", 0.0))
+        return node
+    if compositor_type == "COLOR_MATTE":
+        node = _new_compositor_node(tree, "CompositorNodeColorMatte", label, index, origin=origin)
+        _set_input_default(node, "Key Color", _rgba(settings.get("key_color", (0.0, 0.0, 0.0))))
+        _set_input_default(node, "Hue", settings.get("hue", 0.02))
+        _set_input_default(node, "Saturation", settings.get("saturation", 0.02))
+        _set_input_default(node, "Value", settings.get("value", 0.02))
+        return node
+    if compositor_type == "LUMA_MATTE":
+        node = _new_compositor_node(tree, "CompositorNodeLumaMatte", label, index, origin=origin)
+        _set_input_default(node, "Minimum", settings.get("minimum", 0.0))
+        _set_input_default(node, "Maximum", settings.get("maximum", 1.0))
         return node
     return None
 
@@ -3895,6 +3949,7 @@ def _catalog_coverage_report() -> str:
         "Supported compositor modifier types: " + ", ".join(sorted(COMPOSITOR_MODIFIER_TYPES)),
         "VSE-only modifier types: " + (", ".join(unsupported_modifier_types) if unsupported_modifier_types else "None"),
         "Native-translated FFmpeg color filters: " + ", ".join(NATIVE_FFMPEG_COLOR_FILTERS),
+        "Native compositor-only FFmpeg filters: " + ", ".join(NATIVE_FFMPEG_COMPOSITOR_FILTERS),
         "Native Color Management metadata filters: " + ", ".join(NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS),
         "Rendered fallback FFmpeg filters: " + (", ".join(rendered_filter_names) if rendered_filter_names else "None"),
         "Rendered-only FFmpeg filters: " + (", ".join(rendered_only_filter_names) if rendered_only_filter_names else "None"),
@@ -3996,6 +4051,10 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "negate=components=r+g+b,"
         "colorhold=color=blue:similarity=0.12:blend=0.2,"
         "hsvhold=hue=210:similarity=0.10,"
+        "chromakey=color=green:similarity=0.12:blend=0.04,"
+        "colorkey=color=blue:similarity=0.10:blend=0.03,"
+        "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
+        "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"

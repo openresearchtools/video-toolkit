@@ -1,4 +1,4 @@
-"""Translate FFmpeg-style color intent into Blender-native VSE modifier stacks."""
+"""Translate FFmpeg-style color intent into Blender-native VSE/compositor tools."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 BlenderStack = tuple[tuple[str, dict[str, Any]], ...]
+CompositorStack = tuple[tuple[str, dict[str, Any]], ...]
 
 NATIVE_FFMPEG_COLOR_FILTERS = (
     "eq",
@@ -47,12 +48,20 @@ NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS = (
     "zscale",
 )
 
-NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
+NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
+    "chromakey",
+    "colorkey",
+    "hsvkey",
+    "lumakey",
+)
+
+NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
 
 
 @dataclass(frozen=True)
 class NativeTranslation:
     stack: BlenderStack
+    compositor_nodes: CompositorStack = ()
     supported_filters: tuple[str, ...] = ()
     unsupported_filters: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
@@ -69,6 +78,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
     """
 
     stack: list[tuple[str, dict[str, Any]]] = []
+    compositor_nodes: list[tuple[str, dict[str, Any]]] = []
     supported: list[str] = []
     unsupported: list[str] = []
     notes: list[str] = []
@@ -156,6 +166,22 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             stack.extend(hsvhold_to_blender_stack(**args))
             supported.append(name)
             notes.append("Hsvhold is approximated with Blender Hue Correct saturation-zone curves.")
+        elif name == "chromakey":
+            compositor_nodes.extend(chromakey_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Chromakey is translated to Blender compositor Chroma Matte nodes.")
+        elif name == "colorkey":
+            compositor_nodes.extend(colorkey_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Colorkey is translated to Blender compositor Color Matte nodes.")
+        elif name == "hsvkey":
+            compositor_nodes.extend(hsvkey_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Hsvkey is translated to Blender compositor Color Matte nodes using HSV-derived key color and tolerance controls.")
+        elif name == "lumakey":
+            compositor_nodes.extend(lumakey_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Lumakey is translated to Blender compositor Luma Matte nodes.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -198,7 +224,14 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             notes.append(f"{name} is not a native live VSE color primitive and is omitted from the live stack.")
         else:
             unsupported.append(name)
-    return NativeTranslation(tuple(stack), tuple(supported), tuple(unsupported), tuple(notes), tuple(_dedupe_pairs(color_management)))
+    return NativeTranslation(
+        tuple(stack),
+        tuple(compositor_nodes),
+        tuple(supported),
+        tuple(unsupported),
+        tuple(notes),
+        tuple(_dedupe_pairs(color_management)),
+    )
 
 
 def eq_to_blender_stack(
@@ -849,6 +882,102 @@ def hsvhold_to_blender_stack(
     return (("HUE_CORRECT", {"__curve_points__": {1: saturation_points, 2: value_points}}),)
 
 
+def chromakey_to_blender_compositor(
+    *,
+    color: str = "black",
+    similarity: str | float = 0.01,
+    blend: str | float = 0.0,
+    yuv: str | int = 0,
+    **_unused: str,
+) -> CompositorStack:
+    key_color = _parse_color(color, (0.0, 0.0, 0.0))
+    similarity_value = _clamp(_float(similarity, 0.01), 0.0, 1.0)
+    blend_value = _clamp(_float(blend, 0.0), 0.0, 1.0)
+    return (
+        (
+            "CHROMA_MATTE",
+            {
+                "key_color": key_color,
+                "minimum": _clamp(similarity_value * 0.55, 0.0, 1.0),
+                "maximum": _clamp(similarity_value + blend_value * 0.35, 0.0, 1.0),
+                "falloff": _clamp(blend_value, 0.0, 1.0),
+                "space": "YUV" if _truthy(yuv) else "RGB",
+            },
+        ),
+    )
+
+
+def colorkey_to_blender_compositor(
+    *,
+    color: str = "black",
+    similarity: str | float = 0.01,
+    blend: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    similarity_value = _clamp(_float(similarity, 0.01), 0.0, 1.0)
+    blend_value = _clamp(_float(blend, 0.0), 0.0, 1.0)
+    tolerance = _clamp(similarity_value + blend_value * 0.25, 0.0, 1.0)
+    return (
+        (
+            "COLOR_MATTE",
+            {
+                "key_color": _parse_color(color, (0.0, 0.0, 0.0)),
+                "hue": tolerance,
+                "saturation": _clamp(tolerance + 0.02, 0.0, 1.0),
+                "value": _clamp(tolerance + 0.02, 0.0, 1.0),
+            },
+        ),
+    )
+
+
+def hsvkey_to_blender_compositor(
+    *,
+    hue: str | float = 0.0,
+    sat: str | float = 0.0,
+    val: str | float = 0.0,
+    similarity: str | float = 0.01,
+    blend: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    hue_value = _float(hue, 0.0) % 360.0
+    sat_value = _clamp(_float(sat, 0.0), 0.0, 1.0)
+    val_value = _clamp(_float(val, 0.0), 0.0, 1.0)
+    similarity_value = _clamp(_float(similarity, 0.01), 0.0, 1.0)
+    blend_value = _clamp(_float(blend, 0.0), 0.0, 1.0)
+    tolerance = _clamp(similarity_value + blend_value * 0.25, 0.0, 1.0)
+    return (
+        (
+            "COLOR_MATTE",
+            {
+                "key_color": _hsv_to_rgb(hue_value, sat_value or 1.0, val_value or 1.0),
+                "hue": tolerance,
+                "saturation": _clamp(tolerance + max(sat_value, 0.05) * 0.08, 0.0, 1.0),
+                "value": _clamp(tolerance + max(val_value, 0.05) * 0.08, 0.0, 1.0),
+            },
+        ),
+    )
+
+
+def lumakey_to_blender_compositor(
+    *,
+    threshold: str | float = 0.0,
+    tolerance: str | float = 0.01,
+    softness: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    threshold_value = _clamp(_float(threshold, 0.0), 0.0, 1.0)
+    tolerance_value = _clamp(_float(tolerance, 0.01) + _float(softness, 0.0) * 0.5, 0.0, 1.0)
+    return (
+        (
+            "LUMA_MATTE",
+            {
+                "minimum": _clamp(threshold_value - tolerance_value, 0.0, 1.0),
+                "maximum": _clamp(threshold_value + tolerance_value, 0.0, 1.0),
+            },
+        ),
+    )
+
+
 def pseudocolor_to_blender_stack(
     *,
     preset: str | int = "turbo",
@@ -1492,6 +1621,28 @@ def _hsl_to_rgb(hue: float, saturation: float, lightness: float) -> tuple[float,
         _hue_to_rgb_channel(p, q, hue),
         _hue_to_rgb_channel(p, q, hue - 1.0 / 3.0),
     )
+
+
+def _hsv_to_rgb(hue: float, saturation: float, value: float) -> tuple[float, float, float]:
+    hue = (hue % 360.0) / 60.0
+    saturation = _clamp(saturation, 0.0, 1.0)
+    value = _clamp(value, 0.0, 1.0)
+    chroma = value * saturation
+    x = chroma * (1.0 - abs(hue % 2.0 - 1.0))
+    match = value - chroma
+    if hue < 1.0:
+        red, green, blue = chroma, x, 0.0
+    elif hue < 2.0:
+        red, green, blue = x, chroma, 0.0
+    elif hue < 3.0:
+        red, green, blue = 0.0, chroma, x
+    elif hue < 4.0:
+        red, green, blue = 0.0, x, chroma
+    elif hue < 5.0:
+        red, green, blue = x, 0.0, chroma
+    else:
+        red, green, blue = chroma, 0.0, x
+    return (red + match, green + match, blue + match)
 
 
 def _hue_to_rgb_channel(p: float, q: float, t: float) -> float:
