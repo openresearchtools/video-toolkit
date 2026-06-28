@@ -98,6 +98,7 @@ def _setup_scene() -> None:
         "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
+        "chromaber_vulkan=dist_x=2.0:dist_y=-1.0,"
         "alphaextract,"
         "extractplanes=planes=y,"
         "premultiply,"

@@ -3513,7 +3513,7 @@ def _append_channel_shift_compositor_filter(tree, input_socket, settings: dict[s
     if not isinstance(offsets, dict):
         return input_socket, []
 
-    label = f"VTK {label_prefix} Channel Shift"
+    label = f"VTK {label_prefix} {settings.get('label') or 'Channel Shift'}"
     base_separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", f"{label} Separate", index, y_offset=-140, origin=origin)
     _link_socket(tree, input_socket, _image_input(base_separate))
     created = [base_separate]
@@ -4905,6 +4905,7 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
+        "chromaber_vulkan=dist_x=2.0:dist_y=-1.0,"
         "alphaextract,"
         "extractplanes=planes=y,"
         "premultiply,"

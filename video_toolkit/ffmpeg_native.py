@@ -73,6 +73,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "mergeplanes",
     "rgbashift",
     "chromashift",
+    "chromaber_vulkan",
     "alphaextract",
     "extractplanes",
     "premultiply",
@@ -326,6 +327,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(chromashift_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Chromashift is approximated with Blender compositor red/blue channel Translate nodes.")
+        elif name == "chromaber_vulkan":
+            compositor_nodes.extend(chromaber_vulkan_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Chromaber_vulkan is translated to Blender Separate/Translate/Combine channel nodes as opposing red/blue chromatic offsets.")
         elif name == "alphaextract":
             compositor_nodes.extend(alphaextract_to_blender_compositor(**args))
             supported.append(name)
@@ -1781,6 +1786,39 @@ def chromashift_to_blender_compositor(
                 },
                 "edge": str(edge).lower(),
                 "approximation": "YUV chroma offsets are approximated as red/blue RGB channel offsets.",
+            },
+        ),
+    )
+
+
+def chromaber_vulkan_to_blender_compositor(
+    *,
+    dist_x: str | float = 0.0,
+    dist_y: str | float = 0.0,
+    arg0: str | float | None = None,
+    arg1: str | float | None = None,
+    **_unused: str,
+) -> CompositorStack:
+    distance_x = _clamp(_float(arg0 if arg0 is not None else dist_x, 0.0), -10.0, 10.0)
+    distance_y = _clamp(_float(arg1 if arg1 is not None else dist_y, 0.0), -10.0, 10.0)
+    red_offset = (_clamp(distance_x * 3.0, -64.0, 64.0), _clamp(distance_y * 3.0, -64.0, 64.0))
+    blue_offset = (-red_offset[0], -red_offset[1])
+    return (
+        (
+            "CHANNEL_SHIFT",
+            {
+                "label": "Chromatic Aberration",
+                "offsets": {
+                    "red": red_offset,
+                    "green": (0.0, 0.0),
+                    "blue": blue_offset,
+                    "alpha": (0.0, 0.0),
+                },
+                "edge": "smear",
+                "source": "chromaber_vulkan",
+                "dist_x": distance_x,
+                "dist_y": distance_y,
+                "approximation": "FFmpeg chromaber_vulkan offsets chroma in Vulkan; this graph approximates it with opposing red/blue Translate nodes around the untouched green channel.",
             },
         ),
     )

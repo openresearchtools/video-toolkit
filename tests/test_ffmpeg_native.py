@@ -2,6 +2,7 @@ from video_toolkit.ffmpeg_native import (
     alphaextract_to_blender_compositor,
     backgroundkey_to_blender_compositor,
     blend_to_blender_compositor,
+    chromaber_vulkan_to_blender_compositor,
     chromakey_to_blender_compositor,
     colorbalance_to_blender_stack,
     colorchannelmixer_to_blender_stack,
@@ -649,6 +650,22 @@ def test_channel_shift_filters_translate_to_compositor_graph_specs():
     assert result.compositor_nodes[1][1]["offsets"]["red"] == (-2.0, 1.0)
     assert result.compositor_nodes[1][1]["offsets"]["blue"] == (2.0, -1.0)
 
+    chromaber = chromaber_vulkan_to_blender_compositor(dist_x=2.0, dist_y=-1.0)
+    assert chromaber[0][0] == "CHANNEL_SHIFT"
+    assert chromaber[0][1]["source"] == "chromaber_vulkan"
+    assert chromaber[0][1]["offsets"]["red"] == (6.0, -3.0)
+    assert chromaber[0][1]["offsets"]["blue"] == (-6.0, 3.0)
+
+    result = translate_filter_chain(
+        "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
+        "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
+        "chromaber_vulkan=dist_x=2.0:dist_y=-1.0"
+    )
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("rgbashift", "chromashift", "chromaber_vulkan")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["CHANNEL_SHIFT", "CHANNEL_SHIFT", "CHANNEL_SHIFT"]
+
 
 def test_alpha_and_plane_extract_translate_to_compositor_graph_specs():
     alpha = alphaextract_to_blender_compositor()
@@ -1099,6 +1116,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
+        "chromaber_vulkan=dist_x=2.0:dist_y=-1.0,"
         "alphaextract,"
         "extractplanes=planes=y,"
         "premultiply,"
@@ -1201,6 +1219,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "mergeplanes",
         "rgbashift",
         "chromashift",
+        "chromaber_vulkan",
         "alphaextract",
         "extractplanes",
         "premultiply",

@@ -270,6 +270,7 @@ _MASKED_MERGE_TRANSLATION = translate_filter_chain("maskedmerge=planes=15")
 _MERGEPLANES_ROUTER_TRANSLATION = translate_filter_chain("mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3")
 _RGBA_CHANNEL_SHIFT_TRANSLATION = translate_filter_chain("rgbashift=rh=5:rv=-2:bh=-4:bv=2")
 _CHROMA_CHANNEL_SHIFT_TRANSLATION = translate_filter_chain("chromashift=cbh=3:cbv=-1:crh=-3:crv=1")
+_CHROMATIC_ABERRATION_TRANSLATION = translate_filter_chain("chromaber_vulkan=dist_x=2.0:dist_y=-1.0")
 _LUMA_PLANE_EXTRACT_TRANSLATION = translate_filter_chain("extractplanes=planes=y")
 _ALPHA_EXTRACT_TRANSLATION = translate_filter_chain("alphaextract")
 _PREMULTIPLY_ALPHA_TRANSLATION = translate_filter_chain("premultiply")
@@ -1480,6 +1481,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg chromashift intent as native red/blue channel offset compositor nodes.",
         compositor_stack=_CHROMA_CHANNEL_SHIFT_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_chromatic_aberration_offset",
+        label="Native Chromatic Aberration Offset",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg chromaber_vulkan intent as opposing red/blue Blender Translate channel offsets for chromatic aberration repair or stylized fringing.",
+        compositor_stack=_CHROMATIC_ABERRATION_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_luma_plane_extract",
