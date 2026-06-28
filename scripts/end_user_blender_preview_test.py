@@ -1139,6 +1139,8 @@ assert 'VSE-only native tools:' in catalog_coverage_report
 assert 'native_mask_slot: Mask Slot' in catalog_coverage_report
 assert 'Rendered fallback tools:' in catalog_coverage_report
 assert f'Native-translated FFmpeg filters: {{len(NATIVE_FFMPEG_FILTERS)}}' in catalog_coverage_report
+assert 'Installed FFmpeg video filters: ' in catalog_coverage_report
+assert 'Missing installed FFmpeg video filters: None' in catalog_coverage_report
 assert 'Native compositor-only FFmpeg filters: ' + ', '.join(NATIVE_FFMPEG_COMPOSITOR_FILTERS) in catalog_coverage_report
 assert 'Native Color Management metadata filters: colorspace, colorspace_cuda, colormatrix, setparams, setrange, zscale' in catalog_coverage_report
 assert 'Rendered-only FFmpeg filters:' in catalog_coverage_report

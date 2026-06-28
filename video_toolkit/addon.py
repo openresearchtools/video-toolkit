@@ -30,6 +30,7 @@ from .color_analysis import (
 )
 from .compositor import compositor_node_tools
 from .ffmpeg_backend import FFmpegError, process_video
+from .ffmpeg_coverage import installed_ffmpeg_video_filter_coverage
 from .ffmpeg_native import (
     NATIVE_FFMPEG_COLOR_FILTERS,
     NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS,
@@ -5246,6 +5247,7 @@ def _catalog_coverage_report() -> str:
     rendered_only_filter_names = sorted(set(rendered_filter_names) - set(NATIVE_FFMPEG_FILTERS))
     live_and_rendered_filter_names = sorted(set(rendered_filter_names) & set(NATIVE_FFMPEG_FILTERS))
     translation_sample = translate_filter_chain(_ffmpeg_translation_coverage_chain())
+    installed_video_coverage = installed_ffmpeg_video_filter_coverage(NATIVE_FFMPEG_FILTERS)
 
     lines = [
         "Open Research Video Toolkit Catalog Coverage",
@@ -5259,6 +5261,23 @@ def _catalog_coverage_report() -> str:
         f"Tracked native compositor nodes: {len(compositor_node_tools())}",
         f"Native-translated FFmpeg filters: {len(NATIVE_FFMPEG_FILTERS)}",
         f"Rendered FFmpeg filters in catalog: {len(rendered_filter_names)}",
+    ]
+    if installed_video_coverage.available:
+        lines.extend(
+            [
+                f"Installed FFmpeg video filters: {installed_video_coverage.total_video_filters}",
+                f"Installed FFmpeg video filters covered: {len(installed_video_coverage.covered_video_filters)}",
+                "Missing installed FFmpeg video filters: "
+                + (
+                    ", ".join(installed_video_coverage.missing_video_filters)
+                    if installed_video_coverage.missing_video_filters
+                    else "None"
+                ),
+            ]
+        )
+    else:
+        lines.append(f"Installed FFmpeg video filter coverage unavailable: {installed_video_coverage.unavailable_reason}")
+    lines.extend([
         "",
         "Supported compositor modifier types: " + ", ".join(sorted(COMPOSITOR_MODIFIER_TYPES)),
         "VSE-only modifier types: " + (", ".join(unsupported_modifier_types) if unsupported_modifier_types else "None"),
@@ -5275,7 +5294,7 @@ def _catalog_coverage_report() -> str:
         "- Blender modifier stack: " + ", ".join(modifier for modifier, _settings in translation_sample.stack),
         "- Color Management metadata: " + _format_pairs(translation_sample.color_management),
         "- Approximation notes:",
-    ]
+    ])
     lines.extend(f"  - {note}" for note in translation_sample.notes)
     lines.extend([
         "",

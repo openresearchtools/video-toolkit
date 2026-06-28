@@ -1,4 +1,10 @@
+import shutil
+
+import pytest
+
+from video_toolkit.ffmpeg_coverage import installed_ffmpeg_video_filter_coverage, parse_ffmpeg_filters_table
 from video_toolkit.ffmpeg_native import (
+    NATIVE_FFMPEG_FILTERS,
     advanced_filter_to_blender_compositor,
     alphaextract_to_blender_compositor,
     alphamerge_to_blender_compositor,
@@ -87,6 +93,31 @@ from video_toolkit.ffmpeg_native import (
     vibrance_to_blender_stack,
     zscale_to_blender_color_management,
 )
+
+
+def test_ffmpeg_filter_table_parser_finds_video_filters():
+    filters = parse_ffmpeg_filters_table(
+        """
+Filters:
+  T.. = Timeline support
+ TS chromahold        V->V       Turns a certain color range into gray.
+ T. eq                V->V       Adjust brightness, contrast, gamma, and saturation.
+ .. color             |->V       Provide an uniformly colored input.
+ TS acontrast         A->A       Simple audio dynamic range compression/expansion filter.
+"""
+    )
+    video_names = {info.name for info in filters if info.is_video}
+    assert {"chromahold", "eq", "color"}.issubset(video_names)
+    assert "acontrast" not in video_names
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="local FFmpeg is required for installed filter coverage")
+def test_installed_ffmpeg_video_filters_are_represented():
+    coverage = installed_ffmpeg_video_filter_coverage(NATIVE_FFMPEG_FILTERS)
+    assert coverage.available
+    assert coverage.total_video_filters > 0
+    assert coverage.missing_video_filters == ()
+    assert len(coverage.covered_video_filters) == coverage.total_video_filters
 
 
 def test_eq_translates_to_native_blender_modifiers():
