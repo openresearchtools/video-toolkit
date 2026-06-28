@@ -83,6 +83,8 @@ def _setup_scene() -> None:
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
+        "alphaextract,"
+        "extractplanes=planes=y,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "histeq=strength=0.20:intensity=0.18,"
         "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"

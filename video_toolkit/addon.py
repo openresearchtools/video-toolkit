@@ -3337,6 +3337,8 @@ def _translated_modifier_to_compositor_node(tree, modifier_type: str, settings: 
 def _append_translated_compositor_filter(tree, input_socket, compositor_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
     if compositor_type == "CHANNEL_SHIFT":
         return _append_channel_shift_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "PLANE_EXTRACT":
+        return _append_plane_extract_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     node = _translated_compositor_filter_to_node(tree, compositor_type, settings, index, origin, label_prefix)
     if node is None:
         return input_socket, []
@@ -3401,12 +3403,53 @@ def _channel_shift_offset(value) -> tuple[float, float]:
     return (0.0, 0.0)
 
 
+def _append_plane_extract_compositor_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    plane = str(settings.get("plane", "red")).lower()
+    label = f"VTK {label_prefix} {plane.upper()} Plane"
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", f"{label} Combine", index + 1, y_offset=-140, origin=origin)
+    _set_input_default(combine, "Alpha", 1.0)
+    created = []
+
+    if plane == "y":
+        luma = _new_compositor_node(tree, "CompositorNodeRGBToBW", f"{label} Luma", index, y_offset=-140, origin=origin)
+        _link_socket(tree, input_socket, _image_input(luma))
+        for input_name in ("Red", "Green", "Blue"):
+            _link_socket(tree, _first_socket(luma.outputs), _socket_by_name(combine.inputs, input_name))
+        created.append(luma)
+    else:
+        separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", f"{label} Separate", index, y_offset=-140, origin=origin)
+        _link_socket(tree, input_socket, _image_input(separate))
+        output_name = _plane_extract_output_name(plane)
+        output_socket = _socket_by_name(separate.outputs, output_name)
+        for input_name in ("Red", "Green", "Blue"):
+            _link_socket(tree, output_socket, _socket_by_name(combine.inputs, input_name))
+        created.append(separate)
+    created.append(combine)
+    return _image_output(combine), created
+
+
+def _plane_extract_output_name(plane: str) -> str:
+    return {
+        "r": "Red",
+        "red": "Red",
+        "g": "Green",
+        "green": "Green",
+        "b": "Blue",
+        "blue": "Blue",
+        "alpha": "Alpha",
+        "a": "Alpha",
+        "u": "Blue",
+        "v": "Red",
+    }.get(plane, "Red")
+
+
 def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
     labels = {
         "CHROMA_MATTE": "Chroma Matte",
         "COLOR_MATTE": "Color Matte",
         "LUMA_MATTE": "Luma Matte",
         "CHANNEL_SHIFT": "Channel Shift",
+        "PLANE_EXTRACT": "Plane Extract",
     }
     label = f"VTK {label_prefix} {labels.get(compositor_type, compositor_type.title())}"
     if compositor_type == "CHROMA_MATTE":
@@ -4127,6 +4170,8 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
+        "alphaextract,"
+        "extractplanes=planes=y,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"

@@ -1,4 +1,5 @@
 from video_toolkit.ffmpeg_native import (
+    alphaextract_to_blender_compositor,
     chromakey_to_blender_compositor,
     colorbalance_to_blender_stack,
     colorchannelmixer_to_blender_stack,
@@ -7,6 +8,7 @@ from video_toolkit.ffmpeg_native import (
     curves_to_blender_stack,
     eq_to_blender_stack,
     exposure_to_blender_stack,
+    extractplanes_to_blender_compositor,
     greyedge_to_blender_stack,
     grayworld_to_blender_stack,
     hsvkey_to_blender_compositor,
@@ -231,6 +233,24 @@ def test_channel_shift_filters_translate_to_compositor_graph_specs():
     assert result.compositor_nodes[1][1]["offsets"]["blue"] == (2.0, -1.0)
 
 
+def test_alpha_and_plane_extract_translate_to_compositor_graph_specs():
+    alpha = alphaextract_to_blender_compositor()
+    assert alpha == (("PLANE_EXTRACT", {"plane": "alpha", "source": "alphaextract"}),)
+
+    luma = extractplanes_to_blender_compositor(planes="y")
+    assert luma == (("PLANE_EXTRACT", {"plane": "y", "source": "extractplanes"}),)
+
+    first_multi = extractplanes_to_blender_compositor(planes="g+b")
+    assert first_multi[0][1]["plane"] == "g"
+
+    result = translate_filter_chain("alphaextract,extractplanes=planes=y")
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("alphaextract", "extractplanes")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["PLANE_EXTRACT", "PLANE_EXTRACT"]
+    assert [settings["plane"] for _node_type, settings in result.compositor_nodes] == ["alpha", "y"]
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -257,6 +277,8 @@ def test_filter_chain_supports_more_color_grading_filters():
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
+        "alphaextract,"
+        "extractplanes=planes=y,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -288,6 +310,8 @@ def test_filter_chain_supports_more_color_grading_filters():
         "lumakey",
         "rgbashift",
         "chromashift",
+        "alphaextract",
+        "extractplanes",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -296,7 +320,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

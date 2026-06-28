@@ -55,6 +55,8 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "lumakey",
     "rgbashift",
     "chromashift",
+    "alphaextract",
+    "extractplanes",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -192,6 +194,14 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(chromashift_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Chromashift is approximated with Blender compositor red/blue channel Translate nodes.")
+        elif name == "alphaextract":
+            compositor_nodes.extend(alphaextract_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Alphaextract is translated to Blender compositor Separate/Combine alpha-plane nodes.")
+        elif name == "extractplanes":
+            compositor_nodes.extend(extractplanes_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Extractplanes is translated to Blender compositor plane extraction nodes; multi-output requests use the first requested plane in this single-chain workflow.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -1043,6 +1053,19 @@ def chromashift_to_blender_compositor(
     )
 
 
+def alphaextract_to_blender_compositor(**_unused: str) -> CompositorStack:
+    return (("PLANE_EXTRACT", {"plane": "alpha", "source": "alphaextract"}),)
+
+
+def extractplanes_to_blender_compositor(
+    *,
+    planes: str = "",
+    preset: str = "",
+    **_unused: str,
+) -> CompositorStack:
+    return (("PLANE_EXTRACT", {"plane": _extract_plane_name(planes or preset or "r"), "source": "extractplanes"}),)
+
+
 def pseudocolor_to_blender_stack(
     *,
     preset: str | int = "turbo",
@@ -1660,6 +1683,31 @@ def _lut_offset(value: str) -> float:
 
 def _shift_pixels(value: str | float | int | None) -> float:
     return _clamp(_float(value, 0.0), -512.0, 512.0)
+
+
+def _extract_plane_name(value: str | int | None) -> str:
+    text = str(value or "r").strip().lower()
+    aliases = {
+        "0": "y",
+        "1": "u",
+        "2": "v",
+        "3": "alpha",
+        "a": "alpha",
+        "alpha": "alpha",
+        "luma": "y",
+        "lum": "y",
+        "gray": "y",
+        "grey": "y",
+    }
+    for part in text.replace("|", "+").replace(",", "+").split("+"):
+        key = part.strip()
+        if not key:
+            continue
+        if key in aliases:
+            return aliases[key]
+        if key in {"y", "u", "v", "r", "g", "b"}:
+            return key
+    return "r"
 
 
 def _truthy(value: str | int | bool) -> bool:
