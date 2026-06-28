@@ -227,6 +227,33 @@ assert pro_grade_types == [
     'TONEMAP', 'HUE_CORRECT', 'COLOR_BALANCE', 'CURVES', 'HUE_CORRECT'
 ], pro_grade_types
 assert any(m.name.startswith('VTK Sampled Pro Grade') for m in second_strip.modifiers)
+bpy.ops.video_toolkit.apply_sampled_color_board()
+assert scene.video_toolkit_last_sampled_color_board.startswith('sampled color board')
+sampled_board_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Sampled Color Board')]
+assert sampled_board_types == [
+    'WHITE_BALANCE', 'BRIGHT_CONTRAST', 'COLOR_BALANCE', 'COLOR_BALANCE', 'CURVES',
+    'HUE_CORRECT', 'TONEMAP', 'CURVES', 'HUE_CORRECT'
+], sampled_board_types
+assert any(m.name.startswith('VTK Sampled Color Board') for m in second_strip.modifiers)
+assert scene.get('video_toolkit_last_sampled_color_board_node_count', 0) >= 10
+sampled_board_node_types = [
+    node.bl_idname
+    for node in (scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree).nodes
+    if node.name.startswith('VTK Sampled Color Board ')
+]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in sampled_board_node_types, required
 scene.video_toolkit_apply_target = 'ACTIVE'
 bpy.ops.video_toolkit.normalize_lighting()
 normalizer = next(m for m in strip.modifiers if m.name.startswith('VTK Live Flicker Normalizer'))
@@ -553,6 +580,22 @@ assert abs(sampled_cm_exposure_socket.default_value) > 0.001
 sampled_cm_display = next(node for node in tree.nodes if node.name == 'VTK Sampled Color Management Display Convert')
 assert sampled_cm_display['video_toolkit_view_transform']
 assert sampled_cm_display['video_toolkit_sequencer_input'] == 'bt709'
+bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR_BOARD')
+assert scene.video_toolkit_last_compositor_nodes.startswith('sampled color board compositor')
+sampled_board_compositor_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Sampled Color Board ')]
+for required in [
+    'CompositorNodeMovieClip',
+    'CompositorNodeConvertColorSpace',
+    'CompositorNodeBrightContrast',
+    'CompositorNodeColorBalance',
+    'CompositorNodeCurveRGB',
+    'CompositorNodeHueCorrect',
+    'CompositorNodeTonemap',
+    'CompositorNodeLevels',
+    'CompositorNodeViewer',
+    'CompositorNodeOutputFile',
+]:
+    assert required in sampled_board_compositor_types, required
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='SAMPLED_COLOR')
 assert scene.video_toolkit_last_compositor_nodes.startswith('sampled compositor grade')
 sampled_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Sampled ')]

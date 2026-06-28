@@ -12,6 +12,7 @@ from .color_analysis import (
     build_color_identity_stack,
     build_color_match_stack,
     build_sampled_color_management,
+    build_sampled_color_board_stack,
     build_sampled_compositor_grade,
     build_sampled_hue_chroma_stack,
     build_sampled_levels_gamma_stack,
@@ -53,6 +54,7 @@ COMPOSITOR_STACK_ITEMS = (
     ("COLOR", "Color Node Stack", "Build a Blender compositor color node graph from the active movie strip"),
     ("NATIVE_COLOR_ROOM", "Native Color Room Node Stack", "Build a connected graph of Blender's native compositor color controls"),
     ("SAMPLED_COLOR_MANAGEMENT", "Sampled Color Management Node Stack", "Sample real frames and build a compositor graph for view exposure, gamma, white balance, and display conversion"),
+    ("SAMPLED_COLOR_BOARD", "Sampled Color Board Node Stack", "Sample real frames and build a compositor graph from a dynamic primary/secondary color board"),
     ("SAMPLED_COLOR", "Sampled Color Node Stack", "Sample real frames and build a Blender compositor color graph from the measured footage"),
     ("IDENTITY_COLOR", "Palette Identity Node Stack", "Identify dominant colors and build a Blender compositor palette-aware graph"),
     ("MATCHED_COLOR", "Matched Color Node Stack", "Match the active movie strip to a selected reference strip with Blender compositor nodes"),
@@ -638,6 +640,55 @@ class VIDEO_TOOLKIT_OT_apply_sampled_pro_grade(Operator):
             return {"CANCELLED"}
 
 
+class VIDEO_TOOLKIT_OT_apply_sampled_color_board(Operator):
+    bl_idname = "video_toolkit.apply_sampled_color_board"
+    bl_label = "Sampled Color Board"
+    bl_description = "Sample real frames and apply a dynamic primary/secondary Blender color-board stack plus compositor nodes"
+    bl_options = {"REGISTER", "UNDO"}
+
+    target: bpy.props.EnumProperty(
+        name="Target",
+        items=(("SCENE", "Panel Target", "Use the panel target setting"),) + APPLY_TARGET_ITEMS,
+        default="SCENE",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE" and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        try:
+            scene = context.scene
+            strip = scene.sequence_editor.active_strip
+            stats = sample_video_color(_movie_path(strip), max_samples=scene.video_toolkit_analysis_samples)
+            stack = build_sampled_color_board_stack(stats)
+            modifiers, targets = _add_blender_stack_for_target(context, stack, "Sampled Color Board", self.target)
+            nodes = _create_compositor_nodes_from_blender_stack(scene, strip, stack, "Sampled Color Board")
+            for node in nodes:
+                node["video_toolkit_sampled_color_board"] = summarize_stats(stats)
+                node["video_toolkit_source_strip"] = strip.name
+            scene.video_toolkit_last_sampled_color_board = (
+                f"sampled color board {stats.samples} frames, {len(modifiers)} modifier(s), {len(nodes)} node(s), "
+                f"RGB {stats.mean_r:.1f}/{stats.mean_g:.1f}/{stats.mean_b:.1f}, "
+                f"luma {stats.luma_p05:.1f}/{stats.mean_luma:.1f}/{stats.luma_p95:.1f}, "
+                f"sat/chroma {stats.mean_saturation:.2f}/{stats.mean_chroma:.1f}"
+            )
+            scene.video_toolkit_last_compositor_nodes = (
+                f"sampled color board nodes {len(nodes)} node(s): {_compositor_node_summary(nodes)}"
+            )
+            scene["video_toolkit_last_sampled_color_board_node_count"] = len(nodes)
+            scene["video_toolkit_last_sampled_color_board_modifier_count"] = len(modifiers)
+            self.report({"INFO"}, scene.video_toolkit_last_sampled_color_board)
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+
 class VIDEO_TOOLKIT_OT_normalize_lighting(Operator):
     bl_idname = "video_toolkit.normalize_lighting"
     bl_label = "Normalize Lighting Flicker"
@@ -996,6 +1047,12 @@ class VIDEO_TOOLKIT_OT_create_compositor_nodes(Operator):
                     f"look {profile.look_candidates[0]}, input {profile.sequencer_input}; "
                     f"{_compositor_node_summary(created)}"
                 )
+            elif self.stack_type == "SAMPLED_COLOR_BOARD":
+                stats = sample_video_color(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
+                stack = build_sampled_color_board_stack(stats)
+                created = _create_compositor_nodes_from_blender_stack(context.scene, strip, stack, "Sampled Color Board")
+                label = "sampled color board"
+                summary = f"sampled color board compositor {summarize_stats(stats)}; {_compositor_node_summary(created)}"
             elif self.stack_type == "SAMPLED_COLOR":
                 stats = sample_video_color(_movie_path(strip), max_samples=context.scene.video_toolkit_analysis_samples)
                 profile = build_sampled_compositor_grade(stats)
@@ -1455,6 +1512,7 @@ class VIDEO_TOOLKIT_MT_tools(Menu):
             text="Analyze: Sampled Color Management",
             icon="WORLD",
         )
+        layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_board.bl_idname, text="Analyze: Sampled Color Board", icon="COLOR")
         layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="Analyze: Neutralize Color Cast", icon="EYEDROPPER")
         layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma.bl_idname, text="Analyze: Normalize Levels/Gamma", icon="IPO_EASE_IN_OUT")
         layout.operator(VIDEO_TOOLKIT_OT_apply_sampled_hue_chroma.bl_idname, text="Analyze: Balance Hue/Chroma", icon="COLOR")
@@ -1923,7 +1981,8 @@ def _draw_one_click_video_effects(layout, scene, strip) -> None:
     _draw_operator(row, "match_prep_neutralizer", icon="EYEDROPPER")
     row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Pro Grade", icon="MODIFIER")
-    row.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname, text="Color Mgmt", icon="WORLD")
+    row.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_board.bl_idname, text="Color Board", icon="COLOR")
+    controls.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname, text="Color Mgmt", icon="WORLD")
     row = controls.row(align=True)
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="White Balance", icon="EYEDROPPER")
     row.operator(VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma.bl_idname, text="Levels/Gamma", icon="IPO_EASE_IN_OUT")
@@ -1972,6 +2031,8 @@ def _draw_sidecar_status(layout, scene) -> None:
         layout.label(text=scene.video_toolkit_last_recipe_recommendations, icon="SORT_ASC")
     if scene.video_toolkit_last_recommended_recipe_mix:
         layout.label(text=scene.video_toolkit_last_recommended_recipe_mix, icon="MODIFIER")
+    if scene.video_toolkit_last_sampled_color_board:
+        layout.label(text=scene.video_toolkit_last_sampled_color_board, icon="COLOR")
     if scene.video_toolkit_last_output:
         layout.label(text=scene.video_toolkit_last_output, icon="FILE_MOVIE")
 
@@ -1987,6 +2048,7 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
     op = row.operator(VIDEO_TOOLKIT_OT_analyze_color.bl_idname, text="Identify", icon="COLOR")
     op.mode = "PALETTE"
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_pro_grade.bl_idname, text="Sampled Pro Grade", icon="MODIFIER")
+    box.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_board.bl_idname, text="Sampled Color Board", icon="COLOR")
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_color_management.bl_idname, text="Sampled Color Management", icon="WORLD")
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_white_balance.bl_idname, text="Sampled White Balance / Cast Fix", icon="EYEDROPPER")
     box.operator(VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma.bl_idname, text="Sampled Levels / Gamma Normalize", icon="IPO_EASE_IN_OUT")
@@ -2031,6 +2093,8 @@ def _draw_live_analysis(layout, scene, strip, context) -> None:
         box.label(text=scene.video_toolkit_last_sampled_hue_chroma, icon="COLOR")
     if scene.video_toolkit_last_sampled_pro_grade:
         box.label(text=scene.video_toolkit_last_sampled_pro_grade, icon="MODIFIER")
+    if scene.video_toolkit_last_sampled_color_board:
+        box.label(text=scene.video_toolkit_last_sampled_color_board, icon="COLOR")
     if scene.video_toolkit_last_sampled_color_management:
         box.label(text=scene.video_toolkit_last_sampled_color_management, icon="WORLD")
 
@@ -2085,9 +2149,11 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
     row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Sampled CM", icon="WORLD")
     op.stack_type = "SAMPLED_COLOR_MANAGEMENT"
+    op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Board", icon="COLOR")
+    op.stack_type = "SAMPLED_COLOR_BOARD"
+    row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Sampled", icon="EYEDROPPER")
     op.stack_type = "SAMPLED_COLOR"
-    row = box.row(align=True)
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Identity", icon="COLOR")
     op.stack_type = "IDENTITY_COLOR"
     op = row.operator(VIDEO_TOOLKIT_OT_create_compositor_nodes.bl_idname, text="Matched", icon="EYEDROPPER")
@@ -3899,6 +3965,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_apply_sampled_levels_gamma,
     VIDEO_TOOLKIT_OT_apply_sampled_hue_chroma,
     VIDEO_TOOLKIT_OT_apply_sampled_pro_grade,
+    VIDEO_TOOLKIT_OT_apply_sampled_color_board,
     VIDEO_TOOLKIT_OT_normalize_lighting,
     VIDEO_TOOLKIT_OT_match_lighting_timeline,
     VIDEO_TOOLKIT_OT_match_color_timeline,
@@ -4039,6 +4106,10 @@ def register() -> None:
         name="Last Sampled Pro Grade",
         default="",
     )
+    bpy.types.Scene.video_toolkit_last_sampled_color_board = bpy.props.StringProperty(
+        name="Last Sampled Color Board",
+        default="",
+    )
     bpy.types.Scene.video_toolkit_last_sampled_color_management = bpy.props.StringProperty(
         name="Last Sampled Color Management",
         default="",
@@ -4150,6 +4221,7 @@ def unregister() -> None:
         "video_toolkit_last_sampled_levels_gamma",
         "video_toolkit_last_sampled_hue_chroma",
         "video_toolkit_last_sampled_pro_grade",
+        "video_toolkit_last_sampled_color_board",
         "video_toolkit_last_sampled_color_management",
         "video_toolkit_last_professional_workflow",
         "video_toolkit_apply_target",

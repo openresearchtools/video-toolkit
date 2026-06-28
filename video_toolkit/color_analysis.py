@@ -610,6 +610,77 @@ def build_sampled_pro_grade_stack(stats: ColorStats) -> tuple[tuple[str, dict[st
     )
 
 
+def build_sampled_color_board_stack(stats: ColorStats) -> tuple[tuple[str, dict[str, object]], ...]:
+    """Build a sampled primary/secondary color-board stack from real frame math."""
+
+    white_balance = build_sampled_white_balance_stack(stats)
+    levels_gamma = build_sampled_levels_gamma_stack(stats)
+    hue_chroma = build_sampled_hue_chroma_stack(stats)
+    white_value = white_balance[0][1]["white_value"]
+    white_balance_settings = white_balance[1][1]
+    levels_balance_settings = levels_gamma[1][1]
+    levels_bright_settings = levels_gamma[2][1]
+    tonemap_settings = levels_gamma[3][1]
+    black_in, mid_in, white_in = _sampled_tone_inputs(stats)
+    target_mid = _sampled_target_midpoint(stats)
+    dynamic_range = stats.luma_p95 - stats.luma_p05
+    lift = _blend_rgb(white_balance_settings["color_balance.lift"], levels_balance_settings["color_balance.lift"], 0.45)
+    gamma = _blend_rgb(white_balance_settings["color_balance.gamma"], levels_balance_settings["color_balance.gamma"], 0.55)
+    gain = _blend_rgb(white_balance_settings["color_balance.gain"], levels_balance_settings["color_balance.gain"], 0.50)
+    cdl_offset = tuple(_clamp(1.0 + (value - 1.0) * 0.32, 0.92, 1.08) for value in lift)
+    cdl_power = tuple(_clamp(1.0 + (value - 1.0) * 0.70, 0.84, 1.18) for value in gamma)
+    cdl_slope = tuple(_clamp(1.0 + (value - 1.0) * 0.82, 0.86, 1.20) for value in gain)
+    brightness = _clamp((118.0 - stats.mean_luma) / 255.0 * 0.18, -0.06, 0.07)
+    contrast = _clamp(levels_bright_settings["contrast"] * 0.65 + (150.0 - dynamic_range) / 150.0 * 5.0, -12.0, 18.0)
+    board_curve = _sampled_levels_curve_points(black_in, mid_in, target_mid, white_in)
+    final_curve = [
+        (0.0, _clamp(0.015 + max(black_in - 0.12, 0.0) * 0.08, 0.0, 0.04)),
+        (0.20, _clamp(0.19 + (0.32 - stats.mean_saturation) * 0.025, 0.15, 0.24)),
+        (0.50, _clamp(0.50 + (118.0 - stats.mean_luma) / 255.0 * 0.035, 0.45, 0.55)),
+        (0.82, _clamp(0.84 - max(stats.luma_p95 - 220.0, 0.0) / 255.0 * 0.10, 0.76, 0.89)),
+        (1.0, _clamp(0.985 - max(stats.luma_p95 - 232.0, 0.0) / 255.0 * 0.05, 0.94, 0.99)),
+    ]
+    secondary_saturation = _sampled_saturation_curve_value(stats)
+    if stats.skin_ratio > 0.10:
+        secondary_saturation = _clamp(secondary_saturation, 0.45, 0.56)
+    return (
+        ("WHITE_BALANCE", {"white_value": white_value}),
+        ("BRIGHT_CONTRAST", {"bright": brightness, "contrast": contrast}),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.lift": lift,
+                "color_balance.gamma": gamma,
+                "color_balance.gain": gain,
+                "color_multiply": _clamp(1.0 + (0.34 - stats.mean_saturation) * 0.10, 0.94, 1.07),
+            },
+        ),
+        (
+            "COLOR_BALANCE",
+            {
+                "color_balance.correction_method": "OFFSET_POWER_SLOPE",
+                "color_balance.offset": cdl_offset,
+                "color_balance.power": cdl_power,
+                "color_balance.slope": cdl_slope,
+            },
+        ),
+        ("CURVES", {"__curve_points__": {0: board_curve}}),
+        ("HUE_CORRECT", {"__curve_points__": hue_chroma[0][1]["__curve_points__"]}),
+        (
+            "TONEMAP",
+            {
+                "tonemap_type": "RD_PHOTORECEPTOR",
+                "intensity": _clamp(tonemap_settings["intensity"] + max(stats.luma_p95 - 218.0, 0.0) / 255.0 * 0.08, 0.0, 0.24),
+                "contrast": _clamp(tonemap_settings["contrast"] + max(118.0 - dynamic_range, 0.0) / 255.0 * 0.05, 0.0, 0.24),
+                "gamma": _clamp(tonemap_settings["gamma"], 0.88, 1.14),
+            },
+        ),
+        ("CURVES", {"__curve_points__": {0: final_curve}}),
+        ("HUE_CORRECT", {"__hue_correct__": {"saturation": secondary_saturation, "value": 0.5}}),
+    )
+
+
 def build_sampled_color_management(stats: ColorStats) -> SampledColorManagement:
     """Build native Blender scene/view Color Management from sampled frame stats."""
 
