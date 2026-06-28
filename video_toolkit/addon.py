@@ -124,6 +124,20 @@ LIVE_COLOR_SIDECAR_CATEGORIES = (
     "Live Blender Modifiers",
 )
 
+COMPOSITOR_NODE_CONTROL_PROPS = {
+    "CompositorNodeConvertColorSpace": ("from_color_space", "to_color_space"),
+    "CompositorNodeSeparateColor": ("mode", "ycc_mode"),
+    "CompositorNodeCombineColor": ("mode", "ycc_mode"),
+}
+COMPOSITOR_CURVE_NODE_TYPES = {"CompositorNodeCurveRGB", "CompositorNodeHueCorrect"}
+COMPOSITOR_CONTROL_SKIP_INPUTS = {
+    "Image",
+    "Image 1",
+    "Image 2",
+    "Background",
+    "Foreground",
+}
+
 
 def _enum_key(value: str) -> str:
     cleaned = "".join(ch.upper() if ch.isalnum() else "_" for ch in value).strip("_")
@@ -2378,6 +2392,90 @@ def _draw_compositor_nodes(layout, scene, strip) -> None:
         box.label(text=scene.video_toolkit_last_compositor_nodes, icon="INFO")
     if scene.video_toolkit_last_catalog_report:
         box.label(text=scene.video_toolkit_last_catalog_report, icon="TEXT")
+    _draw_compositor_node_controls(layout, scene)
+
+
+def _draw_compositor_node_controls(layout, scene) -> None:
+    nodes = _video_toolkit_compositor_control_nodes(scene)
+    box = layout.box()
+    box.label(text="Created Node Controls", icon="NODETREE")
+    if not nodes:
+        box.label(text="Create a Video Toolkit compositor graph to edit node controls here.", icon="INFO")
+        return
+    for node in nodes:
+        node_box = box.box()
+        header = node_box.row(align=True)
+        header.prop(node, "label", text="")
+        if hasattr(node, "mute"):
+            header.prop(node, "mute", text="", icon="HIDE_ON" if node.mute else "HIDE_OFF")
+        _draw_compositor_node_control_body(node_box, node)
+
+
+def _draw_compositor_node_control_body(layout, node) -> None:
+    drew = False
+    for prop_name in COMPOSITOR_NODE_CONTROL_PROPS.get(node.bl_idname, ()):
+        if hasattr(node, prop_name):
+            layout.prop(node, prop_name, text=prop_name.replace("_", " ").title())
+            drew = True
+    if node.bl_idname in COMPOSITOR_CURVE_NODE_TYPES and hasattr(node, "mapping"):
+        try:
+            layout.template_curve_mapping(node, "mapping")
+            drew = True
+        except Exception:
+            layout.label(text="Open the compositor editor for this curve map.", icon="INFO")
+    for socket in node.inputs:
+        if _is_editable_compositor_input(socket):
+            layout.prop(socket, "default_value", text=socket.name)
+            drew = True
+    if not drew:
+        layout.label(text=node.bl_idname, icon="NODE")
+
+
+def _video_toolkit_compositor_control_nodes(scene, limit: int = 12):
+    tree = _compositor_tree_or_none(scene)
+    if tree is None:
+        return ()
+    candidates = [
+        node for node in tree.nodes
+        if bool(node.get("video_toolkit")) and _compositor_node_control_names(node)
+    ]
+    selected_tool = _selected_sidecar_tool(scene)
+    selected_id = selected_tool.id if selected_tool is not None else ""
+    if selected_id:
+        selected_nodes = [
+            node for node in candidates
+            if node.get("video_toolkit_filter_id") == selected_id
+        ]
+        if selected_nodes:
+            return tuple(sorted(selected_nodes, key=_node_position_key)[:limit])
+    return tuple(sorted(candidates, key=_node_position_key, reverse=True)[:limit])
+
+
+def _compositor_node_control_names(node) -> tuple[str, ...]:
+    names: list[str] = []
+    for prop_name in COMPOSITOR_NODE_CONTROL_PROPS.get(node.bl_idname, ()):
+        if hasattr(node, prop_name):
+            names.append(prop_name)
+    if node.bl_idname in COMPOSITOR_CURVE_NODE_TYPES and hasattr(node, "mapping"):
+        names.append("mapping")
+    for socket in node.inputs:
+        if _is_editable_compositor_input(socket):
+            names.append(socket.name)
+    return tuple(names)
+
+
+def _is_editable_compositor_input(socket) -> bool:
+    if socket.name in COMPOSITOR_CONTROL_SKIP_INPUTS:
+        return False
+    if getattr(socket, "is_linked", False):
+        return False
+    if not getattr(socket, "enabled", True):
+        return False
+    return hasattr(socket, "default_value")
+
+
+def _node_position_key(node):
+    return (float(node.location.x), float(node.location.y), node.name)
 
 
 def _draw_live_color_tools(layout, scene) -> None:
@@ -4555,6 +4653,14 @@ def _ensure_compositor_tree(scene):
     if tree is None:
         raise RuntimeError("This Blender build does not expose a compositor node tree")
     return tree
+
+
+def _compositor_tree_or_none(scene):
+    if hasattr(scene, "compositing_node_group"):
+        return scene.compositing_node_group
+    if hasattr(scene, "use_nodes") and not scene.use_nodes:
+        return None
+    return getattr(scene, "node_tree", None)
 
 
 def _new_compositor_node(tree, node_type: str, label: str, index: int, y_offset: int = 0, origin=(0, 0)):

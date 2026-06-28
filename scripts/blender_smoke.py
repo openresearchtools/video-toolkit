@@ -75,7 +75,11 @@ import sys
 sys.path.insert(0, {str(ROOT)!r})
 import bpy
 import video_toolkit
-from video_toolkit.addon import LIVE_COLOR_SIDECAR_CATEGORIES
+from video_toolkit.addon import (
+    LIVE_COLOR_SIDECAR_CATEGORIES,
+    _compositor_node_control_names,
+    _video_toolkit_compositor_control_nodes,
+)
 from video_toolkit.compositor import compositor_node_types
 
 video_toolkit.register()
@@ -633,6 +637,17 @@ assert rgb_board_nodes
 assert {{'CompositorNodeSeparateColor', 'CompositorNodeCombineColor', 'CompositorNodeColorBalance'}}.issubset(
     {{node.bl_idname for node in rgb_board_nodes}}
 )
+rgb_control_nodes = _video_toolkit_compositor_control_nodes(scene, limit=20)
+assert {{'CompositorNodeSeparateColor', 'CompositorNodeCombineColor', 'CompositorNodeColorBalance'}}.issubset(
+    {{node.bl_idname for node in rgb_control_nodes}}
+)
+rgb_control_names = {{
+    node.bl_idname: _compositor_node_control_names(node)
+    for node in rgb_control_nodes
+}}
+assert 'mode' in rgb_control_names['CompositorNodeSeparateColor']
+assert 'mode' in rgb_control_names['CompositorNodeCombineColor']
+assert 'Gamma' in rgb_control_names['CompositorNodeColorBalance']
 scene.video_toolkit_sidecar_tool = 'native_ffmpeg_color_metadata_pipeline'
 bpy.ops.video_toolkit.apply_sidecar_tool()
 assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor FFmpeg Metadata Pipeline')
@@ -643,6 +658,15 @@ metadata_sidecar_nodes = [
 ]
 assert metadata_sidecar_nodes
 assert any(node.get('video_toolkit_color_management_output_transfer') == 'bt2020-10' for node in metadata_sidecar_nodes)
+metadata_control_nodes = _video_toolkit_compositor_control_nodes(scene, limit=20)
+metadata_control_names = {{
+    node.bl_idname: _compositor_node_control_names(node)
+    for node in metadata_control_nodes
+}}
+assert 'from_color_space' in metadata_control_names['CompositorNodeConvertColorSpace']
+assert 'to_color_space' in metadata_control_names['CompositorNodeConvertColorSpace']
+assert 'Intensity' in metadata_control_names['CompositorNodeTonemap']
+assert 'Invert' in metadata_control_names['CompositorNodeConvertToDisplay']
 from video_toolkit.addon import _tool_has_compositor_stack
 from video_toolkit.catalog import all_tools
 from video_toolkit.ffmpeg_native import NATIVE_FFMPEG_COMPOSITOR_FILTERS, NATIVE_FFMPEG_FILTERS
