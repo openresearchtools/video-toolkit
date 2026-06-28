@@ -3474,6 +3474,7 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "POSTERIZE": "Posterize",
         "PREMUL_KEY": "Premul Key",
         "FILTER": "Filter",
+        "DILATE_ERODE": "Dilate/Erode",
     }
     node_label = str(settings.get("label") or labels.get(compositor_type, compositor_type.title()))
     label = f"VTK {label_prefix} {node_label}"
@@ -3508,6 +3509,13 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         node = _new_compositor_node(tree, "CompositorNodeFilter", label, index, origin=origin)
         _set_input_default(node, "Type", settings.get("filter_type", "Box Sharpen"))
         _set_input_default(node, "Factor", settings.get("factor", 1.0))
+        return node
+    if compositor_type == "DILATE_ERODE":
+        node = _new_compositor_node(tree, "CompositorNodeDilateErode", label, index, origin=origin)
+        _set_input_default(node, "Type", settings.get("mode", "Steps"))
+        _set_input_default(node, "Size", settings.get("size", 1))
+        _set_input_default(node, "Falloff Size", settings.get("falloff_size", 0.0))
+        _set_input_default(node, "Falloff", settings.get("falloff", "Smooth"))
         return node
     return None
 
@@ -4219,6 +4227,8 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "prewitt=scale=0.9:delta=0.01,"
         "kirsch=scale=0.8,"
         "edgedetect=high=0.20:low=0.08:mode=wires,"
+        "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
+        "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"

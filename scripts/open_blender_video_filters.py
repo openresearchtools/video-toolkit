@@ -94,6 +94,8 @@ def _setup_scene() -> None:
         "prewitt=scale=0.9:delta=0.01,"
         "kirsch=scale=0.8,"
         "edgedetect=high=0.20:low=0.08:mode=wires,"
+        "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
+        "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "histeq=strength=0.20:intensity=0.18,"
         "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"

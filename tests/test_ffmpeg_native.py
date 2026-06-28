@@ -16,6 +16,7 @@ from video_toolkit.ffmpeg_native import (
     hsvkey_to_blender_compositor,
     lumakey_to_blender_compositor,
     lut_to_blender_stack,
+    morphology_to_blender_compositor,
     negate_to_blender_stack,
     normalize_to_blender_stack,
     premultiply_to_blender_compositor,
@@ -368,6 +369,27 @@ def test_edge_filters_translate_to_native_filter_graph_specs():
     assert [settings["source"] for _node_type, settings in result.compositor_nodes] == ["sobel", "prewitt", "kirsch", "edgedetect"]
 
 
+def test_morphology_filters_translate_to_dilate_erode_graph_specs():
+    erosion = morphology_to_blender_compositor("erosion", coordinates=255, threshold0=64000)
+    dilation = morphology_to_blender_compositor("dilation", coordinates=255, threshold0=64000)
+    assert erosion[0][0] == "DILATE_ERODE"
+    assert dilation[0][0] == "DILATE_ERODE"
+    assert erosion[0][1]["size"] == -1
+    assert dilation[0][1]["size"] == 1
+    assert erosion[0][1]["thresholds"][0] == 64000
+    assert dilation[0][1]["label"] == "Dilate"
+
+    result = translate_filter_chain(
+        "erosion=coordinates=255:threshold0=64000:threshold1=64000,dilation=coordinates=15:threshold2=32000"
+    )
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("erosion", "dilation")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["DILATE_ERODE", "DILATE_ERODE"]
+    assert result.compositor_nodes[0][1]["source"] == "erosion"
+    assert result.compositor_nodes[1][1]["source"] == "dilation"
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -405,6 +427,8 @@ def test_filter_chain_supports_more_color_grading_filters():
         "prewitt=scale=0.9:delta=0.01,"
         "kirsch=scale=0.8,"
         "edgedetect=high=0.20:low=0.08:mode=wires,"
+        "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
+        "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -447,6 +471,8 @@ def test_filter_chain_supports_more_color_grading_filters():
         "prewitt",
         "kirsch",
         "edgedetect",
+        "erosion",
+        "dilation",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -455,7 +481,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

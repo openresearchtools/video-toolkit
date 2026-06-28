@@ -66,6 +66,8 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "prewitt",
     "kirsch",
     "edgedetect",
+    "erosion",
+    "dilation",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -235,6 +237,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(edge_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Filter edge-detection nodes.")
+        elif name in {"erosion", "dilation"}:
+            compositor_nodes.extend(morphology_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is translated to Blender compositor Dilate/Erode matte cleanup nodes.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -1276,6 +1282,43 @@ def edge_filter_to_blender_compositor(
                 "high": _clamp(_float(high, 0.196078), 0.0, 1.0),
                 "low": _clamp(_float(low, 0.0784314), 0.0, 1.0),
                 "mode": str(mode),
+                "source": name,
+            },
+        ),
+    )
+
+
+def morphology_to_blender_compositor(
+    source: str,
+    *,
+    coordinates: str | int = 255,
+    threshold0: str | int = 65535,
+    threshold1: str | int = 65535,
+    threshold2: str | int = 65535,
+    threshold3: str | int = 65535,
+    **_unused: str,
+) -> CompositorStack:
+    name = str(source).strip().lower()
+    coordinate_value = int(_clamp(round(_float(coordinates, 255.0)), 0.0, 255.0))
+    threshold_values = tuple(
+        int(_clamp(round(_float(value, 65535.0)), 0.0, 65535.0))
+        for value in (threshold0, threshold1, threshold2, threshold3)
+    )
+    active_neighbors = max(1, int(coordinate_value).bit_count())
+    size = max(1, min(8, round(active_neighbors / 8.0)))
+    if name == "erosion":
+        size = -size
+    return (
+        (
+            "DILATE_ERODE",
+            {
+                "label": "Erode" if name == "erosion" else "Dilate",
+                "mode": "Steps",
+                "size": size,
+                "falloff_size": 0.0,
+                "falloff": "Smooth",
+                "coordinates": coordinate_value,
+                "thresholds": threshold_values,
                 "source": name,
             },
         ),
