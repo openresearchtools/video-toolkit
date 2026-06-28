@@ -11,7 +11,11 @@ from video_toolkit.compositor import (
     compositor_node_tools,
     compositor_node_types,
 )
-from video_toolkit.ffmpeg_native import NATIVE_FFMPEG_COMPOSITOR_FILTERS, NATIVE_FFMPEG_SOURCE_FILTERS
+from video_toolkit.ffmpeg_native import (
+    NATIVE_FFMPEG_COMPOSITOR_FILTERS,
+    NATIVE_FFMPEG_EDITING_FILTERS,
+    NATIVE_FFMPEG_SOURCE_FILTERS,
+)
 
 
 STACK_TYPE_TO_COMPOSITOR_NODE = {
@@ -974,7 +978,8 @@ def test_all_tracked_compositor_nodes_have_one_click_catalog_coverage():
 
 
 def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
-    filter_to_tool = {
+    filter_to_tool = {filter_name: f"native_ffmpeg_edit_{filter_name}" for filter_name in NATIVE_FFMPEG_EDITING_FILTERS}
+    filter_to_tool.update({
         "chromakey": "native_chroma_key_matte",
         "chromakey_cuda": "native_cuda_chroma_key_matte",
         "colorkey": "native_color_key_matte",
@@ -1143,7 +1148,7 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "vif": "native_ffmpeg_vif_compare",
         "vmafmotion": "native_ffmpeg_vmafmotion_compare",
         "xcorrelate": "native_ffmpeg_xcorrelate_compare",
-    }
+    })
     assert set(NATIVE_FFMPEG_COMPOSITOR_FILTERS) == set(filter_to_tool)
     for tool_id in filter_to_tool.values():
         tool = get_tool(tool_id)

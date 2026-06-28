@@ -24,6 +24,7 @@ from video_toolkit.ffmpeg_native import (
     colorhold_to_blender_compositor,
     crop_to_blender_compositor,
     directional_blur_to_blender_compositor,
+    editing_filter_to_blender_compositor,
     edge_filter_to_blender_compositor,
     edge_preserving_blur_to_blender_compositor,
     elbg_to_blender_compositor,
@@ -270,6 +271,59 @@ def test_ffmpeg_source_generators_translate_to_native_source_graphlets():
         "zoneplate",
         "zoneplate",
     ]
+
+
+def test_ffmpeg_editing_filters_translate_to_native_graphlets():
+    fade = editing_filter_to_blender_compositor("fade", t="out", alpha=0.7)
+    pixelize = editing_filter_to_blender_compositor("pixelize", block_size=14)
+    overlay = editing_filter_to_blender_compositor("overlay_vulkan", x=64, y=32, alpha=0.4)
+    drawtext = editing_filter_to_blender_compositor("drawtext", text="CHECK", fontsize=36)
+
+    assert [node_type for node_type, _settings in fade] == ["BRIGHT_CONTRAST", "NATIVE_NODE"]
+    assert fade[1][1]["node_type"] == "CompositorNodeSetAlpha"
+    assert pixelize[0][1]["node_type"] == "CompositorNodePixelate"
+    assert pixelize[0][1]["inputs"]["Size"] == 14.0
+    assert overlay[0][1]["node_type"] == "CompositorNodeTransform"
+    assert overlay[1][0] == "BLEND_COMPOSITE"
+    assert drawtext[0][0] == "TEXT_OVERLAY"
+    assert drawtext[0][1]["inputs"]["String"] == "CHECK"
+
+    result = translate_filter_chain(
+        "fade=t=out:alpha=1,"
+        "vignette=angle=0.45,"
+        "noise=alls=18,"
+        "pixelize=block_size=12,"
+        "overlay=x=48:y=32:alpha=0.45,"
+        "pad=w=iw*1.12:h=ih*1.12:color=black,"
+        "hstack=inputs=2,"
+        "perspective=x0=0:y0=0:x1=W:y1=20:x2=20:y2=H:x3=W-20:y3=H,"
+        "shear=shx=0.08:shy=0.02,"
+        "scroll=horizontal=0.08:vertical=0.02,"
+        "zoompan=z=1.12:x=12:y=8:d=25,"
+        "drawbox=x=32:y=32:w=iw-64:h=ih-64:color=yellow:t=4,"
+        "drawtext=text='VIDEO TOOLKIT':fontsize=42"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == (
+        "fade",
+        "vignette",
+        "noise",
+        "pixelize",
+        "overlay",
+        "pad",
+        "hstack",
+        "perspective",
+        "shear",
+        "scroll",
+        "zoompan",
+        "drawbox",
+        "drawtext",
+    )
+    node_types = [settings.get("node_type", stack_type) for stack_type, settings in result.compositor_nodes]
+    assert "CompositorNodePixelate" in node_types
+    assert "CompositorNodeCornerPin" in node_types
+    assert "CompositorNodeTranslate" in node_types
+    assert "TEXT_OVERLAY" in node_types
 
 
 def test_greyedge_and_pseudocolor_translate_to_live_controls():

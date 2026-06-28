@@ -93,7 +93,44 @@ NATIVE_FFMPEG_SOURCE_FILTERS = (
     "zoneplate",
 )
 
+NATIVE_FFMPEG_EDITING_FILTERS = (
+    "fade",
+    "vignette",
+    "noise",
+    "pixelize",
+    "overlay",
+    "overlay_cuda",
+    "overlay_opencl",
+    "overlay_qsv",
+    "overlay_vaapi",
+    "overlay_vulkan",
+    "pad",
+    "pad_cuda",
+    "pad_opencl",
+    "pad_vaapi",
+    "hstack",
+    "hstack_qsv",
+    "hstack_vaapi",
+    "vstack",
+    "vstack_qsv",
+    "vstack_vaapi",
+    "xstack",
+    "xstack_qsv",
+    "xstack_vaapi",
+    "tile",
+    "perspective",
+    "shear",
+    "scroll",
+    "zoompan",
+    "drawbox",
+    "drawgrid",
+    "drawtext",
+    "subtitles",
+    "ass",
+)
+
 NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
+    *NATIVE_FFMPEG_EDITING_FILTERS,
     "chromakey",
     "chromakey_cuda",
     "colorkey",
@@ -386,6 +423,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(source_generator_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} FFmpeg source/generator intent is represented with native Blender Blank Image/Text source graphlets and generator metadata.")
+        elif name in NATIVE_FFMPEG_EDITING_FILTERS:
+            compositor_nodes.extend(editing_filter_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} edit/layout/finishing intent is represented with native Blender compositor graphlets and editable FFmpeg metadata.")
         elif name == "normalize":
             normalize_stack = normalize_to_blender_stack(**args)
             stack.extend(normalize_stack)
@@ -1463,6 +1504,417 @@ def source_generator_to_blender_compositor(source: str, **options: str | int | f
             },
         ),
     )
+
+
+def editing_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    if name == "fade":
+        return _fade_to_blender_compositor(name, options)
+    if name == "vignette":
+        return _vignette_to_blender_compositor(name, options)
+    if name == "noise":
+        return _noise_to_blender_compositor(name, options)
+    if name == "pixelize":
+        return _pixelize_to_blender_compositor(name, options)
+    if name in {"overlay", "overlay_cuda", "overlay_opencl", "overlay_qsv", "overlay_vaapi", "overlay_vulkan"}:
+        return _overlay_to_blender_compositor(name, options)
+    if name in {"pad", "pad_cuda", "pad_opencl", "pad_vaapi"}:
+        return _pad_to_blender_compositor(name, options)
+    if name in {"hstack", "hstack_qsv", "hstack_vaapi", "vstack", "vstack_qsv", "vstack_vaapi", "xstack", "xstack_qsv", "xstack_vaapi", "tile"}:
+        return _layout_stack_to_blender_compositor(name, options)
+    if name == "perspective":
+        return _perspective_to_blender_compositor(name, options)
+    if name == "shear":
+        return _shear_to_blender_compositor(name, options)
+    if name == "scroll":
+        return _scroll_to_blender_compositor(name, options)
+    if name == "zoompan":
+        return _zoompan_to_blender_compositor(name, options)
+    if name in {"drawbox", "drawgrid"}:
+        return _draw_shape_to_blender_compositor(name, options)
+    if name in {"drawtext", "subtitles", "ass"}:
+        return _text_to_blender_compositor(name, options)
+    return ()
+
+
+def _fade_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    fade_type = str(_option(options, "type", "t", "arg0", default="out")).strip().lower()
+    alpha = _clamp(_float(_option(options, "alpha", default=1.0), 1.0), 0.0, 1.0)
+    frame_count = _float(_option(options, "nb_frames", "n", default=25), 25.0)
+    brightness = -0.24 if fade_type in {"out", "0"} else -0.12
+    label = "Fade Out Preview" if fade_type in {"out", "0"} else "Fade In Preview"
+    metadata = _editing_metadata(source, options, type=fade_type, frames=frame_count)
+    return (
+        (
+            "BRIGHT_CONTRAST",
+            {
+                "label": label,
+                "bright": brightness,
+                "contrast": -6.0,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg fade animates opacity/brightness over time; this Blender graph exposes a representative editable fade state and stores timing metadata.",
+            },
+        ),
+        _native_compositor_node(
+            "CompositorNodeSetAlpha",
+            label=f"{label} Alpha",
+            source=source,
+            inputs={"Alpha": alpha, "Type": "Apply Mask"},
+            metadata=metadata,
+            approximation="Fade alpha is represented with Blender Set Alpha; frame timing is preserved as metadata for exact rendered fallback.",
+        ),
+    )
+
+
+def _vignette_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    angle = _clamp(_float(_option(options, "angle", "a", default=0.45), 0.45), 0.0, 2.0)
+    strength = _clamp(_float(_option(options, "eval", "mode", default=0.32), 0.32), 0.0, 1.0)
+    factor = _clamp(0.18 + angle * 0.18 + strength * 0.20, 0.18, 0.58)
+    metadata = _editing_metadata(source, options, angle=angle, factor=factor)
+    return (
+        (
+            "BLEND_COMPOSITE",
+            {
+                "label": "Vignette Edge Darken",
+                "mode": "darken",
+                "factor": factor,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Blender has no dedicated compositor vignette node in this build; a native darken branch provides an editable vignette-style edge-density preview.",
+            },
+        ),
+        (
+            "LENS_DISTORTION",
+            {
+                "label": "Vignette Lens Falloff",
+                "distortion": -0.015 * max(1.0, angle),
+                "dispersion": 0.0,
+                "fit": True,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Subtle lens falloff metadata is paired with the darken branch for a native editable vignette preview.",
+            },
+        ),
+    )
+
+
+def _noise_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    strength = _noise_strength(options)
+    metadata = _editing_metadata(source, options, strength=strength)
+    return (
+        (
+            "FILTER",
+            {
+                "label": "Noise Grain Detail",
+                "filter_type": "Box Sharpen",
+                "factor": _clamp(strength * 1.8, 0.05, 0.65),
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg noise adds synthetic grain. Blender has no compositor noise source here, so this native preview exposes grain/detail emphasis and stores all noise parameters for rendered fallback.",
+            },
+        ),
+        (
+            "BLEND_COMPOSITE",
+            {
+                "label": "Noise Grain Overlay",
+                "mode": "overlay",
+                "factor": _clamp(strength * 0.9, 0.04, 0.34),
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Overlay contrast branch previews the visible grain/detail intent while preserving FFmpeg seed/flag metadata.",
+            },
+        ),
+    )
+
+
+def _pixelize_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    block = _clamp(_float(_option(options, "block_size", "size", "w", "arg0", default=8), 8.0), 1.0, 128.0)
+    return (
+        _native_compositor_node(
+            "CompositorNodePixelate",
+            label="Pixelize",
+            source=source,
+            image_input="Color",
+            image_output="Color",
+            inputs={"Size": block},
+            metadata=_editing_metadata(source, options, block_size=block),
+            approximation="FFmpeg pixelize maps directly to Blender's native Pixelate compositor node.",
+        ),
+    )
+
+
+def _overlay_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    x = _pixel_offset(_option(options, "x", default=48), 48.0)
+    y = _pixel_offset(_option(options, "y", default=32), 32.0)
+    alpha = _clamp(_float(_option(options, "alpha", "opacity", default=0.45), 0.45), 0.0, 1.0)
+    metadata = _editing_metadata(source, options, x=x, y=y, alpha=alpha)
+    hardware = _hardware_filter_name(source, "overlay")
+    return (
+        _native_compositor_node(
+            "CompositorNodeTransform",
+            label="Overlay Position",
+            source=source,
+            inputs={"X": x, "Y": y, "Angle": 0.0, "Scale": 0.74, "Interpolation": "Bilinear"},
+            metadata=metadata | ({"hardware_filter": hardware} if hardware else {}),
+            approximation="FFmpeg overlay uses a second input stream. This native preview reuses the selected strip as an editable positioned overlay branch and stores two-input options for rendered fallback.",
+        ),
+        (
+            "BLEND_COMPOSITE",
+            {
+                "label": "Overlay Composite",
+                "mode": "overlay",
+                "factor": alpha,
+                "source": source,
+                "metadata": metadata,
+                "hardware_filter": hardware,
+                "approximation": "Alpha Over/overlay-style compositing previews two-input overlay placement without requiring hardware overlay filters.",
+            },
+        ),
+    )
+
+
+def _pad_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    width_text = str(_option(options, "width", "w", default="iw*1.08"))
+    height_text = str(_option(options, "height", "h", default="ih*1.08"))
+    x_factor = _clamp(1.0 / max(_dimension_or_default(width_text, 1.08), 1.0), 0.65, 1.0)
+    y_factor = _clamp(1.0 / max(_dimension_or_default(height_text, 1.08), 1.0), 0.65, 1.0)
+    color = (*_parse_color(str(_option(options, "color", default="black")), (0.0, 0.0, 0.0)), 1.0)
+    metadata = _editing_metadata(source, options, width=width_text, height=height_text, x_factor=x_factor, y_factor=y_factor)
+    hardware = _hardware_filter_name(source, "pad")
+    return (
+        (
+            "SCALE",
+            {
+                "label": "Pad Canvas Scale",
+                "type": "Relative",
+                "x": x_factor,
+                "y": y_factor,
+                "frame_type": "Fit",
+                "interpolation": "Bilinear",
+                "source": source,
+                "hardware_filter": hardware,
+                "metadata": metadata,
+                "approximation": "FFmpeg pad expands canvas bounds. Blender previews this as a scale-to-padded-canvas graph and stores pad geometry for rendered fallback.",
+            },
+        ),
+        (
+            "BLANK_IMAGE_OVERLAY",
+            {
+                "label": "Pad Color Plate",
+                "inputs": {"Color": color, "Size": (640, 360)},
+                "factor": 0.08,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Pad color is represented with a subtle editable Blank Image plate over the selected strip.",
+            },
+        ),
+    )
+
+
+def _layout_stack_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    base = _layout_base_name(source)
+    columns, rows = _layout_dimensions(base, options)
+    x_scale = 1.0 / max(columns, 1)
+    y_scale = 1.0 / max(rows, 1)
+    x_offset = -320.0 * (columns - 1) / max(columns, 1)
+    y_offset = 180.0 * (rows - 1) / max(rows, 1)
+    metadata = _editing_metadata(source, options, layout=f"{columns}x{rows}", base=base)
+    hardware = _hardware_filter_name(source, base)
+    return (
+        (
+            "SCALE",
+            {
+                "label": f"{_editing_label(source)} Layout Scale",
+                "type": "Relative",
+                "x": x_scale,
+                "y": y_scale,
+                "frame_type": "Fit",
+                "interpolation": "Bilinear",
+                "source": source,
+                "hardware_filter": hardware,
+                "metadata": metadata,
+                "approximation": "FFmpeg layout filters combine multiple input streams. Blender previews the selected strip in the requested layout cell and keeps layout metadata for rendered fallback.",
+            },
+        ),
+        _native_compositor_node(
+            "CompositorNodeTransform",
+            label=f"{_editing_label(source)} Cell Position",
+            source=source,
+            inputs={"X": x_offset, "Y": y_offset, "Angle": 0.0, "Scale": 1.0, "Interpolation": "Bilinear"},
+            metadata=metadata | ({"hardware_filter": hardware} if hardware else {}),
+            approximation="Native Transform positions the selected-strip proxy in the stack/tile layout.",
+        ),
+    )
+
+
+def _perspective_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options)
+    return (
+        _native_compositor_node(
+            "CompositorNodeCornerPin",
+            label="Perspective Corner Pin",
+            source=source,
+            inputs={
+                "Upper Left": (0.04, 0.96),
+                "Upper Right": (0.96, 1.0),
+                "Lower Left": (0.0, 0.04),
+                "Lower Right": (1.0, 0.0),
+                "Interpolation": "Bilinear",
+            },
+            metadata=metadata,
+            approximation="FFmpeg perspective maps quadrilateral coordinates; Blender's native Corner Pin exposes editable perspective placement.",
+        ),
+    )
+
+
+def _shear_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    shx = _float(_option(options, "shx", "x", default=0.08), 0.08)
+    shy = _float(_option(options, "shy", "y", default=0.0), 0.0)
+    angle = _clamp(shx + shy, -0.4, 0.4)
+    return (
+        _native_compositor_node(
+            "CompositorNodeTransform",
+            label="Shear Transform Preview",
+            source=source,
+            inputs={"X": shx * 120.0, "Y": shy * 90.0, "Angle": angle, "Scale": 1.0, "Interpolation": "Bilinear"},
+            metadata=_editing_metadata(source, options, shx=shx, shy=shy),
+            approximation="Blender compositor has Transform rather than a dedicated shear node; shear intent is previewed as editable translate/angle transform metadata.",
+        ),
+    )
+
+
+def _scroll_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    h = _float(_option(options, "horizontal", "h", default=0.08), 0.08)
+    v = _float(_option(options, "vertical", "v", default=0.0), 0.0)
+    x = _pixel_offset(_option(options, "x", default=h * 640.0), h * 640.0)
+    y = _pixel_offset(_option(options, "y", default=v * 360.0), v * 360.0)
+    return (
+        _native_compositor_node(
+            "CompositorNodeTranslate",
+            label="Scroll Translate",
+            source=source,
+            inputs={"X": x, "Y": y, "Interpolation": "Bilinear"},
+            metadata=_editing_metadata(source, options, x=x, y=y),
+            approximation="FFmpeg scroll animates wrapped offsets over time; Blender previews an editable translate offset and stores scroll rates as metadata.",
+        ),
+    )
+
+
+def _zoompan_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    zoom = _clamp(_numeric_expression(str(_option(options, "zoom", "z", default=1.12)).replace("min(", "").replace(",", "+"), 1.12), 0.1, 8.0)
+    x = _pixel_offset(_option(options, "x", default=0), 0.0)
+    y = _pixel_offset(_option(options, "y", default=0), 0.0)
+    metadata = _editing_metadata(source, options, zoom=zoom, x=x, y=y)
+    return (
+        (
+            "SCALE",
+            {
+                "label": "Zoompan Scale",
+                "type": "Relative",
+                "x": zoom,
+                "y": zoom,
+                "frame_type": "Crop",
+                "interpolation": "Bilinear",
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg zoompan animates scale and crop over frames; Blender previews the current zoom as editable Scale/Translate nodes.",
+            },
+        ),
+        _native_compositor_node(
+            "CompositorNodeTranslate",
+            label="Zoompan Offset",
+            source=source,
+            inputs={"X": x, "Y": y, "Interpolation": "Bilinear"},
+            metadata=metadata,
+            approximation="Zoompan x/y expressions are preserved as metadata for rendered fallback.",
+        ),
+    )
+
+
+def _draw_shape_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    color = (*_parse_color(str(_option(options, "color", "c", default="yellow")), (1.0, 0.85, 0.0)), 1.0)
+    thickness = _clamp(_float(_option(options, "thickness", "t", default=3), 3.0), 1.0, 96.0)
+    label = "Draw Grid Overlay" if source == "drawgrid" else "Draw Box Overlay"
+    metadata = _editing_metadata(source, options, thickness=thickness)
+    return (
+        (
+            "BLANK_IMAGE_OVERLAY",
+            {
+                "label": label,
+                "inputs": {"Color": color, "Size": (640, 360)},
+                "factor": _clamp(thickness / 48.0, 0.08, 0.28),
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg drawbox/drawgrid creates vector overlays. Blender previews the overlay color/intensity with editable native Blank Image and metadata for exact rendered geometry.",
+            },
+        ),
+        (
+            "TEXT_OVERLAY",
+            {
+                "label": f"{label} Label",
+                "inputs": {"String": f"FFmpeg {source}", "Size": 24.0},
+                "factor": 0.28,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Text label marks the generated overlay intent in the compositor preview.",
+            },
+        ),
+    )
+
+
+def _text_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    text = _overlay_text(source, options)
+    size = _clamp(_float(_option(options, "fontsize", "size", default=42.0), 42.0), 8.0, 160.0)
+    return (
+        (
+            "TEXT_OVERLAY",
+            {
+                "label": _editing_label(source),
+                "inputs": {"String": text, "Size": size},
+                "factor": _clamp(_float(_option(options, "alpha", default=0.55), 0.55), 0.0, 1.0),
+                "source": source,
+                "metadata": _editing_metadata(source, options, text=text, size=size),
+                "approximation": "FFmpeg text/subtitle rendering is previewed with Blender's native String to Image overlay and source/file metadata.",
+            },
+        ),
+    )
+
+
+def _native_compositor_node(
+    node_type: str,
+    *,
+    label: str,
+    source: str,
+    image_input: str | None = None,
+    image_output: str | None = None,
+    inputs: dict[str, object] | None = None,
+    properties: dict[str, object] | None = None,
+    metadata: dict[str, object] | None = None,
+    approximation: str = "",
+    skip_link_input: bool = False,
+    passthrough: bool = False,
+) -> tuple[str, dict[str, object]]:
+    settings: dict[str, object] = {
+        "node_type": node_type,
+        "label": label,
+        "inputs": inputs or {},
+        "properties": properties or {},
+        "source": source,
+    }
+    if image_input:
+        settings["__image_input__"] = image_input
+    if image_output:
+        settings["__image_output__"] = image_output
+    if skip_link_input:
+        settings["__skip_link_input__"] = True
+    if passthrough:
+        settings["__passthrough__"] = True
+    if metadata:
+        settings["metadata"] = metadata
+    if approximation:
+        settings["approximation"] = approximation
+    return ("NATIVE_NODE", settings)
 
 
 def normalize_to_blender_stack(
@@ -4842,6 +5294,118 @@ def _source_generator_size(options: dict[str, object]) -> tuple[int, int]:
     width = int(round(_clamp(_dimension_or_default(width_text, 640.0), 1.0, 8192.0)))
     height = int(round(_clamp(_dimension_or_default(height_text, 360.0), 1.0, 8192.0)))
     return width, height
+
+
+def _editing_metadata(source: str, options: dict[str, object], **extra: object) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "source": source,
+        "options": ";".join(f"{key}={value}" for key, value in sorted(options.items())),
+    }
+    for key, value in extra.items():
+        if isinstance(value, (str, int, float, bool)):
+            metadata[key] = value
+        elif isinstance(value, (tuple, list)):
+            metadata[key] = ",".join(str(item) for item in value)
+        else:
+            metadata[key] = str(value)
+    return metadata
+
+
+def _noise_strength(options: dict[str, object]) -> float:
+    value = _option(options, "alls", "all_strength", "strength", "arg0", default=18)
+    strength = _float(value, 18.0)
+    if strength > 1.0:
+        strength /= 100.0
+    return _clamp(strength, 0.02, 0.70)
+
+
+def _hardware_filter_name(source: str, base: str) -> str:
+    return source if source != base else ""
+
+
+def _layout_base_name(source: str) -> str:
+    if source.startswith("hstack"):
+        return "hstack"
+    if source.startswith("vstack"):
+        return "vstack"
+    if source.startswith("xstack"):
+        return "xstack"
+    return source
+
+
+def _layout_dimensions(base: str, options: dict[str, object]) -> tuple[int, int]:
+    if base == "hstack":
+        return (max(2, int(round(_float(_option(options, "inputs", default=2), 2.0)))), 1)
+    if base == "vstack":
+        return (1, max(2, int(round(_float(_option(options, "inputs", default=2), 2.0)))))
+    layout = str(_option(options, "layout", default="2x2")).lower()
+    columns_text, rows_text = _parse_size_pair(layout)
+    columns = int(round(_clamp(_dimension_or_default(columns_text, 2.0), 1.0, 12.0)))
+    rows = int(round(_clamp(_dimension_or_default(rows_text, 2.0), 1.0, 12.0)))
+    return (columns, rows)
+
+
+def _editing_label(source: str) -> str:
+    labels = {
+        "ass": "ASS Subtitle Overlay",
+        "drawbox": "Draw Box",
+        "drawgrid": "Draw Grid",
+        "drawtext": "Draw Text",
+        "fade": "Fade",
+        "hstack": "Horizontal Stack",
+        "hstack_qsv": "QSV Horizontal Stack",
+        "hstack_vaapi": "VAAPI Horizontal Stack",
+        "noise": "Noise Grain",
+        "overlay": "Overlay",
+        "overlay_cuda": "CUDA Overlay",
+        "overlay_opencl": "OpenCL Overlay",
+        "overlay_qsv": "QSV Overlay",
+        "overlay_vaapi": "VAAPI Overlay",
+        "overlay_vulkan": "Vulkan Overlay",
+        "pad": "Pad Canvas",
+        "pad_cuda": "CUDA Pad Canvas",
+        "pad_opencl": "OpenCL Pad Canvas",
+        "pad_vaapi": "VAAPI Pad Canvas",
+        "perspective": "Perspective",
+        "pixelize": "Pixelize",
+        "scroll": "Scroll",
+        "shear": "Shear",
+        "subtitles": "Subtitle Overlay",
+        "tile": "Tile Layout",
+        "vignette": "Vignette",
+        "vstack": "Vertical Stack",
+        "vstack_qsv": "QSV Vertical Stack",
+        "vstack_vaapi": "VAAPI Vertical Stack",
+        "xstack": "Grid Stack",
+        "xstack_qsv": "QSV Grid Stack",
+        "xstack_vaapi": "VAAPI Grid Stack",
+        "zoompan": "Zoom/Pan",
+    }
+    return labels.get(source, source.replace("_", " ").title())
+
+
+def _pixel_offset(value: object, default: float) -> float:
+    parsed = _numeric_expression(value, float("nan"))
+    if parsed == parsed:
+        return _clamp(parsed, -8192.0, 8192.0)
+    text = str(value or "").strip().lower()
+    factor = _variable_scale_factor(text)
+    if factor == factor:
+        return _clamp(factor * 640.0, -8192.0, 8192.0)
+    return default
+
+
+def _overlay_text(source: str, options: dict[str, object]) -> str:
+    if source == "drawtext":
+        text = str(_option(options, "text", "arg0", default="VIDEO TOOLKIT"))
+    elif source == "subtitles":
+        text = str(_option(options, "filename", "f", "arg0", default="Subtitle Preview"))
+    else:
+        text = str(_option(options, "filename", "f", "arg0", default="ASS Subtitle Preview"))
+    text = text.strip().strip("'\"")
+    if not text:
+        return _editing_label(source)
+    return text[:160]
 
 
 def _source_generator_color(source: str, options: dict[str, object]) -> tuple[float, float, float]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from .ffmpeg_native import NATIVE_FFMPEG_SOURCE_FILTERS, translate_filter_chain
+from .ffmpeg_native import NATIVE_FFMPEG_EDITING_FILTERS, NATIVE_FFMPEG_SOURCE_FILTERS, translate_filter_chain
 
 
 ENGINE_BLENDER_MODIFIER = "blender_modifier"
@@ -668,6 +668,103 @@ def _ffmpeg_source_tool(filter_name: str) -> VideoTool:
 
 
 _FFMPEG_SOURCE_GENERATOR_TOOLS = tuple(_ffmpeg_source_tool(filter_name) for filter_name in NATIVE_FFMPEG_SOURCE_FILTERS)
+
+
+_FFMPEG_EDITING_LABELS = {
+    "ass": "ASS Subtitle Overlay",
+    "drawbox": "Draw Box Overlay",
+    "drawgrid": "Draw Grid Overlay",
+    "drawtext": "Draw Text Overlay",
+    "fade": "Fade In/Out",
+    "hstack": "Horizontal Stack",
+    "hstack_qsv": "QSV Horizontal Stack",
+    "hstack_vaapi": "VAAPI Horizontal Stack",
+    "noise": "Noise Grain Preview",
+    "overlay": "Overlay Composite",
+    "overlay_cuda": "CUDA Overlay Composite",
+    "overlay_opencl": "OpenCL Overlay Composite",
+    "overlay_qsv": "QSV Overlay Composite",
+    "overlay_vaapi": "VAAPI Overlay Composite",
+    "overlay_vulkan": "Vulkan Overlay Composite",
+    "pad": "Pad Canvas",
+    "pad_cuda": "CUDA Pad Canvas",
+    "pad_opencl": "OpenCL Pad Canvas",
+    "pad_vaapi": "VAAPI Pad Canvas",
+    "perspective": "Perspective Corner Pin",
+    "pixelize": "Pixelize",
+    "scroll": "Scroll Offset",
+    "shear": "Shear Transform",
+    "subtitles": "Subtitle Overlay",
+    "tile": "Tile Layout",
+    "vignette": "Vignette",
+    "vstack": "Vertical Stack",
+    "vstack_qsv": "QSV Vertical Stack",
+    "vstack_vaapi": "VAAPI Vertical Stack",
+    "xstack": "Grid Stack",
+    "xstack_qsv": "QSV Grid Stack",
+    "xstack_vaapi": "VAAPI Grid Stack",
+    "zoompan": "Zoom/Pan",
+}
+
+
+def _ffmpeg_editing_chain(filter_name: str) -> str:
+    if filter_name == "fade":
+        return "fade=t=out:st=0:d=1:alpha=1"
+    if filter_name == "vignette":
+        return "vignette=angle=0.45"
+    if filter_name == "noise":
+        return "noise=alls=18:allf=t+u"
+    if filter_name == "pixelize":
+        return "pixelize=block_size=12"
+    if filter_name.startswith("overlay"):
+        return f"{filter_name}=x=48:y=32:alpha=0.45"
+    if filter_name.startswith("pad"):
+        return f"{filter_name}=w=iw*1.12:h=ih*1.12:x=iw*0.06:y=ih*0.06:color=black"
+    if filter_name.startswith("hstack"):
+        return f"{filter_name}=inputs=2"
+    if filter_name.startswith("vstack"):
+        return f"{filter_name}=inputs=2"
+    if filter_name.startswith("xstack"):
+        return f"{filter_name}=inputs=4:layout=2x2"
+    if filter_name == "tile":
+        return "tile=layout=2x2:margin=8:padding=4"
+    if filter_name == "perspective":
+        return "perspective=x0=0:y0=0:x1=W:y1=20:x2=20:y2=H:x3=W-20:y3=H"
+    if filter_name == "shear":
+        return "shear=shx=0.08:shy=0.02"
+    if filter_name == "scroll":
+        return "scroll=horizontal=0.08:vertical=0.02"
+    if filter_name == "zoompan":
+        return "zoompan=z=1.12:x=12:y=8:d=25"
+    if filter_name == "drawbox":
+        return "drawbox=x=32:y=32:w=iw-64:h=ih-64:color=yellow:t=4"
+    if filter_name == "drawgrid":
+        return "drawgrid=width=64:height=64:thickness=2:color=cyan"
+    if filter_name == "drawtext":
+        return "drawtext=text='VIDEO TOOLKIT':fontsize=42:fontcolor=white:x=32:y=32"
+    if filter_name == "subtitles":
+        return "subtitles=filename=subtitle-preview.srt"
+    if filter_name == "ass":
+        return "ass=filename=subtitle-preview.ass"
+    return filter_name
+
+
+def _ffmpeg_editing_tool(filter_name: str) -> VideoTool:
+    translation = translate_filter_chain(_ffmpeg_editing_chain(filter_name))
+    return VideoTool(
+        id=f"native_ffmpeg_edit_{filter_name}",
+        label=_FFMPEG_EDITING_LABELS.get(filter_name, filter_name.replace("_", " ").title()),
+        category="Native Visual FX Nodes",
+        engine=ENGINE_COMPOSITOR,
+        description=(
+            f"Translated FFmpeg {filter_name} edit/layout/finishing intent as native Blender "
+            "compositor graphlets with editable controls and preserved fallback metadata."
+        ),
+        compositor_stack=translation.compositor_nodes,
+    )
+
+
+_FFMPEG_EDITING_TOOLS = tuple(_ffmpeg_editing_tool(filter_name) for filter_name in NATIVE_FFMPEG_EDITING_FILTERS)
 
 
 TOOLS: tuple[VideoTool, ...] = (
@@ -2700,6 +2797,7 @@ TOOLS: tuple[VideoTool, ...] = (
             _native_node("CompositorNodeVecBlur", label="Vector Blur", inputs={"Samples": 8.0, "Shutter": 0.35}),
         ),
     ),
+    *_FFMPEG_EDITING_TOOLS,
     VideoTool(
         id="native_compositor_levels_monitor",
         label="Levels Monitor",
