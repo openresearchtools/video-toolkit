@@ -8,6 +8,7 @@ from typing import Any, Iterable
 from .ffmpeg_native import (
     NATIVE_FFMPEG_ADVANCED_FILTERS,
     NATIVE_FFMPEG_EDITING_FILTERS,
+    NATIVE_FFMPEG_INTEROP_FILTERS,
     NATIVE_FFMPEG_SOURCE_FILTERS,
     NATIVE_FFMPEG_TIMELINE_FILTERS,
     translate_filter_chain,
@@ -1039,6 +1040,113 @@ _FFMPEG_ADVANCED_TOOLS = tuple(_ffmpeg_advanced_tool(filter_name) for filter_nam
 
 def _ffmpeg_advanced_tools_for_category(category: str) -> tuple[VideoTool, ...]:
     return tuple(tool for tool in _FFMPEG_ADVANCED_TOOLS if tool.category == category)
+
+
+_FFMPEG_INTEROP_LABELS = {
+    "=": "Filter Expression Marker",
+    "a3dscope": "Audio 3D Scope",
+    "abitscope": "Audio Bit Scope",
+    "addroi": "Region Of Interest",
+    "adrawgraph": "Audio Draw Graph",
+    "agraphmonitor": "Audio Graph Monitor",
+    "ahistogram": "Audio Histogram",
+    "avectorscope": "Audio Vectorscope",
+    "avsynctest": "Audio/Video Sync Test",
+    "ccrepack": "Closed Caption Repack",
+    "drawgraph": "Draw Graph Monitor",
+    "feedback": "Feedback Stream Preview",
+    "frei0r": "Frei0r Plugin Preview",
+    "graphmonitor": "Graph Monitor",
+    "il": "Interleave Fields",
+    "interleave": "Interleave Streams",
+    "program_opencl": "OpenCL Program Preview",
+    "showcqt": "Constant-Q Spectrum",
+    "showcwt": "Wavelet Spectrum",
+    "showfreqs": "Frequency Spectrum",
+    "showspatial": "Spatial Audio Monitor",
+    "showspectrum": "Audio Spectrum",
+    "showspectrumpic": "Audio Spectrum Picture",
+    "showvolume": "Volume Meter",
+    "showwaves": "Waveform Monitor",
+    "showwavespic": "Waveform Picture",
+    "spectrumsynth": "Spectrum Synth",
+    "xfade": "Crossfade Transition",
+    "xfade_opencl": "OpenCL Crossfade Transition",
+    "xfade_vulkan": "Vulkan Crossfade Transition",
+}
+
+
+def _ffmpeg_interop_tool_id(filter_name: str) -> str:
+    safe_name = "equals" if filter_name == "=" else filter_name
+    return f"native_ffmpeg_interop_{safe_name}"
+
+
+def _ffmpeg_interop_chain(filter_name: str) -> str:
+    defaults = {
+        "=": "=",
+        "addroi": "addroi=x=48:y=32:w=192:h=108",
+        "adrawgraph": "adrawgraph=m1=lavfi.astats.Overall.RMS_level",
+        "agraphmonitor": "agraphmonitor",
+        "drawgraph": "drawgraph=m1=lavfi.signalstats.YAVG:min=0:max=255",
+        "graphmonitor": "graphmonitor",
+        "feedback": "feedback=x=32:y=24:w=160:h=90",
+        "frei0r": "frei0r=filter_name=contrast0r",
+        "program_opencl": "program_opencl=source=kernel.cl",
+        "ccrepack": "ccrepack",
+        "il": "il=l=d:c=d",
+        "interleave": "interleave=nb_inputs=2",
+        "xfade": "xfade=transition=fade:duration=1:offset=0",
+        "xfade_opencl": "xfade_opencl=transition=fade:duration=1:offset=0",
+        "xfade_vulkan": "xfade_vulkan=transition=fade:duration=1:offset=0",
+        "a3dscope": "a3dscope=s=640x360",
+        "abitscope": "abitscope=s=640x360",
+        "ahistogram": "ahistogram=s=640x360",
+        "avectorscope": "avectorscope=s=640x360",
+        "avsynctest": "avsynctest",
+        "showcqt": "showcqt=s=640x360",
+        "showcwt": "showcwt=s=640x360",
+        "showfreqs": "showfreqs=s=640x360",
+        "showspatial": "showspatial=s=640x360",
+        "showspectrum": "showspectrum=s=640x360",
+        "showspectrumpic": "showspectrumpic=s=640x360",
+        "showvolume": "showvolume",
+        "showwaves": "showwaves=s=640x360",
+        "showwavespic": "showwavespic=s=640x360",
+        "spectrumsynth": "spectrumsynth",
+    }
+    return defaults.get(filter_name, filter_name)
+
+
+def _ffmpeg_interop_category(filter_name: str) -> str:
+    if filter_name in {"ccrepack", "il"}:
+        return "Native Matte & Channel"
+    if filter_name in {"addroi", "feedback", "frei0r", "interleave", "program_opencl"}:
+        return "Native Visual FX Nodes"
+    if filter_name in {"xfade", "xfade_opencl", "xfade_vulkan"}:
+        return "Resolution & Motion"
+    return "Native Analysis & Utility"
+
+
+def _ffmpeg_interop_tool(filter_name: str) -> VideoTool:
+    translation = translate_filter_chain(_ffmpeg_interop_chain(filter_name))
+    return VideoTool(
+        id=_ffmpeg_interop_tool_id(filter_name),
+        label=_FFMPEG_INTEROP_LABELS.get(filter_name, filter_name.replace("_", " ").title()),
+        category=_ffmpeg_interop_category(filter_name),
+        engine=ENGINE_COMPOSITOR,
+        description=(
+            f"Translated FFmpeg {filter_name} interop/monitor/transition intent as Blender-native "
+            "scope, overlay, blend, field, or metadata graphlets for the selected strip."
+        ),
+        compositor_stack=translation.compositor_nodes,
+    )
+
+
+_FFMPEG_INTEROP_TOOLS = tuple(_ffmpeg_interop_tool(filter_name) for filter_name in NATIVE_FFMPEG_INTEROP_FILTERS)
+
+
+def _ffmpeg_interop_tools_for_category(category: str) -> tuple[VideoTool, ...]:
+    return tuple(tool for tool in _FFMPEG_INTEROP_TOOLS if tool.category == category)
 
 
 TOOLS: tuple[VideoTool, ...] = (
@@ -3073,9 +3181,12 @@ TOOLS: tuple[VideoTool, ...] = (
     ),
     *_FFMPEG_EDITING_TOOLS,
     *_ffmpeg_advanced_tools_for_category("Native Matte & Channel"),
+    *_ffmpeg_interop_tools_for_category("Native Matte & Channel"),
     *_ffmpeg_advanced_tools_for_category("Native Filter & Blur"),
     *_ffmpeg_advanced_tools_for_category("Native Visual FX Nodes"),
+    *_ffmpeg_interop_tools_for_category("Native Visual FX Nodes"),
     *_ffmpeg_advanced_tools_for_category("Native Analysis & Utility"),
+    *_ffmpeg_interop_tools_for_category("Native Analysis & Utility"),
     VideoTool(
         id="native_compositor_levels_monitor",
         label="Levels Monitor",
@@ -4367,6 +4478,7 @@ TOOLS: tuple[VideoTool, ...] = (
         ),
     ),
     *_ffmpeg_advanced_tools_for_category("Resolution & Motion"),
+    *_ffmpeg_interop_tools_for_category("Resolution & Motion"),
     VideoTool(
         id="upscale_2x",
         label="Upscale 2x",

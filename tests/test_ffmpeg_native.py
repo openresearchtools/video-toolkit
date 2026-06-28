@@ -43,6 +43,7 @@ from video_toolkit.ffmpeg_native import (
     hue_to_blender_compositor,
     hsvkey_to_blender_compositor,
     identity_to_blender_compositor,
+    interop_filter_to_blender_compositor,
     limiter_to_blender_compositor,
     lumakey_to_blender_compositor,
     lut_file_filter_to_blender_stack,
@@ -2053,5 +2054,40 @@ def test_advanced_ffmpeg_filters_translate_to_native_graphlets():
         "swapuv",
     )
     assert {"NATIVE_NODE", "BLANK_IMAGE_OVERLAY", "LUMA_MATTE", "DILATE_ERODE", "DESPECKLE", "ANTI_ALIASING", "SCALE", "FILTER", "BLUR", "TEXT_OVERLAY", "TONEMAP", "PLANE_SHUFFLE"}.issubset(
+        {node_type for node_type, _settings in result.compositor_nodes}
+    )
+
+
+def test_interop_ffmpeg_filters_translate_to_native_graphlets():
+    audio_scope = interop_filter_to_blender_compositor("showwaves", s="640x360")
+    graph = interop_filter_to_blender_compositor("drawgraph", m1="lavfi.signalstats.YAVG")
+    transition = interop_filter_to_blender_compositor("xfade_opencl", transition="fade", duration=1, offset=0)
+    roi = interop_filter_to_blender_compositor("addroi", x=24, y=20, w=120, h=80)
+    field = interop_filter_to_blender_compositor("il", l="d", c="d")
+    plugin = interop_filter_to_blender_compositor("program_opencl", source="kernel.cl")
+    marker = interop_filter_to_blender_compositor("=")
+
+    assert [node_type for node_type, _settings in audio_scope] == ["SCOPE_MONITOR", "BLANK_IMAGE_OVERLAY", "TEXT_OVERLAY"]
+    assert [node_type for node_type, _settings in graph] == ["SCOPE_MONITOR", "FILTER", "TEXT_OVERLAY"]
+    assert [node_type for node_type, _settings in transition] == ["BLEND_COMPOSITE", "NATIVE_NODE", "TEXT_OVERLAY"]
+    assert transition[1][1]["node_type"] == "CompositorNodeTime"
+    assert [node_type for node_type, _settings in roi] == ["BLANK_IMAGE_OVERLAY", "NATIVE_NODE"]
+    assert roi[1][1]["node_type"] == "CompositorNodeTranslate"
+    assert [node_type for node_type, _settings in field] == ["ANTI_ALIASING", "BLUR", "TEXT_OVERLAY"]
+    assert [node_type for node_type, _settings in plugin] == ["FILTER", "TEXT_OVERLAY"]
+    assert [node_type for node_type, _settings in marker] == ["SCOPE_MONITOR", "TEXT_OVERLAY"]
+
+    result = translate_filter_chain(
+        "=,"
+        "showwaves=s=640x360,"
+        "drawgraph=m1=lavfi.signalstats.YAVG,"
+        "xfade_opencl=transition=fade:duration=1:offset=0,"
+        "addroi=x=24:y=20:w=120:h=80,"
+        "il=l=d:c=d,"
+        "program_opencl=source=kernel.cl"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("=", "showwaves", "drawgraph", "xfade_opencl", "addroi", "il", "program_opencl")
+    assert {"SCOPE_MONITOR", "BLANK_IMAGE_OVERLAY", "TEXT_OVERLAY", "FILTER", "BLEND_COMPOSITE", "NATIVE_NODE", "ANTI_ALIASING", "BLUR"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )

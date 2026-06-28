@@ -231,10 +231,44 @@ NATIVE_FFMPEG_ADVANCED_FILTERS = (
     "zmq",
 )
 
+NATIVE_FFMPEG_INTEROP_FILTERS = (
+    "=",
+    "a3dscope",
+    "abitscope",
+    "addroi",
+    "adrawgraph",
+    "agraphmonitor",
+    "ahistogram",
+    "avectorscope",
+    "avsynctest",
+    "ccrepack",
+    "drawgraph",
+    "feedback",
+    "frei0r",
+    "graphmonitor",
+    "il",
+    "interleave",
+    "program_opencl",
+    "showcqt",
+    "showcwt",
+    "showfreqs",
+    "showspatial",
+    "showspectrum",
+    "showspectrumpic",
+    "showvolume",
+    "showwaves",
+    "showwavespic",
+    "spectrumsynth",
+    "xfade",
+    "xfade_opencl",
+    "xfade_vulkan",
+)
+
 NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     *NATIVE_FFMPEG_EDITING_FILTERS,
     *NATIVE_FFMPEG_TIMELINE_FILTERS,
     *NATIVE_FFMPEG_ADVANCED_FILTERS,
+    *NATIVE_FFMPEG_INTEROP_FILTERS,
     "chromakey",
     "chromakey_cuda",
     "colorkey",
@@ -539,6 +573,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(advanced_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} advanced FFmpeg intent is represented with native Blender repair, matte, cleanup, transform, diagnostic, or metadata graphlets.")
+        elif name in NATIVE_FFMPEG_INTEROP_FILTERS:
+            compositor_nodes.extend(interop_filter_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} FFmpeg interop/monitor/transition intent is represented with native Blender scope, overlay, transition, field, or metadata graphlets.")
         elif name == "normalize":
             normalize_stack = normalize_to_blender_stack(**args)
             stack.extend(normalize_stack)
@@ -2722,6 +2760,349 @@ def _advanced_label(source: str) -> str:
         "zmq": "ZMQ Command Metadata",
     }
     return labels.get(source, source.replace("_", " ").title())
+
+
+def interop_filter_to_blender_compositor(__filter_name: str, **options: str | int | float) -> CompositorStack:
+    name = str(__filter_name).strip().lower()
+    if name in _FFMPEG_AUDIO_VISUAL_MONITORS:
+        return _interop_audio_visual_to_blender_compositor(name, options)
+    if name in {"drawgraph", "graphmonitor", "adrawgraph", "agraphmonitor"}:
+        return _interop_graph_monitor_to_blender_compositor(name, options)
+    if name in {"xfade", "xfade_opencl", "xfade_vulkan"}:
+        return _interop_transition_to_blender_compositor(name, options)
+    if name == "addroi":
+        return _interop_roi_to_blender_compositor(name, options)
+    if name in {"ccrepack", "il"}:
+        return _interop_channel_field_to_blender_compositor(name, options)
+    if name in {"interleave", "feedback"}:
+        return _interop_stream_mix_to_blender_compositor(name, options)
+    if name in {"frei0r", "program_opencl"}:
+        return _interop_plugin_to_blender_compositor(name, options)
+    return _interop_metadata_to_blender_compositor(name, options)
+
+
+_FFMPEG_AUDIO_VISUAL_MONITORS = {
+    "a3dscope",
+    "abitscope",
+    "ahistogram",
+    "avectorscope",
+    "avsynctest",
+    "showcqt",
+    "showcwt",
+    "showfreqs",
+    "showspatial",
+    "showspectrum",
+    "showspectrumpic",
+    "showvolume",
+    "showwaves",
+    "showwavespic",
+    "spectrumsynth",
+}
+
+
+def _interop_audio_visual_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options, role="audio/video visual monitor")
+    return (
+        (
+            "SCOPE_MONITOR",
+            {
+                "label": _interop_label(source),
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Audio/spectrum FFmpeg visualizers are represented as Blender-native RGB/luma scope monitor graphlets in the video sidecar; audio FFT drawing remains rendered fallback.",
+            },
+        ),
+        (
+            "BLANK_IMAGE_OVERLAY",
+            {
+                "label": f"{_interop_label(source)} Plate",
+                "inputs": {"Color": (*_interop_color(source), 1.0), "Size": (640, 180)},
+                "factor": 0.16,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "A subtle generated plate marks the monitor area for visual inspection on the selected strip.",
+            },
+        ),
+        _interop_text_node(source, metadata),
+    )
+
+
+def _interop_graph_monitor_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options, role="graph/stat monitor")
+    return (
+        (
+            "SCOPE_MONITOR",
+            {
+                "label": _interop_label(source),
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg graph monitors draw expression/stat streams. Blender previews that intent with native scope monitor nodes and preserved expression metadata.",
+            },
+        ),
+        (
+            "FILTER",
+            {
+                "label": f"{_interop_label(source)} Trace Emphasis",
+                "filter_type": "Sobel",
+                "factor": 0.22,
+                "source": source,
+                "metadata": metadata,
+            },
+        ),
+        _interop_text_node(source, metadata),
+    )
+
+
+def _interop_transition_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    transition = str(_option(options, "transition", "t", default="fade"))
+    duration = _clamp(_float(_option(options, "duration", "d", default=1.0), 1.0), 0.0, 60.0)
+    offset = _clamp(_float(_option(options, "offset", "o", default=0.0), 0.0), -100000.0, 100000.0)
+    metadata = _editing_metadata(source, options, transition=transition, duration=duration, offset=offset)
+    return (
+        (
+            "BLEND_COMPOSITE",
+            {
+                "label": _interop_label(source),
+                "mode": "average",
+                "factor": 0.5,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg xfade blends two streams over time. Blender previews the selected-strip transition with Alpha Over blending and keeps transition/duration metadata for rendered fallback.",
+            },
+        ),
+        _native_compositor_node(
+            "CompositorNodeTime",
+            label=f"{_interop_label(source)} Timing",
+            source=source,
+            inputs={"Start Frame": max(1.0, offset), "End Frame": max(2.0, offset + duration * 24.0)},
+            metadata=metadata,
+            approximation="Blender Time node exposes the editable transition window for the selected strip preview.",
+            skip_link_input=True,
+            passthrough=True,
+        ),
+        _interop_text_node(source, metadata),
+    )
+
+
+def _interop_roi_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    x = _pixel_offset(_option(options, "x", default=48), 48.0)
+    y = _pixel_offset(_option(options, "y", default=32), 32.0)
+    width = _dimension_or_default(_option(options, "w", "width", default=192), 192.0)
+    height = _dimension_or_default(_option(options, "h", "height", default=108), 108.0)
+    metadata = _editing_metadata(source, options, x=x, y=y, width=width, height=height)
+    return (
+        (
+            "BLANK_IMAGE_OVERLAY",
+            {
+                "label": "Region Of Interest Overlay",
+                "inputs": {"Color": (0.1, 0.9, 1.0, 1.0), "Size": (int(width), int(height))},
+                "factor": 0.22,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg addroi attaches region metadata. Blender previews the ROI as an editable translucent overlay plate and stores the exact rectangle metadata.",
+            },
+        ),
+        _native_compositor_node(
+            "CompositorNodeTranslate",
+            label="ROI Placement",
+            source=source,
+            inputs={"X": x, "Y": y, "Interpolation": "Bilinear"},
+            metadata=metadata,
+            approximation="Translate node exposes ROI placement in Blender-native coordinates.",
+        ),
+    )
+
+
+def _interop_channel_field_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options, role="channel/field repack")
+    if source == "ccrepack":
+        return (
+            (
+                "PLANE_SHUFFLE",
+                {
+                    "label": _interop_label(source),
+                    "outputs": {"red": "red", "green": "green", "blue": "blue", "alpha": "alpha"},
+                    "source": source,
+                    "metadata": metadata,
+                    "approximation": "Closed-caption repack metadata is represented as a no-loss channel routing graphlet plus visible metadata for the selected strip.",
+                },
+            ),
+            _interop_text_node(source, metadata),
+        )
+    return (
+        (
+            "ANTI_ALIASING",
+            {
+                "label": _interop_label(source),
+                "threshold": 0.16,
+                "contrast_limit": 2.0,
+                "corner_rounding": 0.20,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg il interleaves or deinterleaves fields. Blender previews field cleanup with Anti-Aliasing and preserves field-mode metadata.",
+            },
+        ),
+        (
+            "BLUR",
+            {
+                "label": "Field Line Preview",
+                "size": (0.0, 1.25),
+                "blur_type": "Fast Gaussian",
+                "extend_bounds": False,
+                "source": source,
+                "metadata": metadata,
+            },
+        ),
+        _interop_text_node(source, metadata),
+    )
+
+
+def _interop_stream_mix_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options, role="multi-stream routing")
+    return (
+        (
+            "BLEND_COMPOSITE",
+            {
+                "label": _interop_label(source),
+                "mode": "average",
+                "factor": 0.45 if source == "feedback" else 0.50,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Multi-stream interleave/feedback intent is represented with a native blend branch while exact stream routing remains stored as metadata.",
+            },
+        ),
+        (
+            "SCOPE_MONITOR",
+            {
+                "label": f"{_interop_label(source)} Monitor",
+                "source": source,
+                "metadata": metadata,
+            },
+        ),
+    )
+
+
+def _interop_plugin_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options, role="plugin/program hook")
+    return (
+        (
+            "FILTER",
+            {
+                "label": _interop_label(source),
+                "filter_type": "Sharpen" if source == "frei0r" else "Sobel",
+                "factor": 0.28,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "External plugin/program filters cannot be executed inside Blender's native compositor. A native filter preview plus metadata keeps the selected-strip workflow editable.",
+            },
+        ),
+        _interop_text_node(source, metadata),
+    )
+
+
+def _interop_metadata_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options, role="interop metadata")
+    return (
+        (
+            "SCOPE_MONITOR",
+            {
+                "label": _interop_label(source),
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Unsupported-expression or bridge metadata is represented with native Blender scope monitor nodes and a visible label.",
+            },
+        ),
+        _interop_text_node(source, metadata),
+    )
+
+
+def _interop_text_node(source: str, metadata: dict[str, object]) -> tuple[str, dict[str, object]]:
+    return (
+        "TEXT_OVERLAY",
+        {
+            "label": f"{_interop_label(source)} Label",
+            "inputs": {"String": f"FFmpeg {source}: {_interop_role(source)}", "Size": 20.0},
+            "factor": 0.24,
+            "source": source,
+            "metadata": metadata,
+            "approximation": "Visible interop metadata overlay confirms the selected strip is passing through this native sidecar graphlet.",
+        },
+    )
+
+
+def _interop_label(source: str) -> str:
+    labels = {
+        "=": "Filter Expression Marker",
+        "a3dscope": "Audio 3D Scope",
+        "abitscope": "Audio Bit Scope",
+        "addroi": "Region Of Interest",
+        "adrawgraph": "Audio Draw Graph",
+        "agraphmonitor": "Audio Graph Monitor",
+        "ahistogram": "Audio Histogram",
+        "avectorscope": "Audio Vectorscope",
+        "avsynctest": "Audio/Video Sync Test",
+        "ccrepack": "Closed Caption Repack",
+        "drawgraph": "Draw Graph Monitor",
+        "feedback": "Feedback Stream Preview",
+        "frei0r": "Frei0r Plugin Preview",
+        "graphmonitor": "Graph Monitor",
+        "il": "Interleave Fields",
+        "interleave": "Interleave Streams",
+        "program_opencl": "OpenCL Program Preview",
+        "showcqt": "Constant-Q Spectrum",
+        "showcwt": "Wavelet Spectrum",
+        "showfreqs": "Frequency Spectrum",
+        "showspatial": "Spatial Audio Monitor",
+        "showspectrum": "Audio Spectrum",
+        "showspectrumpic": "Audio Spectrum Picture",
+        "showvolume": "Volume Meter",
+        "showwaves": "Waveform Monitor",
+        "showwavespic": "Waveform Picture",
+        "spectrumsynth": "Spectrum Synth",
+        "xfade": "Crossfade Transition",
+        "xfade_opencl": "OpenCL Crossfade Transition",
+        "xfade_vulkan": "Vulkan Crossfade Transition",
+    }
+    return labels.get(source, source.replace("_", " ").title())
+
+
+def _interop_role(source: str) -> str:
+    if source in _FFMPEG_AUDIO_VISUAL_MONITORS:
+        return "audio/spectrum visualizer"
+    if source in {"drawgraph", "graphmonitor", "adrawgraph", "agraphmonitor"}:
+        return "graph monitor"
+    if source.startswith("xfade"):
+        return "transition timing"
+    if source == "addroi":
+        return "region metadata"
+    if source in {"ccrepack", "il"}:
+        return "channel/field metadata"
+    if source in {"interleave", "feedback"}:
+        return "stream routing"
+    if source in {"frei0r", "program_opencl"}:
+        return "external plugin/program metadata"
+    return "metadata marker"
+
+
+def _interop_color(source: str) -> tuple[float, float, float]:
+    palette = {
+        "a3dscope": (0.2, 0.7, 1.0),
+        "abitscope": (0.6, 0.8, 1.0),
+        "ahistogram": (0.2, 1.0, 0.6),
+        "avectorscope": (1.0, 0.4, 0.8),
+        "avsynctest": (1.0, 0.75, 0.2),
+        "showcqt": (0.4, 0.35, 1.0),
+        "showcwt": (0.25, 0.6, 1.0),
+        "showfreqs": (0.1, 0.9, 0.9),
+        "showspatial": (0.9, 0.45, 1.0),
+        "showspectrum": (0.2, 0.8, 1.0),
+        "showspectrumpic": (0.25, 0.75, 1.0),
+        "showvolume": (0.2, 1.0, 0.35),
+        "showwaves": (1.0, 0.6, 0.15),
+        "showwavespic": (1.0, 0.65, 0.2),
+        "spectrumsynth": (0.8, 0.35, 1.0),
+    }
+    return palette.get(source, (0.4, 0.7, 1.0))
 
 
 def normalize_to_blender_stack(
@@ -5781,6 +6162,9 @@ def _split_filters(chain: str) -> list[tuple[str, dict[str, str]]]:
     for item in _split_top_level(chain, ","):
         item = item.strip()
         if not item:
+            continue
+        if item == "=":
+            filters.append(("=", {}))
             continue
         if "=" not in item:
             filters.append((item, {}))
