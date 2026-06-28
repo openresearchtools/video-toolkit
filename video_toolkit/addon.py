@@ -3475,7 +3475,8 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "PREMUL_KEY": "Premul Key",
         "FILTER": "Filter",
     }
-    label = f"VTK {label_prefix} {labels.get(compositor_type, compositor_type.title())}"
+    node_label = str(settings.get("label") or labels.get(compositor_type, compositor_type.title()))
+    label = f"VTK {label_prefix} {node_label}"
     if compositor_type == "CHROMA_MATTE":
         node = _new_compositor_node(tree, "CompositorNodeChromaMatte", label, index, origin=origin)
         _set_input_default(node, "Key Color", _rgba(settings.get("key_color", (0.0, 0.0, 0.0))))
@@ -4214,6 +4215,10 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "shuffleplanes=map0=2:map1=1:map2=0:map3=3,"
         "elbg=l=64:n=2:seed=17,"
         "unsharp=5:5:0.45:3:3:0.20,"
+        "sobel=scale=1.2:delta=0.02,"
+        "prewitt=scale=0.9:delta=0.01,"
+        "kirsch=scale=0.8,"
+        "edgedetect=high=0.20:low=0.08:mode=wires,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"

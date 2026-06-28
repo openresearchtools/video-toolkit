@@ -62,6 +62,10 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "shuffleplanes",
     "elbg",
     "unsharp",
+    "sobel",
+    "prewitt",
+    "kirsch",
+    "edgedetect",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -227,6 +231,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(unsharp_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Unsharp is approximated with Blender compositor Filter sharpen/soften nodes.")
+        elif name in {"sobel", "prewitt", "kirsch", "edgedetect"}:
+            compositor_nodes.extend(edge_filter_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is translated to Blender compositor Filter edge-detection nodes.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -1225,6 +1233,50 @@ def unsharp_to_blender_compositor(
                 "alpha_size": (ax_value, ay_value),
                 "alpha_amount": aa_value,
                 "source": "unsharp",
+            },
+        ),
+    )
+
+
+def edge_filter_to_blender_compositor(
+    source: str,
+    *,
+    planes: str | int = 15,
+    scale: str | float = 1.0,
+    delta: str | float = 0.0,
+    high: str | float = 0.196078,
+    low: str | float = 0.0784314,
+    mode: str | int = "wires",
+    **_unused: str,
+) -> CompositorStack:
+    name = str(source).strip().lower()
+    filter_type = {
+        "sobel": "Sobel",
+        "prewitt": "Prewitt",
+        "kirsch": "Kirsch",
+        "edgedetect": "Sobel",
+    }.get(name, "Sobel")
+    scale_value = abs(_float(scale, 1.0))
+    delta_value = _float(delta, 0.0)
+    factor = _clamp(scale_value + abs(delta_value) / 255.0, 0.0, 2.0)
+    if name == "edgedetect":
+        high_value = _clamp(_float(high, 0.196078), 0.0, 1.0)
+        low_value = _clamp(_float(low, 0.0784314), 0.0, 1.0)
+        factor = _clamp(0.65 + high_value + low_value * 0.5, 0.1, 2.0)
+    return (
+        (
+            "FILTER",
+            {
+                "label": "Edge Detect" if name == "edgedetect" else f"{filter_type} Edge",
+                "filter_type": filter_type,
+                "factor": factor,
+                "planes": str(planes),
+                "scale": scale_value,
+                "delta": delta_value,
+                "high": _clamp(_float(high, 0.196078), 0.0, 1.0),
+                "low": _clamp(_float(low, 0.0784314), 0.0, 1.0),
+                "mode": str(mode),
+                "source": name,
             },
         ),
     )

@@ -6,6 +6,7 @@ from video_toolkit.ffmpeg_native import (
     colorkey_to_blender_compositor,
     colorlevels_to_blender_stack,
     curves_to_blender_stack,
+    edge_filter_to_blender_compositor,
     elbg_to_blender_compositor,
     eq_to_blender_stack,
     exposure_to_blender_stack,
@@ -343,6 +344,30 @@ def test_unsharp_translates_to_native_filter_graph_specs():
     assert result.compositor_nodes[1][1]["filter_type"] == "Soften"
 
 
+def test_edge_filters_translate_to_native_filter_graph_specs():
+    sobel = edge_filter_to_blender_compositor("sobel", scale=1.2, delta=0.02)
+    assert sobel[0][0] == "FILTER"
+    assert sobel[0][1]["filter_type"] == "Sobel"
+    assert sobel[0][1]["factor"] > 1.19
+
+    prewitt = edge_filter_to_blender_compositor("prewitt", scale=0.9)
+    kirsch = edge_filter_to_blender_compositor("kirsch", scale=0.8)
+    edgedetect = edge_filter_to_blender_compositor("edgedetect", high=0.20, low=0.08, mode="wires")
+    assert prewitt[0][1]["filter_type"] == "Prewitt"
+    assert kirsch[0][1]["filter_type"] == "Kirsch"
+    assert edgedetect[0][1]["filter_type"] == "Sobel"
+    assert edgedetect[0][1]["label"] == "Edge Detect"
+
+    result = translate_filter_chain(
+        "sobel=scale=1.2:delta=0.02,prewitt=scale=0.9,kirsch=scale=0.8,edgedetect=high=0.20:low=0.08:mode=wires"
+    )
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("sobel", "prewitt", "kirsch", "edgedetect")
+    assert [settings["filter_type"] for _node_type, settings in result.compositor_nodes] == ["Sobel", "Prewitt", "Kirsch", "Sobel"]
+    assert [settings["source"] for _node_type, settings in result.compositor_nodes] == ["sobel", "prewitt", "kirsch", "edgedetect"]
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -376,6 +401,10 @@ def test_filter_chain_supports_more_color_grading_filters():
         "shuffleplanes=map0=2:map1=1:map2=0:map3=3,"
         "elbg=l=64:n=2:seed=17,"
         "unsharp=5:5:0.45:3:3:0.20,"
+        "sobel=scale=1.2:delta=0.02,"
+        "prewitt=scale=0.9:delta=0.01,"
+        "kirsch=scale=0.8,"
+        "edgedetect=high=0.20:low=0.08:mode=wires,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -414,6 +443,10 @@ def test_filter_chain_supports_more_color_grading_filters():
         "shuffleplanes",
         "elbg",
         "unsharp",
+        "sobel",
+        "prewitt",
+        "kirsch",
+        "edgedetect",
         "pseudocolor",
         "lutrgb",
         "histeq",
