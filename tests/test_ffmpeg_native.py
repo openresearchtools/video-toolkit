@@ -9,6 +9,8 @@ from video_toolkit.ffmpeg_native import (
     curves_to_blender_stack,
     blur_to_blender_compositor,
     colorcorrect_to_blender_compositor,
+    colorcontrast_to_blender_compositor,
+    colorhold_to_blender_compositor,
     crop_to_blender_compositor,
     directional_blur_to_blender_compositor,
     edge_filter_to_blender_compositor,
@@ -18,11 +20,15 @@ from video_toolkit.ffmpeg_native import (
     exposure_to_blender_compositor,
     exposure_to_blender_stack,
     extractplanes_to_blender_compositor,
+    colortemperature_to_blender_compositor,
+    colorize_to_blender_compositor,
     greyedge_to_blender_stack,
     grayworld_to_blender_stack,
+    hsvhold_to_blender_compositor,
     huesaturation_to_blender_compositor,
     hue_to_blender_compositor,
     hsvkey_to_blender_compositor,
+    limiter_to_blender_compositor,
     lumakey_to_blender_compositor,
     lut_to_blender_stack,
     morphology_to_blender_compositor,
@@ -42,6 +48,7 @@ from video_toolkit.ffmpeg_native import (
     shuffleplanes_to_blender_compositor,
     translate_filter_chain,
     transpose_to_blender_compositor,
+    tonemap_to_blender_compositor,
     unpremultiply_to_blender_compositor,
     unsharp_to_blender_compositor,
     vibrance_to_blender_stack,
@@ -200,6 +207,74 @@ def test_direct_color_filters_translate_to_compositor_nodes():
         "COLOR_CORRECTION",
         "HUE_SAT",
         "INVERT",
+    ]
+
+
+def test_direct_pro_color_filters_translate_to_compositor_nodes():
+    temperature = colortemperature_to_blender_compositor(temperature=5200, mix=0.7)
+    assert [node_type for node_type, _settings in temperature] == ["COLOR_BALANCE", "COLOR_BALANCE"]
+    assert temperature[0][1]["source"] == "colortemperature"
+    assert "white_value" in temperature[0][1]
+
+    limiter = limiter_to_blender_compositor(min=16, max=235)
+    assert limiter[0][0] == "CURVE_RGB"
+    assert limiter[0][1]["minimum"] > 0.0
+    assert limiter[0][1]["maximum"] < 1.0
+
+    tonemap = tonemap_to_blender_compositor(tonemap="mobius", param=0.35, desat=0.4, peak=400)
+    assert [node_type for node_type, _settings in tonemap] == ["TONEMAP", "HUE_CORRECT"]
+    assert tonemap[0][1]["tonemap_type"] == "RD_PHOTORECEPTOR"
+
+    contrast = colorcontrast_to_blender_compositor(rc=0.2, gm=-0.1, by=0.15, rcw=0.6, gmw=0.4, byw=0.5, pl=1)
+    assert [node_type for node_type, _settings in contrast] == ["COLOR_BALANCE", "COLOR_BALANCE"]
+    assert contrast[0][1]["red_cyan"] == 0.2
+
+    colorize = colorize_to_blender_compositor(hue=210, saturation=0.45, lightness=0.55, mix=0.65)
+    assert [node_type for node_type, _settings in colorize] == ["HUE_CORRECT", "COLOR_BALANCE", "COLOR_BALANCE"]
+    assert colorize[0][1]["source"] == "colorize"
+    assert colorize[0][1]["mix"] == 0.65
+
+    hold = colorhold_to_blender_compositor("colorhold", color="blue", similarity=0.12, blend=0.2)
+    assert hold[0][0] == "HUE_CORRECT"
+    assert hold[0][1]["source"] == "colorhold"
+    assert 1 in hold[0][1]["__curve_points__"]
+
+    hsv_hold = hsvhold_to_blender_compositor(hue=210, similarity=0.10)
+    assert hsv_hold[0][0] == "HUE_CORRECT"
+    assert hsv_hold[0][1]["hue_degrees"] == 210
+
+    result = translate_filter_chain(
+        "colortemperature=temperature=5200:mix=0.7,"
+        "limiter=min=16:max=235,"
+        "tonemap=tonemap=mobius:param=0.35:desat=0.4,"
+        "colorcontrast=rc=0.2:gm=-0.1:by=0.15:rcw=0.6:gmw=0.4:byw=0.5:pl=1,"
+        "colorize=hue=210:saturation=0.45:lightness=0.55:mix=0.65,"
+        "colorhold=color=blue:similarity=0.12:blend=0.2,"
+        "hsvhold=hue=210:similarity=0.10"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == (
+        "colortemperature",
+        "limiter",
+        "tonemap",
+        "colorcontrast",
+        "colorize",
+        "colorhold",
+        "hsvhold",
+    )
+    assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "COLOR_BALANCE",
+        "COLOR_BALANCE",
+        "CURVE_RGB",
+        "TONEMAP",
+        "HUE_CORRECT",
+        "COLOR_BALANCE",
+        "COLOR_BALANCE",
+        "HUE_CORRECT",
+        "COLOR_BALANCE",
+        "COLOR_BALANCE",
+        "HUE_CORRECT",
+        "HUE_CORRECT",
     ]
 
 
@@ -821,7 +896,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING"}.issubset(
+    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

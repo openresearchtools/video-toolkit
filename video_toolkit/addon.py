@@ -3553,9 +3553,14 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "CHROMA_MATTE": "Chroma Matte",
         "COLOR_MATTE": "Color Matte",
         "LUMA_MATTE": "Luma Matte",
+        "BRIGHT_CONTRAST": "Brightness/Contrast",
+        "COLOR_BALANCE": "Color Balance",
+        "CURVE_RGB": "RGB Curves",
         "HUE_SAT": "Hue/Saturation",
+        "HUE_CORRECT": "Hue Correct",
         "EXPOSURE": "Exposure",
         "COLOR_CORRECTION": "Color Correction",
+        "TONEMAP": "Tone Map",
         "INVERT": "Invert",
         "CHANNEL_SHIFT": "Channel Shift",
         "PLANE_EXTRACT": "Plane Extract",
@@ -3598,6 +3603,55 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         _set_input_default(node, "Minimum", settings.get("minimum", 0.0))
         _set_input_default(node, "Maximum", settings.get("maximum", 1.0))
         return node
+    if compositor_type == "BRIGHT_CONTRAST":
+        node = _new_compositor_node(tree, "CompositorNodeBrightContrast", label, index, origin=origin)
+        _set_input_default_candidates(node, ("Brightness", "Bright"), settings.get("bright", 0.0))
+        _set_input_default(node, "Contrast", settings.get("contrast", 0.0))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "bright_contrast")
+        return node
+    if compositor_type == "COLOR_BALANCE":
+        node = _new_compositor_node(tree, "CompositorNodeColorBalance", label, index, origin=origin)
+        _set_input_default_candidates(node, ("Fac", "Factor"), settings.get("factor", 1.0))
+        _set_input_default_candidates(node, ("Type",), _color_balance_method_name(settings))
+        white_value = settings.get("white_value")
+        if white_value is not None:
+            rgba = _rgba(white_value)
+            _set_input_default_candidates(node, ("Color Gamma", "Gamma"), rgba)
+            _set_input_default_candidates(node, ("Color Gain", "Gain"), rgba)
+        for key, socket_names in (
+            ("color_balance.lift", ("Color Lift", "Lift")),
+            ("color_balance.gamma", ("Color Gamma", "Gamma")),
+            ("color_balance.gain", ("Color Gain", "Gain")),
+            ("color_balance.offset", ("Color Offset", "Offset")),
+            ("color_balance.power", ("Color Power", "Power")),
+            ("color_balance.slope", ("Color Slope", "Slope")),
+        ):
+            value = settings.get(key)
+            if value is not None:
+                _set_input_default_candidates(node, socket_names, _rgba(value))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "color_balance")
+        node["video_toolkit_modifier_type"] = settings.get("modifier_type", "")
+        if "color_multiply" in settings:
+            node["video_toolkit_color_multiply"] = float(settings.get("color_multiply", 1.0) or 1.0)
+        for key in ("red_cyan", "green_magenta", "blue_yellow", "mix", "tint"):
+            if key in settings:
+                node[f"video_toolkit_{key}"] = settings.get(key)
+        return node
+    if compositor_type == "CURVE_RGB":
+        node = _new_compositor_node(tree, "CompositorNodeCurveRGB", label, index, origin=origin)
+        curve_points = settings.get("__curve_points__")
+        if curve_points:
+            _apply_curve_points(node.mapping, curve_points)
+        if "black_level" in settings:
+            _set_input_default(node, "Black Level", _rgba(settings.get("black_level")))
+        if "white_level" in settings:
+            _set_input_default(node, "White Level", _rgba(settings.get("white_level")))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "curves")
+        node["video_toolkit_modifier_type"] = settings.get("modifier_type", "")
+        for key in ("minimum", "maximum"):
+            if key in settings:
+                node[f"video_toolkit_{key}"] = float(settings.get(key, 0.0) or 0.0)
+        return node
     if compositor_type == "HUE_SAT":
         node = _new_compositor_node(tree, "CompositorNodeHueSat", label, index, origin=origin)
         _set_input_default(node, "Hue", settings.get("hue", 0.5))
@@ -3605,6 +3659,21 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         _set_input_default(node, "Value", settings.get("value", 1.0))
         _set_input_default_candidates(node, ("Factor", "Fac"), settings.get("factor", 1.0))
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "hue")
+        return node
+    if compositor_type == "HUE_CORRECT":
+        node = _new_compositor_node(tree, "CompositorNodeHueCorrect", label, index, origin=origin)
+        hue_values = settings.get("__hue_correct__")
+        curve_points = settings.get("__curve_points__")
+        if hue_values:
+            _apply_hue_correct(node.mapping, hue_values)
+        if curve_points:
+            _apply_curve_points(node.mapping, curve_points)
+        _set_input_default_candidates(node, ("Factor", "Fac"), settings.get("factor", 1.0))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "hue_correct")
+        node["video_toolkit_modifier_type"] = settings.get("modifier_type", "")
+        for key in ("held_color", "hue_degrees", "similarity", "blend", "mix", "tint"):
+            if key in settings:
+                node[f"video_toolkit_{key}"] = settings.get(key)
         return node
     if compositor_type == "EXPOSURE":
         node = _new_compositor_node(tree, "CompositorNodeExposure", label, index, origin=origin)
@@ -3623,6 +3692,23 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
                 node[f"video_toolkit_{key}"] = float(settings.get(key, 0.0) or 0.0)
         if settings.get("approximation"):
             node["video_toolkit_approximation"] = settings.get("approximation")
+        return node
+    if compositor_type == "TONEMAP":
+        node = _new_compositor_node(tree, "CompositorNodeTonemap", label, index, origin=origin)
+        _set_input_default(node, "Type", _tonemap_type_name(settings.get("tonemap_type")))
+        for key, socket_name in (
+            ("key", "Key"),
+            ("offset", "Offset"),
+            ("gamma", "Gamma"),
+            ("intensity", "Intensity"),
+            ("contrast", "Contrast"),
+            ("adaptation", "Light Adaptation"),
+            ("correction", "Chromatic Adaptation"),
+        ):
+            if key in settings:
+                _set_input_default(node, socket_name, settings[key])
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "tonemap")
+        node["video_toolkit_modifier_type"] = settings.get("modifier_type", "")
         return node
     if compositor_type == "INVERT":
         node = _new_compositor_node(tree, "CompositorNodeInvert", label, index, origin=origin)

@@ -369,7 +369,7 @@ scene.video_toolkit_ffmpeg_chain = (
 )
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur, scale, crop, rotate, transpose, hflip, vflip, lenscorrection, hqdn3d, nlmeans, bm3d, owdenoise, vaguedenoiser, atadenoise, median, dedot, deband, deblock, vibrance, pseudocolor, exposure, histeq, zscale' in scene.video_toolkit_last_translation
-assert 'compositor-native node(s): 47' in scene.video_toolkit_last_translation
+assert 'compositor-native node(s): 52' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 assert scene.sequencer_colorspace_settings.name in {'sRGB', 'Gamma 2.2 Encoded Rec.709', 'Gamma 2.4 Encoded Rec.709', 'Rec.1886', 'Linear Rec.709'}
 translated_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Chain')]

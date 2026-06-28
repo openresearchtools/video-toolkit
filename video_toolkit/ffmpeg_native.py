@@ -161,13 +161,16 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             supported.append(name)
         elif name == "colortemperature":
             stack.extend(colortemperature_to_blender_stack(**args))
+            compositor_nodes.extend(colortemperature_to_blender_compositor(**args))
             supported.append(name)
         elif name == "limiter":
             stack.extend(limiter_to_blender_stack(**args))
+            compositor_nodes.extend(limiter_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Limiter is approximated with Blender RGB curves because VSE has no legal-range clamp modifier.")
         elif name == "tonemap":
             stack.extend(tonemap_to_blender_stack(**args))
+            compositor_nodes.extend(tonemap_to_blender_compositor(**args))
             supported.append(name)
         elif name == "normalize":
             stack.extend(normalize_to_blender_stack(**args))
@@ -180,6 +183,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             notes.append("Colorcorrect is approximated with Blender Lift/Gamma/Gain plus Hue Correct saturation.")
         elif name == "colorcontrast":
             stack.extend(colorcontrast_to_blender_stack(**args))
+            compositor_nodes.extend(colorcontrast_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Colorcontrast is approximated with Blender opponent-channel Color Balance controls.")
         elif name == "selectivecolor":
@@ -192,6 +196,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             supported.append(name)
         elif name == "colorize":
             stack.extend(colorize_to_blender_stack(**args))
+            compositor_nodes.extend(colorize_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Colorize is approximated with Blender Hue Correct and Color Balance tinting.")
         elif name == "grayworld":
@@ -208,10 +213,12 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             supported.append(name)
         elif name in {"chromahold", "colorhold"}:
             stack.extend(colorhold_to_blender_stack(**args))
+            compositor_nodes.extend(colorhold_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is approximated with Blender Hue Correct saturation-zone curves.")
         elif name == "hsvhold":
             stack.extend(hsvhold_to_blender_stack(**args))
+            compositor_nodes.extend(hsvhold_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Hsvhold is approximated with Blender Hue Correct saturation-zone curves.")
         elif name == "chromakey":
@@ -756,6 +763,17 @@ def colortemperature_to_blender_stack(
     )
 
 
+def colortemperature_to_blender_compositor(
+    *,
+    temperature: str | float = 6500.0,
+    mix: str | float = 1.0,
+    pl: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    stack = colortemperature_to_blender_stack(temperature=temperature, mix=mix, pl=pl)
+    return _stack_to_compositor_nodes(stack, "colortemperature", "Color Temperature")
+
+
 def limiter_to_blender_stack(
     *,
     min: str | float = 0.0,
@@ -768,6 +786,31 @@ def limiter_to_blender_stack(
         maximum = 1.0 if minimum + 0.01 > 1.0 else minimum + 0.01
     points = _range_curve_points(minimum, maximum, minimum, maximum)
     return (("CURVES", {"__curve_points__": {0: points}}),)
+
+
+def limiter_to_blender_compositor(
+    *,
+    min: str | float = 0.0,
+    max: str | float = 1.0,
+    **_unused: str,
+) -> CompositorStack:
+    minimum = _normalize_limiter_value(_float(min, 0.0))
+    maximum = _normalize_limiter_value(_float(max, 1.0))
+    if maximum <= minimum:
+        maximum = 1.0 if minimum + 0.01 > 1.0 else minimum + 0.01
+    points = _range_curve_points(minimum, maximum, minimum, maximum)
+    return (
+        (
+            "CURVE_RGB",
+            {
+                "label": "Limiter / Legal Range",
+                "__curve_points__": {0: points},
+                "minimum": minimum,
+                "maximum": maximum,
+                "source": "limiter",
+            },
+        ),
+    )
 
 
 def tonemap_to_blender_stack(
@@ -799,6 +842,18 @@ def tonemap_to_blender_stack(
     if desat_value:
         stack.append(("HUE_CORRECT", {"__hue_correct__": {"saturation": _saturation_to_curve_y(_clamp(1.0 - desat_value * 0.08, 0.0, 1.2))}}))
     return tuple(stack)
+
+
+def tonemap_to_blender_compositor(
+    *,
+    tonemap: str | int = "reinhard",
+    param: str | float = 0.0,
+    desat: str | float = 0.0,
+    peak: str | float = 100.0,
+    **_unused: str,
+) -> CompositorStack:
+    stack = tonemap_to_blender_stack(tonemap=tonemap, param=param, desat=desat, peak=peak)
+    return _stack_to_compositor_nodes(stack, "tonemap", "Tone Map")
 
 
 def normalize_to_blender_stack(
@@ -936,6 +991,26 @@ def colorcontrast_to_blender_stack(
     )
 
 
+def colorcontrast_to_blender_compositor(
+    *,
+    rc: str | float = 0.0,
+    gm: str | float = 0.0,
+    by: str | float = 0.0,
+    rcw: str | float = 0.0,
+    gmw: str | float = 0.0,
+    byw: str | float = 0.0,
+    pl: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    stack = colorcontrast_to_blender_stack(rc=rc, gm=gm, by=by, rcw=rcw, gmw=gmw, byw=byw, pl=pl)
+    nodes = list(_stack_to_compositor_nodes(stack, "colorcontrast", "Color Contrast"))
+    for _node_type, settings in nodes:
+        settings["red_cyan"] = _float(rc, 0.0)
+        settings["green_magenta"] = _float(gm, 0.0)
+        settings["blue_yellow"] = _float(by, 0.0)
+    return tuple(nodes)
+
+
 def monochrome_to_blender_stack(
     *,
     cb: str | float = 0.0,
@@ -1025,6 +1100,23 @@ def colorize_to_blender_stack(
         ),
         ("WHITE_BALANCE", {"white_value": white_value}),
     )
+
+
+def colorize_to_blender_compositor(
+    *,
+    hue: str | float = 0.0,
+    saturation: str | float = 0.5,
+    lightness: str | float = 0.5,
+    mix: str | float = 1.0,
+    **_unused: str,
+) -> CompositorStack:
+    stack = colorize_to_blender_stack(hue=hue, saturation=saturation, lightness=lightness, mix=mix)
+    nodes = list(_stack_to_compositor_nodes(stack, "colorize", "Colorize"))
+    tint = _hsl_to_rgb(_float(hue, 0.0), _clamp(_float(saturation, 0.5), 0.0, 1.0), _clamp(_float(lightness, 0.5), 0.0, 1.0))
+    for _node_type, settings in nodes:
+        settings["mix"] = _clamp(_float(mix, 1.0), 0.0, 1.0)
+        settings["tint"] = tint
+    return tuple(nodes)
 
 
 def grayworld_to_blender_stack(**_unused: str) -> BlenderStack:
@@ -1146,6 +1238,30 @@ def colorhold_to_blender_stack(
     )
 
 
+def colorhold_to_blender_compositor(
+    source: str = "colorhold",
+    *,
+    color: str = "black",
+    similarity: str | float = 0.01,
+    blend: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    hue = _rgb_to_hue(_parse_color(color, (0.0, 0.0, 0.0)))
+    return (
+        (
+            "HUE_CORRECT",
+            {
+                "label": "Color Hold",
+                "__curve_points__": {1: _hold_saturation_curve_points(hue, _float(similarity, 0.01), _float(blend, 0.0))},
+                "held_color": _parse_color(color, (0.0, 0.0, 0.0)),
+                "similarity": _float(similarity, 0.01),
+                "blend": _float(blend, 0.0),
+                "source": source,
+            },
+        ),
+    )
+
+
 def hsvhold_to_blender_stack(
     *,
     hue: str | float = 0.0,
@@ -1162,6 +1278,36 @@ def hsvhold_to_blender_stack(
         for x, y in saturation_points
     ]
     return (("HUE_CORRECT", {"__curve_points__": {1: saturation_points, 2: value_points}}),)
+
+
+def hsvhold_to_blender_compositor(
+    *,
+    hue: str | float = 0.0,
+    sat: str | float = 0.0,
+    val: str | float = 0.0,
+    similarity: str | float = 0.01,
+    blend: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    hue_value = (_float(hue, 0.0) % 360.0) / 360.0
+    saturation_points = _hold_saturation_curve_points(hue_value, _float(similarity, 0.01), _float(blend, 0.0))
+    value_points = [
+        (x, _clamp(y + _float(val, 0.0) * 0.08 + _float(sat, 0.0) * 0.04, 0.0, 1.0))
+        for x, y in saturation_points
+    ]
+    return (
+        (
+            "HUE_CORRECT",
+            {
+                "label": "HSV Hold",
+                "__curve_points__": {1: saturation_points, 2: value_points},
+                "hue_degrees": _float(hue, 0.0) % 360.0,
+                "similarity": _float(similarity, 0.01),
+                "blend": _float(blend, 0.0),
+                "source": "hsvhold",
+            },
+        ),
+    )
 
 
 def chromakey_to_blender_compositor(
@@ -2451,6 +2597,33 @@ def _preserve_average(values: tuple[float, float, float]) -> tuple[float, float,
     if average <= 1e-6:
         return values
     return tuple(_clamp(value / average, 0.35, 1.85) for value in values)
+
+
+def _stack_to_compositor_nodes(stack: BlenderStack, source: str, label: str) -> CompositorStack:
+    type_map = {
+        "BRIGHT_CONTRAST": "BRIGHT_CONTRAST",
+        "COLOR_BALANCE": "COLOR_BALANCE",
+        "WHITE_BALANCE": "COLOR_BALANCE",
+        "CURVES": "CURVE_RGB",
+        "HUE_CORRECT": "HUE_CORRECT",
+        "TONEMAP": "TONEMAP",
+    }
+    nodes: list[tuple[str, dict[str, Any]]] = []
+    for index, (modifier_type, settings) in enumerate(stack, start=1):
+        compositor_type = type_map.get(modifier_type)
+        if compositor_type is None:
+            continue
+        copied = dict(settings)
+        copied["source"] = source
+        copied.setdefault("label", f"{label} {_modifier_label(modifier_type)}" if len(stack) > 1 else label)
+        copied["modifier_type"] = modifier_type
+        copied["sequence_index"] = index
+        nodes.append((compositor_type, copied))
+    return tuple(nodes)
+
+
+def _modifier_label(modifier_type: str) -> str:
+    return modifier_type.replace("_", " ").title()
 
 
 def _normalize_limiter_value(value: float) -> float:
