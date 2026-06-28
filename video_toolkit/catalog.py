@@ -255,6 +255,12 @@ _NATIVE_PIXEL_SCOPE_TRANSLATION = translate_filter_chain("pixscope=x=0.5:y=0.5:w
 _NATIVE_SIGNAL_STATS_TRANSLATION = translate_filter_chain("signalstats=stat=tout+vrep+brng")
 _NATIVE_COLOR_DETECT_TRANSLATION = translate_filter_chain("colordetect=mode=color_range+alpha_mode+all")
 _NATIVE_IDENTITY_COMPARE_TRANSLATION = translate_filter_chain("identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest")
+_NATIVE_SSIM_COMPARE_TRANSLATION = translate_filter_chain("ssim=stats_file=vtk_ssim.log:eof_action=repeat:repeatlast=1:ts_sync_mode=nearest")
+_NATIVE_PSNR_COMPARE_TRANSLATION = translate_filter_chain("psnr=stats_file=vtk_psnr.log:stats_version=2:output_max=1:eof_action=repeat")
+_NATIVE_XPSNR_COMPARE_TRANSLATION = translate_filter_chain("xpsnr=stats_file=vtk_xpsnr.log:eof_action=repeat")
+_NATIVE_CORR_COMPARE_TRANSLATION = translate_filter_chain("corr=eof_action=repeat:repeatlast=1")
+_NATIVE_MSAD_COMPARE_TRANSLATION = translate_filter_chain("msad=eof_action=repeat:repeatlast=1")
+_NATIVE_XCORRELATE_COMPARE_TRANSLATION = translate_filter_chain("xcorrelate=planes=7:secondary=all:eof_action=repeat")
 _CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey=color=green:similarity=0.18:blend=0.06")
 _COLOR_KEY_MATTE_TRANSLATION = translate_filter_chain("colorkey=color=blue:similarity=0.16:blend=0.04")
 _HSV_KEY_MATTE_TRANSLATION = translate_filter_chain("hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.03")
@@ -2168,6 +2174,54 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg identity two-stream diagnostic intent as a Blender Difference Matte reference-difference overlay graph.",
         compositor_stack=_NATIVE_IDENTITY_COMPARE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_ssim_compare",
+        label="SSIM Structure Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg ssim structural similarity intent as a Blender luma/edge Difference Matte overlay graph.",
+        compositor_stack=_NATIVE_SSIM_COMPARE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_psnr_compare",
+        label="PSNR Error Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg psnr peak-error intent as a Blender luma reference-difference overlay graph with stats metadata.",
+        compositor_stack=_NATIVE_PSNR_COMPARE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_xpsnr_compare",
+        label="XPSNR Perceptual Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg xpsnr perceptual peak-error intent as a Blender edge-weighted reference-difference overlay graph.",
+        compositor_stack=_NATIVE_XPSNR_COMPARE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_corr_compare",
+        label="Correlation Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg corr intent as a Blender emphasized luma correlation-difference overlay graph.",
+        compositor_stack=_NATIVE_CORR_COMPARE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_msad_compare",
+        label="MSAD Difference Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg msad mean-sum-absolute-difference intent as a Blender luma difference overlay graph.",
+        compositor_stack=_NATIVE_MSAD_COMPARE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_ffmpeg_xcorrelate_compare",
+        label="Cross-Correlation Compare",
+        category="Native Analysis & Utility",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg xcorrelate intent as a Blender luma/edge reference-correlation overlay graph with plane metadata.",
+        compositor_stack=_NATIVE_XCORRELATE_COMPARE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_compositor_image_coordinates",

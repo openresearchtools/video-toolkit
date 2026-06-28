@@ -391,6 +391,12 @@ scene.video_toolkit_ffmpeg_chain = (
     'deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,'
     'deblock=block=16:alpha=0.12:beta=0.08,'
     'identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,'
+    'ssim=stats_file=vtk_ssim.log:eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,'
+    'psnr=stats_file=vtk_psnr.log:stats_version=2:output_max=1:eof_action=repeat,'
+    'xpsnr=stats_file=vtk_xpsnr.log:eof_action=repeat,'
+    'corr=eof_action=repeat:repeatlast=1,'
+    'msad=eof_action=repeat:repeatlast=1,'
+    'xcorrelate=planes=7:secondary=all:eof_action=repeat,'
     'pseudocolor=preset=viridis:opacity=0.75:index=1,'
     'histeq=strength=0.22:intensity=0.20:antibanding=1,'
     'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
@@ -416,6 +422,12 @@ for required_filter in [
     'chromaber_vulkan',
     'alphamerge',
     'identity',
+    'ssim',
+    'psnr',
+    'xpsnr',
+    'corr',
+    'msad',
+    'xcorrelate',
     'unsharp',
     'hqdn3d',
     'pseudocolor',
@@ -459,6 +471,12 @@ assert 'alphaextract' in translated_workflow_supported
 assert 'alphamerge' in translated_workflow_supported
 assert 'extractplanes' in translated_workflow_supported
 assert 'identity' in translated_workflow_supported
+assert 'ssim' in translated_workflow_supported
+assert 'psnr' in translated_workflow_supported
+assert 'xpsnr' in translated_workflow_supported
+assert 'corr' in translated_workflow_supported
+assert 'msad' in translated_workflow_supported
+assert 'xcorrelate' in translated_workflow_supported
 assert 'premultiply' in translated_workflow_supported
 assert 'unpremultiply' in translated_workflow_supported
 assert 'shuffleplanes' in translated_workflow_supported
@@ -496,6 +514,7 @@ for required in [
     'CompositorNodeChromaMatte',
     'CompositorNodeColorMatte',
     'CompositorNodeDiffMatte',
+    'CompositorNodeFilter',
     'CompositorNodeLumaMatte',
     'CompositorNodeRGB',
     'CompositorNodeSeparateColor',

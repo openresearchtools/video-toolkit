@@ -130,6 +130,12 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "signalstats",
     "colordetect",
     "identity",
+    "ssim",
+    "psnr",
+    "xpsnr",
+    "corr",
+    "msad",
+    "xcorrelate",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -429,6 +435,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(identity_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Identity is translated to a Blender reference-difference diagnostic graph; FFmpeg's numeric two-stream identity metrics are represented visually with native Difference Matte and overlay nodes.")
+        elif name in {"ssim", "psnr", "xpsnr", "corr", "msad", "xcorrelate"}:
+            compositor_nodes.extend(quality_compare_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is translated to a Blender native quality/reference compare graph using luma, edge emphasis, Difference Matte, and overlay nodes; FFmpeg numeric metric logs are represented as editable graph metadata.")
         elif name == "pseudocolor":
             pseudocolor_stack = pseudocolor_to_blender_stack(**args)
             stack.extend(pseudocolor_stack)
@@ -2630,6 +2640,73 @@ def identity_to_blender_compositor(**options: str | int | float) -> CompositorSt
                 "factor": _clamp(_float(_option(options, "opacity", "factor", default=0.75), 0.75), 0.0, 1.0),
                 "overlay_color": (1.0, 0.08, 0.0, 1.0),
                 "approximation": "FFmpeg identity compares a main and reference stream and emits numeric frame metrics. This Blender graph builds an editable selected-strip reference branch, computes a native Difference Matte, and overlays differences for visual reference-matching review.",
+            },
+        ),
+    )
+
+
+def quality_compare_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    labels = {
+        "ssim": "SSIM Structure Compare",
+        "psnr": "PSNR Error Compare",
+        "xpsnr": "XPSNR Perceptual Compare",
+        "corr": "Correlation Compare",
+        "msad": "MSAD Difference Compare",
+        "xcorrelate": "Cross-Correlation Compare",
+    }
+    modes = {
+        "ssim": "structure_similarity",
+        "psnr": "peak_error",
+        "xpsnr": "perceptual_peak_error",
+        "corr": "correlation",
+        "msad": "mean_sum_absolute_difference",
+        "xcorrelate": "cross_correlation",
+    }
+    filter_types = {
+        "ssim": "Sobel",
+        "xpsnr": "Sobel",
+        "corr": "Box Sharpen",
+        "xcorrelate": "Box Sharpen",
+        "psnr": "Box Sharpen",
+        "msad": "Box Sharpen",
+    }
+    factor = 1.0 if name in {"ssim", "xpsnr", "corr", "xcorrelate"} else 0.0
+    tolerance = 0.018 if name in {"ssim", "xpsnr"} else 0.012
+    overlay_colors = {
+        "ssim": (0.0, 0.55, 1.0, 1.0),
+        "psnr": (1.0, 0.72, 0.0, 1.0),
+        "xpsnr": (0.65, 0.18, 1.0, 1.0),
+        "corr": (0.0, 0.9, 0.45, 1.0),
+        "msad": (1.0, 0.16, 0.08, 1.0),
+        "xcorrelate": (0.1, 1.0, 0.85, 1.0),
+    }
+    return (
+        (
+            "QUALITY_COMPARE",
+            {
+                "label": labels.get(name, name.upper() + " Compare"),
+                "source": name,
+                "metric": name,
+                "metric_mode": modes.get(name, "reference_compare"),
+                "reference": "selected_strip_derived_branch",
+                "eof_action": str(_option(options, "eof_action", default="repeat")),
+                "shortest": _truthy(_option(options, "shortest", default=False)),
+                "repeatlast": _truthy(_option(options, "repeatlast", default=True)),
+                "ts_sync_mode": str(_option(options, "ts_sync_mode", default="default")),
+                "stats_file": str(_option(options, "stats_file", "f", default="")),
+                "stats_version": int(_clamp(_float(_option(options, "stats_version", default=1), 1.0), 1.0, 2.0)),
+                "output_max": _truthy(_option(options, "output_max", default=False)),
+                "planes": str(_option(options, "planes", default="7")),
+                "secondary": str(_option(options, "secondary", default="all")),
+                "blur_size": _clamp(_float(_option(options, "blur", "radius", default=2.0), 2.0), 0.0, 16.0),
+                "filter_type": filter_types.get(name, "Box Sharpen"),
+                "filter_factor": factor,
+                "tolerance": _clamp(_float(_option(options, "tolerance", "threshold", default=tolerance), tolerance), 0.0, 1.0),
+                "falloff": _clamp(_float(_option(options, "falloff", default=0.025), 0.025), 0.0, 1.0),
+                "factor": _clamp(_float(_option(options, "opacity", "factor", default=0.72), 0.72), 0.0, 1.0),
+                "overlay_color": overlay_colors.get(name, (1.0, 0.08, 0.0, 1.0)),
+                "approximation": "FFmpeg quality metrics compare two streams and report numeric per-frame scores. This Blender graph derives an editable reference branch from the selected strip, compares luma/edge structure with native Difference Matte nodes, and overlays the visual difference while preserving metric options as metadata.",
             },
         ),
     )

@@ -3415,6 +3415,8 @@ def _append_translated_compositor_filter(
         return _append_scope_monitor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "IDENTITY_COMPARE":
         return _append_identity_compare_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "QUALITY_COMPARE":
+        return _append_quality_compare_filter(tree, input_socket, settings, index, origin, label_prefix)
     node = _translated_compositor_filter_to_node(tree, compositor_type, settings, index, origin, label_prefix, source_clip=source_clip)
     if node is None:
         return input_socket, []
@@ -3912,6 +3914,69 @@ def _append_identity_compare_filter(tree, input_socket, settings: dict[str, obje
     return _image_output(alpha), [reference, diff, overlay, alpha]
 
 
+def _append_quality_compare_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Quality Compare'}"
+    luma = _new_compositor_node(tree, "CompositorNodeRGBToBW", f"{label} Source Luma", index, y_offset=-360, origin=origin)
+    luma_image = _new_compositor_node(tree, "CompositorNodeCombineColor", f"{label} Source Luma Image", index + 1, y_offset=-360, origin=origin)
+    reference = _new_compositor_node(tree, "CompositorNodeBlur", f"{label} Reference Branch", index + 2, y_offset=-160, origin=origin)
+    reference_luma = _new_compositor_node(tree, "CompositorNodeRGBToBW", f"{label} Reference Luma", index + 3, y_offset=-160, origin=origin)
+    reference_luma_image = _new_compositor_node(tree, "CompositorNodeCombineColor", f"{label} Reference Luma Image", index + 4, y_offset=-160, origin=origin)
+    source_filter = _new_compositor_node(tree, "CompositorNodeFilter", f"{label} Source Emphasis", index + 5, y_offset=40, origin=origin)
+    reference_filter = _new_compositor_node(tree, "CompositorNodeFilter", f"{label} Reference Emphasis", index + 6, y_offset=200, origin=origin)
+    diff = _new_compositor_node(tree, "CompositorNodeDiffMatte", f"{label} Difference Matte", index + 7, y_offset=80, origin=origin)
+    overlay = _new_compositor_node(tree, "CompositorNodeRGB", f"{label} Difference Color", index + 8, y_offset=260, origin=origin)
+    alpha = _new_compositor_node(tree, "CompositorNodeAlphaOver", label, index + 9, origin=origin)
+
+    blur_size = float(settings.get("blur_size", 2.0) or 0.0)
+    _set_input_default(reference, "Size", (blur_size, blur_size))
+    _set_input_default(reference, "Type", "Gaussian")
+    _set_input_default(reference, "Extend Bounds", True)
+    _set_input_default(reference, "Separable", True)
+    for combine in (luma_image, reference_luma_image):
+        _set_input_default(combine, "Alpha", 1.0)
+    for filter_node in (source_filter, reference_filter):
+        _set_input_default(filter_node, "Type", settings.get("filter_type", "Box Sharpen"))
+        _set_input_default(filter_node, "Factor", settings.get("filter_factor", 1.0))
+    _set_input_default(diff, "Tolerance", settings.get("tolerance", 0.018))
+    _set_input_default(diff, "Falloff", settings.get("falloff", 0.025))
+    _set_output_default(overlay, "Image", _rgba(settings.get("overlay_color", (1.0, 0.08, 0.0, 1.0))))
+    _set_input_default(alpha, "Factor", settings.get("factor", 0.72))
+    _set_input_default(alpha, "Type", settings.get("type", "Straight"))
+    _set_input_default(alpha, "Straight Alpha", bool(settings.get("straight_alpha", True)))
+
+    _link_socket(tree, input_socket, _image_input(luma))
+    for input_name in ("Red", "Green", "Blue"):
+        _link_socket(tree, _first_socket(luma.outputs), _socket_by_name(luma_image.inputs, input_name))
+    _link_socket(tree, input_socket, _image_input(reference))
+    _link_socket(tree, _image_output(reference), _image_input(reference_luma))
+    for input_name in ("Red", "Green", "Blue"):
+        _link_socket(tree, _first_socket(reference_luma.outputs), _socket_by_name(reference_luma_image.inputs, input_name))
+    _link_socket(tree, _image_output(luma_image), _image_input(source_filter))
+    _link_socket(tree, _image_output(reference_luma_image), _image_input(reference_filter))
+    _link_socket(tree, _image_output(source_filter), _socket_by_name(diff.inputs, "Image 1"))
+    _link_socket(tree, _image_output(reference_filter), _socket_by_name(diff.inputs, "Image 2"))
+    _link_socket(tree, input_socket, _socket_by_name(alpha.inputs, "Background"))
+    _link_socket(tree, _image_output(overlay), _socket_by_name(alpha.inputs, "Foreground"))
+    _link_socket(tree, _socket_by_name(diff.outputs, "Matte"), _socket_by_name(alpha.inputs, "Factor"))
+
+    created = [luma, luma_image, reference, reference_luma, reference_luma_image, source_filter, reference_filter, diff, overlay, alpha]
+    for node in created:
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", settings.get("metric", "quality_compare"))
+        node["video_toolkit_quality_metric"] = settings.get("metric", "")
+        node["video_toolkit_quality_metric_mode"] = settings.get("metric_mode", "")
+        node["video_toolkit_reference"] = settings.get("reference", "selected_strip_derived_branch")
+        node["video_toolkit_framesync_eof_action"] = settings.get("eof_action", "repeat")
+        node["video_toolkit_framesync_shortest"] = bool(settings.get("shortest", False))
+        node["video_toolkit_framesync_repeatlast"] = bool(settings.get("repeatlast", True))
+        node["video_toolkit_framesync_ts_sync_mode"] = settings.get("ts_sync_mode", "default")
+        for key in ("stats_file", "stats_version", "output_max", "planes", "secondary"):
+            if key in settings:
+                node[f"video_toolkit_{key}"] = settings[key]
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
+    return _image_output(alpha), created
+
+
 def _translated_compositor_filter_to_node(
     tree,
     compositor_type: str,
@@ -3957,6 +4022,7 @@ def _translated_compositor_filter_to_node(
         "DESPECKLE": "Despeckle",
         "ANTI_ALIASING": "Anti-Aliasing",
         "IDENTITY_COMPARE": "Identity Compare",
+        "QUALITY_COMPARE": "Quality Compare",
         "NATIVE_NODE": "Native Node",
     }
     node_label = str(settings.get("label") or labels.get(compositor_type, compositor_type.title()))
@@ -5008,6 +5074,12 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,"
         "deblock=block=16:alpha=0.12:beta=0.08,"
         "identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,"
+        "ssim=stats_file=vtk_ssim.log:eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,"
+        "psnr=stats_file=vtk_psnr.log:stats_version=2:output_max=1:eof_action=repeat,"
+        "xpsnr=stats_file=vtk_xpsnr.log:eof_action=repeat,"
+        "corr=eof_action=repeat:repeatlast=1,"
+        "msad=eof_action=repeat:repeatlast=1,"
+        "xcorrelate=planes=7:secondary=all:eof_action=repeat,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"

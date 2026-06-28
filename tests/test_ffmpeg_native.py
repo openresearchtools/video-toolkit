@@ -52,6 +52,7 @@ from video_toolkit.ffmpeg_native import (
     normalize_to_blender_stack,
     premultiply_to_blender_compositor,
     pseudocolor_to_blender_stack,
+    quality_compare_to_blender_compositor,
     restoration_filter_to_blender_compositor,
     flip_to_blender_compositor,
     lenscorrection_to_blender_compositor,
@@ -413,6 +414,39 @@ def test_identity_filter_translates_to_blender_reference_difference_graphlet():
     assert result.unsupported_filters == ()
     assert result.supported_filters == ("identity",)
     assert [node_type for node_type, _settings in result.compositor_nodes] == ["IDENTITY_COMPARE"]
+
+
+def test_quality_metric_filters_translate_to_blender_reference_compare_graphlets():
+    ssim = quality_compare_to_blender_compositor("ssim", stats_file="ssim.log", eof_action="pass", shortest=1)
+    assert ssim[0][0] == "QUALITY_COMPARE"
+    assert ssim[0][1]["source"] == "ssim"
+    assert ssim[0][1]["metric_mode"] == "structure_similarity"
+    assert ssim[0][1]["stats_file"] == "ssim.log"
+    assert ssim[0][1]["shortest"] is True
+    assert ssim[0][1]["eof_action"] == "pass"
+
+    psnr = quality_compare_to_blender_compositor("psnr", f="psnr.log", stats_version=2, output_max=1)
+    assert psnr[0][1]["metric_mode"] == "peak_error"
+    assert psnr[0][1]["stats_file"] == "psnr.log"
+    assert psnr[0][1]["stats_version"] == 2
+    assert psnr[0][1]["output_max"] is True
+
+    xcorrelate = quality_compare_to_blender_compositor("xcorrelate", planes=3, secondary="first")
+    assert xcorrelate[0][1]["metric_mode"] == "cross_correlation"
+    assert xcorrelate[0][1]["planes"] == "3"
+    assert xcorrelate[0][1]["secondary"] == "first"
+
+    result = translate_filter_chain(
+        "ssim=stats_file=ssim.log,"
+        "psnr=f=psnr.log:stats_version=2:output_max=1,"
+        "xpsnr=stats_file=xpsnr.log,"
+        "corr,"
+        "msad,"
+        "xcorrelate=planes=7:secondary=all"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("ssim", "psnr", "xpsnr", "corr", "msad", "xcorrelate")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["QUALITY_COMPARE"] * 6
 
 
 def test_remaining_live_color_filters_emit_compositor_node_specs():
@@ -1196,6 +1230,12 @@ def test_filter_chain_supports_more_color_grading_filters():
         "signalstats=stat=tout+vrep+brng,"
         "colordetect=mode=color_range+alpha_mode+all,"
         "identity=eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,"
+        "ssim=stats_file=vtk_ssim.log:eof_action=repeat:repeatlast=1:ts_sync_mode=nearest,"
+        "psnr=stats_file=vtk_psnr.log:stats_version=2:output_max=1:eof_action=repeat,"
+        "xpsnr=stats_file=vtk_xpsnr.log:eof_action=repeat,"
+        "corr=eof_action=repeat:repeatlast=1,"
+        "msad=eof_action=repeat:repeatlast=1,"
+        "xcorrelate=planes=7:secondary=all:eof_action=repeat,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -1301,6 +1341,12 @@ def test_filter_chain_supports_more_color_grading_filters():
         "signalstats",
         "colordetect",
         "identity",
+        "ssim",
+        "psnr",
+        "xpsnr",
+        "corr",
+        "msad",
+        "xcorrelate",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -1311,7 +1357,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "COLOR_SPILL", "BACKGROUND_KEY", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "ALPHA_MERGE", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR", "IDENTITY_COMPARE"}.issubset(
+    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "COLOR_SPILL", "BACKGROUND_KEY", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "ALPHA_MERGE", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR", "IDENTITY_COMPARE", "QUALITY_COMPARE"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management
