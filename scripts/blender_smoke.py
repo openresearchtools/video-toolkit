@@ -591,6 +591,12 @@ scene.video_toolkit_sidecar_group = 'LIVE_BLENDER_COLOR'
 scene.video_toolkit_sidecar_tool = 'live_gamma_grade'
 bpy.ops.video_toolkit.apply_sidecar_tool()
 assert any(m.name.startswith('VTK Live Gamma Grade') for m in strip.modifiers)
+gamma_roles = [
+    m.name.rsplit(' - ', 1)[-1]
+    for m in strip.modifiers
+    if m.name.startswith('VTK Live Gamma Grade')
+]
+assert gamma_roles == ['Brightness Contrast', 'Lift Gamma Gain'], gamma_roles
 bpy.ops.video_toolkit.create_sidecar_compositor_nodes()
 assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Live Gamma Grade')
 tree = scene.compositing_node_group if hasattr(scene, 'compositing_node_group') else scene.node_tree
@@ -605,6 +611,29 @@ for required in [
     'CompositorNodeOutputFile',
 ]:
     assert required in sidecar_recipe_node_types, required
+scene.video_toolkit_sidecar_tool = 'master_color_wheels'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+master_board_roles = [
+    m.name.rsplit(' - ', 1)[-1]
+    for m in strip.modifiers
+    if m.name.startswith('VTK Master Color Wheels')
+]
+assert master_board_roles == [
+    'Brightness Contrast',
+    'Lift Gamma Gain',
+    'ASC CDL Offset Power Slope',
+    'White Balance',
+    'RGB Curves',
+    'Tone Map',
+    'Hue Correct',
+], master_board_roles
+master_board_names = [
+    m.name
+    for m in strip.modifiers
+    if m.name.startswith('VTK Master Color Wheels')
+]
+assert any(name.endswith('Lift Gamma Gain') for name in master_board_names)
+assert any(name.endswith('ASC CDL Offset Power Slope') for name in master_board_names)
 scene.video_toolkit_sidecar_tool = 'primary_color_board'
 bpy.ops.video_toolkit.apply_sidecar_tool()
 primary_board_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Primary Color Board')]

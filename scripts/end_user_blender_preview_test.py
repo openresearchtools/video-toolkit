@@ -890,6 +890,27 @@ master_color_wheels_modifier_types = [
 assert master_color_wheels_modifier_types == [
     'BRIGHT_CONTRAST', 'COLOR_BALANCE', 'COLOR_BALANCE', 'WHITE_BALANCE', 'CURVES', 'TONEMAP', 'HUE_CORRECT'
 ], master_color_wheels_modifier_types
+master_color_wheels_modifier_names = [
+    modifier.name
+    for modifier in pro_grade_strip.modifiers
+    if modifier.name.startswith('VTK Master Color Wheels')
+]
+master_color_wheels_modifier_roles = [
+    modifier.name.rsplit(' - ', 1)[-1]
+    for modifier in pro_grade_strip.modifiers
+    if modifier.name.startswith('VTK Master Color Wheels')
+]
+assert master_color_wheels_modifier_roles == [
+    'Brightness Contrast',
+    'Lift Gamma Gain',
+    'ASC CDL Offset Power Slope',
+    'White Balance',
+    'RGB Curves',
+    'Tone Map',
+    'Hue Correct',
+], master_color_wheels_modifier_roles
+assert any(name.endswith('Lift Gamma Gain') for name in master_color_wheels_modifier_names)
+assert any(name.endswith('ASC CDL Offset Power Slope') for name in master_color_wheels_modifier_names)
 master_color_wheels_stats = render_preview({str(master_color_wheels)!r})
 master_color_wheels_diff = (
     abs(master_color_wheels_stats['r'] - sampled_pro_grade_stats['r'])
@@ -1642,6 +1663,8 @@ Path({str(report)!r}).write_text(json.dumps({{
     'sampled_pro_grade_summary': scene.video_toolkit_last_sampled_pro_grade,
     'sampled_pro_grade_modifier_types': sampled_pro_grade_types,
     'master_color_wheels_modifier_types': master_color_wheels_modifier_types,
+    'master_color_wheels_modifier_names': master_color_wheels_modifier_names,
+    'master_color_wheels_modifier_roles': master_color_wheels_modifier_roles,
     'master_color_wheels_compositor_summary': master_color_wheels_compositor_summary,
     'master_color_wheels_node_types': master_color_wheels_node_types,
     'primary_color_board_modifier_types': primary_color_board_modifier_types,

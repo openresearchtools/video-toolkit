@@ -2893,11 +2893,39 @@ def _sequencer_colorspace_candidates(intent: str) -> tuple[str, ...]:
 def _add_blender_modifier(strip, modifier_type, settings, label):
     if not hasattr(strip, "modifiers"):
         raise RuntimeError(f"{strip.name} does not support VSE modifiers")
-    modifier = strip.modifiers.new(name=f"VTK {label} - {_modifier_label(modifier_type)}", type=modifier_type)
+    role_label = _modifier_role_label(modifier_type, settings)
+    modifier = strip.modifiers.new(name=f"VTK {label} - {role_label}", type=modifier_type)
     modifier.show_expanded = True
     for path, value in settings.items():
+        if str(path).startswith("__ui_") or path == "__role_label__":
+            continue
         _set_nested_attr(modifier, path, value)
     return modifier
+
+
+def _modifier_role_label(modifier_type: str, settings: dict[str, object]) -> str:
+    explicit = settings.get("__role_label__")
+    if explicit:
+        return str(explicit)
+    if modifier_type == "BRIGHT_CONTRAST":
+        return "Brightness Contrast"
+    if modifier_type == "COLOR_BALANCE":
+        return (
+            "ASC CDL Offset Power Slope"
+            if _color_balance_method_name(settings) == "OFFSET_POWER_SLOPE"
+            else "Lift Gamma Gain"
+        )
+    if modifier_type == "CURVES":
+        return "RGB Curves"
+    if modifier_type == "HUE_CORRECT":
+        return "Hue Correct"
+    if modifier_type == "TONEMAP":
+        return "Tone Map"
+    if modifier_type == "WHITE_BALANCE":
+        return "White Balance"
+    if modifier_type == "MASK":
+        return "Mask Slot"
+    return _modifier_label(modifier_type)
 
 
 def _insert_modifier_keyframes(strip, modifier, keyframes, property_name: str) -> int:
