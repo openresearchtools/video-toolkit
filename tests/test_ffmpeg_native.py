@@ -1,4 +1,5 @@
 from video_toolkit.ffmpeg_native import (
+    advanced_filter_to_blender_compositor,
     alphaextract_to_blender_compositor,
     alphamerge_to_blender_compositor,
     amplify_to_blender_stack,
@@ -2007,3 +2008,50 @@ def test_added_native_ffmpeg_repair_geometry_and_filter_specs():
         "tmedian",
         "xmedian",
     ]
+
+
+def test_advanced_ffmpeg_filters_translate_to_native_graphlets():
+    repair = advanced_filter_to_blender_compositor("delogo", x=32, y=24, w=120, h=80)
+    remap = advanced_filter_to_blender_compositor("remap_opencl")
+    matte = advanced_filter_to_blender_compositor("deflate")
+    cleanup = advanced_filter_to_blender_compositor("removegrain")
+    upscale = advanced_filter_to_blender_compositor("hqx", n=2)
+    cadence = advanced_filter_to_blender_compositor("dejudder", cycle=4)
+    metadata = advanced_filter_to_blender_compositor("libplacebo", tonemapping="bt.2390")
+    swapuv = advanced_filter_to_blender_compositor("swapuv")
+
+    assert [node_type for node_type, _settings in repair] == ["NATIVE_NODE", "BLANK_IMAGE_OVERLAY"]
+    assert repair[0][1]["node_type"] == "CompositorNodeInpaint"
+    assert repair[0][1]["source"] == "delogo"
+    assert remap[0][1]["node_type"] == "CompositorNodeMapUV"
+    assert [node_type for node_type, _settings in matte] == ["LUMA_MATTE", "DILATE_ERODE"]
+    assert [node_type for node_type, _settings in cleanup] == ["DESPECKLE", "ANTI_ALIASING"]
+    assert [node_type for node_type, _settings in upscale] == ["SCALE", "FILTER"]
+    assert [node_type for node_type, _settings in cadence] == ["ANTI_ALIASING", "BLUR", "TEXT_OVERLAY"]
+    assert [node_type for node_type, _settings in metadata] == ["TONEMAP", "TEXT_OVERLAY"]
+    assert swapuv[0][0] == "PLANE_SHUFFLE"
+
+    result = translate_filter_chain(
+        "delogo=x=32:y=24:w=120:h=80,"
+        "remap_opencl,"
+        "deflate,"
+        "removegrain,"
+        "hqx=n=2,"
+        "dejudder=cycle=4,"
+        "libplacebo=tonemapping=bt.2390,"
+        "swapuv"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == (
+        "delogo",
+        "remap_opencl",
+        "deflate",
+        "removegrain",
+        "hqx",
+        "dejudder",
+        "libplacebo",
+        "swapuv",
+    )
+    assert {"NATIVE_NODE", "BLANK_IMAGE_OVERLAY", "LUMA_MATTE", "DILATE_ERODE", "DESPECKLE", "ANTI_ALIASING", "SCALE", "FILTER", "BLUR", "TEXT_OVERLAY", "TONEMAP", "PLANE_SHUFFLE"}.issubset(
+        {node_type for node_type, _settings in result.compositor_nodes}
+    )

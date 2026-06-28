@@ -158,9 +158,83 @@ NATIVE_FFMPEG_TIMELINE_FILTERS = (
     "trim",
 )
 
+NATIVE_FFMPEG_ADVANCED_FILTERS = (
+    "buffer",
+    "buffersink",
+    "codecview",
+    "convolve",
+    "cover_rect",
+    "deconvolve",
+    "deflate",
+    "dejudder",
+    "delogo",
+    "displace",
+    "doubleweave",
+    "drawbox_vaapi",
+    "epx",
+    "find_rect",
+    "format",
+    "framepack",
+    "fspp",
+    "guided",
+    "hqx",
+    "hwdownload",
+    "hwmap",
+    "hwupload",
+    "hwupload_cuda",
+    "hysteresis",
+    "inflate",
+    "interlace",
+    "interlace_vulkan",
+    "kerndeint",
+    "lagfun",
+    "libplacebo",
+    "limitdiff",
+    "maskedclamp",
+    "maskedmax",
+    "maskedmin",
+    "maskfun",
+    "mestimate",
+    "mix",
+    "morpho",
+    "multiply",
+    "noformat",
+    "nullsink",
+    "phase",
+    "photosensitivity",
+    "pixdesctest",
+    "pp7",
+    "pullup",
+    "qp",
+    "readeia608",
+    "readvitc",
+    "remap",
+    "remap_opencl",
+    "removegrain",
+    "removelogo",
+    "scale2ref",
+    "scharr",
+    "shufflepixels",
+    "signature",
+    "siti",
+    "spp",
+    "ssim360",
+    "stereo3d",
+    "super2xsai",
+    "swaprect",
+    "swapuv",
+    "tiltandshift",
+    "tinterlace",
+    "uspp",
+    "vpp_qsv",
+    "weave",
+    "zmq",
+)
+
 NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     *NATIVE_FFMPEG_EDITING_FILTERS,
     *NATIVE_FFMPEG_TIMELINE_FILTERS,
+    *NATIVE_FFMPEG_ADVANCED_FILTERS,
     "chromakey",
     "chromakey_cuda",
     "colorkey",
@@ -461,6 +535,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(timeline_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} timeline/metadata intent is represented with native Blender time, sequencer-info, and visible metadata graphlets.")
+        elif name in NATIVE_FFMPEG_ADVANCED_FILTERS:
+            compositor_nodes.extend(advanced_filter_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} advanced FFmpeg intent is represented with native Blender repair, matte, cleanup, transform, diagnostic, or metadata graphlets.")
         elif name == "normalize":
             normalize_stack = normalize_to_blender_stack(**args)
             stack.extend(normalize_stack)
@@ -2135,6 +2213,515 @@ def _aspect_ratio_from_options(options: dict[str, object]) -> float:
     if abs(denominator) < 1e-9:
         return 16.0 / 9.0
     return _clamp(numerator / denominator, 0.05, 20.0)
+
+
+def advanced_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    if name in {"delogo", "removelogo", "cover_rect", "find_rect"}:
+        return _advanced_repair_to_blender_compositor(name, options)
+    if name in {"displace", "remap", "remap_opencl"}:
+        return _advanced_displace_to_blender_compositor(name, options)
+    if name in {"convolve", "deconvolve"}:
+        return _advanced_convolve_to_blender_compositor(name, options)
+    if name in {"deflate", "inflate", "hysteresis", "morpho", "maskfun", "maskedclamp", "maskedmax", "maskedmin", "limitdiff"}:
+        return _advanced_matte_to_blender_compositor(name, options)
+    if name in {"mix", "multiply"}:
+        return _advanced_mix_to_blender_compositor(name, options)
+    if name in {"removegrain", "pp7", "fspp", "spp", "uspp", "guided", "lagfun", "photosensitivity"}:
+        return _advanced_cleanup_to_blender_compositor(name, options)
+    if name in {"hqx", "epx", "super2xsai", "scale2ref"}:
+        return _advanced_upscale_to_blender_compositor(name, options)
+    if name in {"scharr", "codecview", "mestimate"}:
+        return _advanced_edge_diagnostic_to_blender_compositor(name, options)
+    if name in {"dejudder", "doubleweave", "interlace", "interlace_vulkan", "kerndeint", "phase", "pullup", "tinterlace", "weave", "framepack", "stereo3d"}:
+        return _advanced_cadence_to_blender_compositor(name, options)
+    if name == "tiltandshift":
+        return _advanced_tiltshift_to_blender_compositor(name, options)
+    if name == "swapuv":
+        metadata = _editing_metadata(name, options)
+        return (
+            (
+                "PLANE_SHUFFLE",
+                {
+                    "label": "Swap UV Planes",
+                    "outputs": {"red": "red", "green": "blue", "blue": "green", "alpha": "alpha"},
+                    "source": name,
+                    "metadata": metadata,
+                    "approximation": "FFmpeg swapuv exchanges chroma planes. Blender previews this through native Separate/Combine Color channel routing.",
+                },
+            ),
+        )
+    if name in {"swaprect", "shufflepixels"}:
+        metadata = _editing_metadata(name, options)
+        return (
+            _native_compositor_node(
+                "CompositorNodeTransform",
+                label=_advanced_label(name),
+                source=name,
+                inputs={"X": 24.0, "Y": -16.0, "Angle": 0.0, "Scale": 1.0, "Interpolation": "Bilinear"},
+                metadata=metadata,
+                approximation="Pixel/rectangle shuffling is previewed as an editable transform branch while exact pixel addressing is preserved as metadata.",
+            ),
+            _advanced_text_node(name, metadata),
+        )
+    if name == "drawbox_vaapi":
+        return _advanced_drawbox_vaapi_to_blender_compositor(name, options)
+    return _advanced_metadata_to_blender_compositor(name, options)
+
+
+def _advanced_repair_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    x = _pixel_offset(_option(options, "x", default=64), 64.0)
+    y = _pixel_offset(_option(options, "y", default=48), 48.0)
+    width = _dimension_or_default(_option(options, "w", "width", default=160), 160.0)
+    height = _dimension_or_default(_option(options, "h", "height", default=90), 90.0)
+    metadata = _editing_metadata(source, options, x=x, y=y, width=width, height=height)
+    return (
+        _native_compositor_node(
+            "CompositorNodeInpaint",
+            label=_advanced_label(source),
+            source=source,
+            inputs={"Size": _clamp(max(width, height) / 80.0, 2.0, 24.0)},
+            metadata=metadata,
+            approximation="Logo/object removal is previewed with Blender's native Inpaint node; exact mask rectangle and model parameters are stored as metadata.",
+        ),
+        (
+            "BLANK_IMAGE_OVERLAY",
+            {
+                "label": f"{_advanced_label(source)} Mask Preview",
+                "inputs": {"Color": (1.0, 0.85, 0.0, 1.0), "Size": (int(width), int(height))},
+                "factor": 0.16,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "A subtle color plate marks the repaired region for selected-strip visual review.",
+            },
+        ),
+    )
+
+
+def _advanced_displace_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options)
+    if source.startswith("remap"):
+        return (
+            _native_compositor_node(
+                "CompositorNodeMapUV",
+                label=_advanced_label(source),
+                source=source,
+                metadata=metadata | ({"hardware_filter": source} if source != "remap" else {}),
+                approximation="FFmpeg remap uses x/y map streams. Blender previews remapping with the native Map UV node and stores map-stream options as metadata.",
+            ),
+            _advanced_text_node(source, metadata),
+        )
+    return (
+        _native_compositor_node(
+            "CompositorNodeDisplace",
+            label="Displace Preview",
+            source=source,
+            inputs={"Interpolation": "Bilinear", "Extension X": "Clip", "Extension Y": "Clip"},
+            metadata=metadata,
+            approximation="FFmpeg displace uses secondary displacement maps. Blender exposes the native Displace node while preserving map options for rendered fallback.",
+        ),
+    )
+
+
+def _advanced_convolve_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options)
+    return (
+        (
+            "CONVOLVE",
+            {
+                "label": _advanced_label(source),
+                "kernel_size": (3, 3),
+                "kernel": (0.0, -1.0, 0.0, -1.0, 5.0 if source == "convolve" else -3.0, -1.0, 0.0, -1.0, 0.0),
+                "rdiv": 1.0,
+                "bias": 0.0,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Two-stream convolution/deconvolution is represented with Blender's native Convolve node and generated kernel metadata.",
+            },
+        ),
+    )
+
+
+def _advanced_matte_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options)
+    if source in {"deflate", "maskedmin"}:
+        size = -2
+    elif source in {"inflate", "maskedmax"}:
+        size = 2
+    else:
+        size = 1
+    return (
+        (
+            "LUMA_MATTE",
+            {
+                "label": f"{_advanced_label(source)} Matte",
+                "minimum": 0.06,
+                "maximum": 0.92,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Masked/morphology filters are previewed by deriving a luma matte from the selected strip.",
+            },
+        ),
+        (
+            "DILATE_ERODE",
+            {
+                "label": _advanced_label(source),
+                "mode": "Steps",
+                "size": size,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Blender Dilate/Erode previews FFmpeg matte expansion, contraction, hysteresis, and masked clamp intent.",
+            },
+        ),
+    )
+
+
+def _advanced_mix_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    factor = _clamp(_float(_option(options, "weights", "weight", "inputs", default=0.5), 0.5), 0.05, 0.95)
+    metadata = _editing_metadata(source, options, factor=factor)
+    return (
+        (
+            "BLEND_COMPOSITE",
+            {
+                "label": _advanced_label(source),
+                "mode": "multiply" if source == "multiply" else "average",
+                "factor": factor,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg multi-input mix/multiply is represented with a native selected-strip blend branch and preserved stream-weight metadata.",
+            },
+        ),
+    )
+
+
+def _advanced_cleanup_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options)
+    if source == "guided":
+        return (
+            (
+                "BILATERAL_BLUR",
+                {
+                    "label": "Guided Edge-Preserving Cleanup",
+                    "size": 4,
+                    "threshold": 0.08,
+                    "source": source,
+                    "metadata": metadata,
+                    "approximation": "Guided filtering is previewed with Blender's native edge-aware Bilateral Blur.",
+                },
+            ),
+        )
+    if source == "photosensitivity":
+        return (
+            (
+                "TONEMAP",
+                {
+                    "label": "Photosensitivity Safety Preview",
+                    "tonemap_type": "RD_PHOTORECEPTOR",
+                    "intensity": 0.08,
+                    "contrast": -0.04,
+                    "gamma": 1.02,
+                    "source": source,
+                    "metadata": metadata,
+                    "approximation": "Flash reduction is previewed with a conservative tone-map/contrast clamp; exact temporal flash detection remains rendered fallback.",
+                },
+            ),
+        )
+    if source == "lagfun":
+        return (
+            (
+                "BLEND_COMPOSITE",
+                {
+                    "label": "Lagfun Persistence Preview",
+                    "mode": "lighten",
+                    "factor": 0.28,
+                    "source": source,
+                    "metadata": metadata,
+                    "approximation": "Lagfun temporal trails are previewed with a native lighten blend branch and lag metadata.",
+                },
+            ),
+        )
+    return (
+        (
+            "DESPECKLE",
+            {
+                "label": _advanced_label(source),
+                "factor": 0.42,
+                "color_threshold": 0.28,
+                "neighbor_threshold": 0.34,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg grain/postprocess cleanup is represented with Blender's native Despeckle node and cleanup-strength metadata.",
+            },
+        ),
+        (
+            "ANTI_ALIASING",
+            {
+                "label": f"{_advanced_label(source)} Edge Smooth",
+                "threshold": 0.18,
+                "contrast_limit": 1.8,
+                "corner_rounding": 0.22,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Postprocess edge cleanup is paired with Blender Anti-Aliasing for visible selected-strip preview.",
+            },
+        ),
+    )
+
+
+def _advanced_upscale_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    scale = 2.0 if source != "scale2ref" else _clamp(_dimension_or_default(_option(options, "w", "width", default="iw"), 1.0), 0.25, 4.0)
+    metadata = _editing_metadata(source, options, scale=scale)
+    return (
+        (
+            "SCALE",
+            {
+                "label": _advanced_label(source),
+                "type": "Relative",
+                "x": scale,
+                "y": scale,
+                "frame_type": "Fit",
+                "interpolation": "Bicubic",
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Pixel-art/upscale/reference scaling intent is previewed with Blender's native Scale node and exact FFmpeg options stored as metadata.",
+            },
+        ),
+        (
+            "FILTER",
+            {
+                "label": f"{_advanced_label(source)} Edge Restore",
+                "filter_type": "Box Sharpen",
+                "factor": 0.22,
+                "source": source,
+                "metadata": metadata,
+            },
+        ),
+    )
+
+
+def _advanced_edge_diagnostic_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    filter_type = "Sobel" if source in {"scharr", "mestimate"} else "Kirsch"
+    metadata = _editing_metadata(source, options)
+    return (
+        (
+            "FILTER",
+            {
+                "label": _advanced_label(source),
+                "filter_type": filter_type,
+                "factor": 0.72,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Motion/codec/edge diagnostics are previewed through Blender native edge filter nodes with detector metadata.",
+            },
+        ),
+        (
+            "SCOPE_MONITOR",
+            {
+                "label": f"{_advanced_label(source)} Monitor",
+                "source": source,
+                "metadata": metadata,
+                "approximation": "A luma/RGB scope monitor keeps the diagnostic visible in Blender.",
+            },
+        ),
+    )
+
+
+def _advanced_cadence_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options)
+    return (
+        (
+            "ANTI_ALIASING",
+            {
+                "label": _advanced_label(source),
+                "threshold": 0.16,
+                "contrast_limit": 2.0,
+                "corner_rounding": 0.20,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Interlace/cadence filters alter fields or frame order. Blender previews field cleanup with Anti-Aliasing and stores cadence metadata for rendered fallback.",
+            },
+        ),
+        (
+            "BLUR",
+            {
+                "label": f"{_advanced_label(source)} Field Blend",
+                "size": (0.0, 1.5),
+                "blur_type": "Fast Gaussian",
+                "extend_bounds": False,
+                "source": source,
+                "metadata": metadata,
+            },
+        ),
+        _advanced_text_node(source, metadata),
+    )
+
+
+def _advanced_tiltshift_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options)
+    return (
+        (
+            "BLUR",
+            {
+                "label": "Tilt-Shift Defocus Band",
+                "size": (3.0, 8.0),
+                "blur_type": "Gaussian",
+                "extend_bounds": False,
+                "source": source,
+                "metadata": metadata,
+                "approximation": "Tilt-shift selective blur is previewed with an anisotropic Blender Blur node and placement metadata.",
+            },
+        ),
+        _native_compositor_node(
+            "CompositorNodeTransform",
+            label="Tilt-Shift Band Placement",
+            source=source,
+            inputs={"X": 0.0, "Y": 0.0, "Angle": 0.08, "Scale": 1.0, "Interpolation": "Bilinear"},
+            metadata=metadata,
+            approximation="Transform metadata exposes the focus-band angle/placement.",
+        ),
+    )
+
+
+def _advanced_drawbox_vaapi_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    color = (*_parse_color(str(_option(options, "color", "c", default="yellow")), (1.0, 0.85, 0.0)), 1.0)
+    metadata = _editing_metadata(source, options, hardware_filter=source)
+    return (
+        (
+            "BLANK_IMAGE_OVERLAY",
+            {
+                "label": "VAAPI Draw Box Overlay",
+                "inputs": {"Color": color, "Size": (640, 360)},
+                "factor": 0.18,
+                "source": source,
+                "metadata": metadata,
+                "hardware_filter": source,
+                "approximation": "FFmpeg drawbox_vaapi hardware overlay is represented with native Blender Blank Image/Alpha Over preview nodes.",
+            },
+        ),
+    )
+
+
+def _advanced_metadata_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    metadata = _editing_metadata(source, options)
+    if source in {"libplacebo", "vpp_qsv"}:
+        return (
+            (
+                "TONEMAP",
+                {
+                    "label": _advanced_label(source),
+                    "tonemap_type": "RD_PHOTORECEPTOR",
+                    "intensity": 0.06,
+                    "contrast": 0.04,
+                    "gamma": 1.0,
+                    "source": source,
+                    "metadata": metadata | {"hardware_filter": source},
+                    "approximation": "Hardware/video post-processing color intent is previewed with Blender Tone Map and preserved as hardware metadata.",
+                },
+            ),
+            _advanced_text_node(source, metadata),
+        )
+    return (
+        (
+            "SCOPE_MONITOR",
+            {
+                "label": _advanced_label(source),
+                "source": source,
+                "metadata": metadata,
+                "approximation": "FFmpeg metadata/inspection/hardware-bridge filter is represented with native Blender scope monitor nodes and stamped filter metadata.",
+            },
+        ),
+        _advanced_text_node(source, metadata),
+    )
+
+
+def _advanced_text_node(source: str, metadata: dict[str, object]) -> tuple[str, dict[str, object]]:
+    return (
+        "TEXT_OVERLAY",
+        {
+            "label": f"{_advanced_label(source)} Label",
+            "inputs": {"String": f"FFmpeg {source}", "Size": 20.0},
+            "factor": 0.24,
+            "source": source,
+            "metadata": metadata,
+            "approximation": "Visible metadata overlay confirms the selected strip is passing through this native advanced preview graphlet.",
+        },
+    )
+
+
+def _advanced_label(source: str) -> str:
+    labels = {
+        "buffer": "Buffer Endpoint",
+        "buffersink": "Buffer Sink Endpoint",
+        "codecview": "Codec Vector View",
+        "convolve": "Two-Stream Convolve",
+        "cover_rect": "Cover Rectangle Repair",
+        "deconvolve": "Two-Stream Deconvolve",
+        "deflate": "Deflate Matte",
+        "dejudder": "Dejudder Preview",
+        "delogo": "Delogo Repair",
+        "displace": "Displace Map Preview",
+        "doubleweave": "Double Weave Preview",
+        "drawbox_vaapi": "VAAPI Draw Box",
+        "epx": "EPX Pixel Upscale",
+        "find_rect": "Find Rectangle Repair",
+        "format": "Pixel Format Metadata",
+        "framepack": "Frame Pack Preview",
+        "fspp": "FSPP Cleanup",
+        "guided": "Guided Filter Cleanup",
+        "hqx": "HQX Pixel Upscale",
+        "hwdownload": "Hardware Download Metadata",
+        "hwmap": "Hardware Map Metadata",
+        "hwupload": "Hardware Upload Metadata",
+        "hwupload_cuda": "CUDA Upload Metadata",
+        "hysteresis": "Hysteresis Matte",
+        "inflate": "Inflate Matte",
+        "interlace": "Interlace Preview",
+        "interlace_vulkan": "Vulkan Interlace Preview",
+        "kerndeint": "Kernel Deinterlace Preview",
+        "lagfun": "Lagfun Persistence",
+        "libplacebo": "Libplacebo Postprocess",
+        "limitdiff": "Limit Difference Matte",
+        "maskedclamp": "Masked Clamp",
+        "maskedmax": "Masked Maximum",
+        "maskedmin": "Masked Minimum",
+        "maskfun": "Mask Function",
+        "mestimate": "Motion Estimation Monitor",
+        "mix": "Multi-Input Mix",
+        "morpho": "Morphology Matte",
+        "multiply": "Multiply Composite",
+        "noformat": "Noformat Metadata",
+        "nullsink": "Null Sink Endpoint",
+        "phase": "Field Phase Preview",
+        "photosensitivity": "Photosensitivity Guard",
+        "pixdesctest": "Pixel Descriptor Test",
+        "pp7": "PP7 Cleanup",
+        "pullup": "Pullup Preview",
+        "qp": "QP Debug Monitor",
+        "readeia608": "EIA-608 Reader",
+        "readvitc": "VITC Reader",
+        "remap": "Remap Preview",
+        "remap_opencl": "OpenCL Remap Preview",
+        "removegrain": "Remove Grain",
+        "removelogo": "Remove Logo Repair",
+        "scale2ref": "Scale to Reference",
+        "scharr": "Scharr Edge Preview",
+        "shufflepixels": "Shuffle Pixels",
+        "signature": "Video Signature Monitor",
+        "siti": "SI/TI Monitor",
+        "spp": "SPP Cleanup",
+        "ssim360": "SSIM 360 Monitor",
+        "stereo3d": "Stereo 3D Preview",
+        "super2xsai": "Super2xSAI Upscale",
+        "swaprect": "Swap Rectangle Preview",
+        "swapuv": "Swap UV",
+        "tiltandshift": "Tilt-Shift Preview",
+        "tinterlace": "Temporal Interlace Preview",
+        "uspp": "USPP Cleanup",
+        "vpp_qsv": "QSV Video Postprocess",
+        "weave": "Weave Preview",
+        "zmq": "ZMQ Command Metadata",
+    }
+    return labels.get(source, source.replace("_", " ").title())
 
 
 def normalize_to_blender_stack(

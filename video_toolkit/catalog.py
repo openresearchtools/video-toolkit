@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .ffmpeg_native import (
+    NATIVE_FFMPEG_ADVANCED_FILTERS,
     NATIVE_FFMPEG_EDITING_FILTERS,
     NATIVE_FFMPEG_SOURCE_FILTERS,
     NATIVE_FFMPEG_TIMELINE_FILTERS,
@@ -850,6 +851,194 @@ def _ffmpeg_timeline_tool(filter_name: str) -> VideoTool:
 
 
 _FFMPEG_TIMELINE_TOOLS = tuple(_ffmpeg_timeline_tool(filter_name) for filter_name in NATIVE_FFMPEG_TIMELINE_FILTERS)
+
+
+_FFMPEG_ADVANCED_LABELS = {
+    "buffer": "Buffer Endpoint",
+    "buffersink": "Buffer Sink Endpoint",
+    "codecview": "Codec Vector View",
+    "convolve": "Two-Stream Convolve",
+    "cover_rect": "Cover Rectangle Repair",
+    "deconvolve": "Two-Stream Deconvolve",
+    "deflate": "Deflate Matte",
+    "dejudder": "Dejudder Preview",
+    "delogo": "Delogo Repair",
+    "displace": "Displace Map Preview",
+    "doubleweave": "Double Weave Preview",
+    "drawbox_vaapi": "VAAPI Draw Box",
+    "epx": "EPX Pixel Upscale",
+    "find_rect": "Find Rectangle Repair",
+    "format": "Pixel Format Metadata",
+    "framepack": "Frame Pack Preview",
+    "fspp": "FSPP Cleanup",
+    "guided": "Guided Filter Cleanup",
+    "hqx": "HQX Pixel Upscale",
+    "hwdownload": "Hardware Download Metadata",
+    "hwmap": "Hardware Map Metadata",
+    "hwupload": "Hardware Upload Metadata",
+    "hwupload_cuda": "CUDA Upload Metadata",
+    "hysteresis": "Hysteresis Matte",
+    "inflate": "Inflate Matte",
+    "interlace": "Interlace Preview",
+    "interlace_vulkan": "Vulkan Interlace Preview",
+    "kerndeint": "Kernel Deinterlace Preview",
+    "lagfun": "Lagfun Persistence",
+    "libplacebo": "Libplacebo Postprocess",
+    "limitdiff": "Limit Difference Matte",
+    "maskedclamp": "Masked Clamp",
+    "maskedmax": "Masked Maximum",
+    "maskedmin": "Masked Minimum",
+    "maskfun": "Mask Function",
+    "mestimate": "Motion Estimation Monitor",
+    "mix": "Multi-Input Mix",
+    "morpho": "Morphology Matte",
+    "multiply": "Multiply Composite",
+    "noformat": "Noformat Metadata",
+    "nullsink": "Null Sink Endpoint",
+    "phase": "Field Phase Preview",
+    "photosensitivity": "Photosensitivity Guard",
+    "pixdesctest": "Pixel Descriptor Test",
+    "pp7": "PP7 Cleanup",
+    "pullup": "Pullup Preview",
+    "qp": "QP Debug Monitor",
+    "readeia608": "EIA-608 Reader",
+    "readvitc": "VITC Reader",
+    "remap": "Remap Preview",
+    "remap_opencl": "OpenCL Remap Preview",
+    "removegrain": "Remove Grain",
+    "removelogo": "Remove Logo Repair",
+    "scale2ref": "Scale to Reference",
+    "scharr": "Scharr Edge Preview",
+    "shufflepixels": "Shuffle Pixels",
+    "signature": "Video Signature Monitor",
+    "siti": "SI/TI Monitor",
+    "spp": "SPP Cleanup",
+    "ssim360": "SSIM 360 Monitor",
+    "stereo3d": "Stereo 3D Preview",
+    "super2xsai": "Super2xSAI Upscale",
+    "swaprect": "Swap Rectangle Preview",
+    "swapuv": "Swap UV",
+    "tiltandshift": "Tilt-Shift Preview",
+    "tinterlace": "Temporal Interlace Preview",
+    "uspp": "USPP Cleanup",
+    "vpp_qsv": "QSV Video Postprocess",
+    "weave": "Weave Preview",
+    "zmq": "ZMQ Command Metadata",
+}
+
+
+def _ffmpeg_advanced_chain(filter_name: str) -> str:
+    defaults = {
+        "cover_rect": "cover_rect=x=48:y=32:w=160:h=90",
+        "delogo": "delogo=x=48:y=32:w=160:h=90",
+        "find_rect": "find_rect=x=48:y=32:w=160:h=90",
+        "removelogo": "removelogo=x=48:y=32:w=160:h=90",
+        "convolve": "convolve=0m='0 -1 0 -1 5 -1 0 -1 0'",
+        "deconvolve": "deconvolve=0m='0 -1 0 -1 5 -1 0 -1 0'",
+        "displace": "displace=edge=clip",
+        "remap": "remap",
+        "remap_opencl": "remap_opencl",
+        "deflate": "deflate",
+        "inflate": "inflate",
+        "hysteresis": "hysteresis",
+        "morpho": "morpho",
+        "maskfun": "maskfun",
+        "maskedclamp": "maskedclamp",
+        "maskedmax": "maskedmax",
+        "maskedmin": "maskedmin",
+        "limitdiff": "limitdiff",
+        "mix": "mix=weights=0.45",
+        "multiply": "multiply",
+        "removegrain": "removegrain=m0=12",
+        "pp7": "pp7=qp=2",
+        "fspp": "fspp=quality=4",
+        "spp": "spp=quality=4",
+        "uspp": "uspp=quality=4",
+        "guided": "guided=radius=4:eps=0.01",
+        "lagfun": "lagfun=decay=0.92",
+        "photosensitivity": "photosensitivity=frames=30:threshold=1",
+        "hqx": "hqx=n=2",
+        "epx": "epx=n=2",
+        "super2xsai": "super2xsai",
+        "scale2ref": "scale2ref=w=2:h=2",
+        "scharr": "scharr=scale=1.0",
+        "codecview": "codecview=mv=pf+bf+bb",
+        "mestimate": "mestimate=method=esa",
+        "dejudder": "dejudder=cycle=4",
+        "doubleweave": "doubleweave",
+        "interlace": "interlace",
+        "interlace_vulkan": "interlace_vulkan",
+        "kerndeint": "kerndeint=thresh=10",
+        "phase": "phase=mode=A",
+        "pullup": "pullup",
+        "tinterlace": "tinterlace=mode=merge",
+        "weave": "weave",
+        "framepack": "framepack=format=sbs",
+        "stereo3d": "stereo3d=sbsl:arcd",
+        "tiltandshift": "tiltandshift=tilt=0.08",
+        "swaprect": "swaprect=w=120:h=80:x1=16:y1=16:x2=120:y2=60",
+        "shufflepixels": "shufflepixels=mode=horizontal",
+        "swapuv": "swapuv",
+        "drawbox_vaapi": "drawbox_vaapi=x=32:y=32:w=320:h=180:color=yellow",
+        "libplacebo": "libplacebo=tonemapping=bt.2390",
+        "vpp_qsv": "vpp_qsv=procamp=1",
+        "format": "format=pix_fmts=yuv420p",
+        "noformat": "noformat=pix_fmts=yuv420p",
+        "buffer": "buffer",
+        "buffersink": "buffersink",
+        "nullsink": "nullsink",
+        "pixdesctest": "pixdesctest",
+        "qp": "qp",
+        "readeia608": "readeia608",
+        "readvitc": "readvitc",
+        "signature": "signature",
+        "siti": "siti",
+        "ssim360": "ssim360",
+        "hwdownload": "hwdownload",
+        "hwmap": "hwmap",
+        "hwupload": "hwupload",
+        "hwupload_cuda": "hwupload_cuda",
+        "zmq": "zmq",
+    }
+    return defaults.get(filter_name, filter_name)
+
+
+def _ffmpeg_advanced_category(filter_name: str) -> str:
+    if filter_name in {"deflate", "inflate", "hysteresis", "morpho", "maskfun", "maskedclamp", "maskedmax", "maskedmin", "limitdiff", "swapuv"}:
+        return "Native Matte & Channel"
+    if filter_name in {"convolve", "deconvolve", "scharr"}:
+        return "Native Filter & Blur"
+    if filter_name in {"removegrain", "pp7", "fspp", "spp", "uspp", "guided", "lagfun", "photosensitivity"}:
+        return "Native Denoise & Cleanup"
+    if filter_name in {"displace", "remap", "remap_opencl", "scale2ref", "tiltandshift"}:
+        return "Native Geometry & Lens"
+    if filter_name in {"hqx", "epx", "super2xsai", "dejudder", "doubleweave", "interlace", "interlace_vulkan", "kerndeint", "phase", "pullup", "tinterlace", "weave", "framepack", "stereo3d"}:
+        return "Resolution & Motion"
+    if filter_name in {"delogo", "removelogo", "cover_rect", "find_rect", "drawbox_vaapi", "swaprect", "shufflepixels", "mix", "multiply"}:
+        return "Native Visual FX Nodes"
+    return "Native Analysis & Utility"
+
+
+def _ffmpeg_advanced_tool(filter_name: str) -> VideoTool:
+    translation = translate_filter_chain(_ffmpeg_advanced_chain(filter_name))
+    return VideoTool(
+        id=f"native_ffmpeg_advanced_{filter_name}",
+        label=_FFMPEG_ADVANCED_LABELS.get(filter_name, filter_name.replace("_", " ").title()),
+        category=_ffmpeg_advanced_category(filter_name),
+        engine=ENGINE_COMPOSITOR,
+        description=(
+            f"Translated FFmpeg {filter_name} advanced intent as Blender-native repair, matte, "
+            "cleanup, transform, diagnostic, or metadata graphlets for the selected strip."
+        ),
+        compositor_stack=translation.compositor_nodes,
+    )
+
+
+_FFMPEG_ADVANCED_TOOLS = tuple(_ffmpeg_advanced_tool(filter_name) for filter_name in NATIVE_FFMPEG_ADVANCED_FILTERS)
+
+
+def _ffmpeg_advanced_tools_for_category(category: str) -> tuple[VideoTool, ...]:
+    return tuple(tool for tool in _FFMPEG_ADVANCED_TOOLS if tool.category == category)
 
 
 TOOLS: tuple[VideoTool, ...] = (
@@ -2883,6 +3072,10 @@ TOOLS: tuple[VideoTool, ...] = (
         ),
     ),
     *_FFMPEG_EDITING_TOOLS,
+    *_ffmpeg_advanced_tools_for_category("Native Matte & Channel"),
+    *_ffmpeg_advanced_tools_for_category("Native Filter & Blur"),
+    *_ffmpeg_advanced_tools_for_category("Native Visual FX Nodes"),
+    *_ffmpeg_advanced_tools_for_category("Native Analysis & Utility"),
     VideoTool(
         id="native_compositor_levels_monitor",
         label="Levels Monitor",
@@ -3453,6 +3646,7 @@ TOOLS: tuple[VideoTool, ...] = (
             _native_node("CompositorNodeSwitchView", label="Switch View", image_input="left"),
         ),
     ),
+    *_ffmpeg_advanced_tools_for_category("Native Denoise & Cleanup"),
     VideoTool(
         id="native_hqdn3d_denoise",
         label="Native HQDN3D Denoise",
@@ -3928,6 +4122,7 @@ TOOLS: tuple[VideoTool, ...] = (
             ("ANTI_ALIASING", {"source": "blender_compositor", "threshold": 0.2, "contrast_limit": 1.6, "corner_rounding": 0.22}),
         ),
     ),
+    *_ffmpeg_advanced_tools_for_category("Native Geometry & Lens"),
     VideoTool(
         id="native_compositor_scale_fit",
         label="Native Scale Fit",
@@ -4171,6 +4366,7 @@ TOOLS: tuple[VideoTool, ...] = (
             _native_node("CompositorNodeTranslate", label="Translate", inputs={"X": 12.0, "Y": 0.0, "Interpolation": "Bilinear"}),
         ),
     ),
+    *_ffmpeg_advanced_tools_for_category("Resolution & Motion"),
     VideoTool(
         id="upscale_2x",
         label="Upscale 2x",
