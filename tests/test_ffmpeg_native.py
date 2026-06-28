@@ -8,20 +8,26 @@ from video_toolkit.ffmpeg_native import (
     colorlevels_to_blender_stack,
     curves_to_blender_stack,
     blur_to_blender_compositor,
+    colorcorrect_to_blender_compositor,
     crop_to_blender_compositor,
     directional_blur_to_blender_compositor,
     edge_filter_to_blender_compositor,
     edge_preserving_blur_to_blender_compositor,
     elbg_to_blender_compositor,
     eq_to_blender_stack,
+    exposure_to_blender_compositor,
     exposure_to_blender_stack,
     extractplanes_to_blender_compositor,
     greyedge_to_blender_stack,
     grayworld_to_blender_stack,
+    huesaturation_to_blender_compositor,
+    hue_to_blender_compositor,
     hsvkey_to_blender_compositor,
     lumakey_to_blender_compositor,
     lut_to_blender_stack,
     morphology_to_blender_compositor,
+    monochrome_to_blender_compositor,
+    negate_to_blender_compositor,
     negate_to_blender_stack,
     normalize_to_blender_stack,
     premultiply_to_blender_compositor,
@@ -145,6 +151,56 @@ def test_selectivecolor_translates_to_hue_zones_and_tonal_balance():
     settings = stack[1][1]
     assert settings["color_balance.correction_method"] == "LIFT_GAMMA_GAIN"
     assert settings["color_balance.gain"][2] > settings["color_balance.gain"][0]
+
+
+def test_direct_color_filters_translate_to_compositor_nodes():
+    hue = hue_to_blender_compositor(h=30, s=1.2, b=0.1)
+    assert hue[0][0] == "HUE_SAT"
+    assert hue[0][1]["hue"] > 0.5
+    assert hue[0][1]["saturation"] == 1.2
+
+    hue_sat = huesaturation_to_blender_compositor(hue=45, saturation=0.25, intensity=0.1, strength=0.8)
+    assert hue_sat[0][0] == "HUE_SAT"
+    assert hue_sat[0][1]["saturation"] > 1.0
+    assert hue_sat[0][1]["factor"] == 0.8
+
+    exposure = exposure_to_blender_compositor(exposure=0.5, black=0.05)
+    assert exposure[0][0] == "EXPOSURE"
+    assert exposure[0][1]["exposure"] == 0.5
+
+    correction = colorcorrect_to_blender_compositor(rl=0.1, bl=-0.05, rh=0.03, bh=-0.02, saturation=1.08)
+    assert correction[0][0] == "COLOR_CORRECTION"
+    assert correction[0][1]["saturation"] == 1.08
+    assert "approximation" in correction[0][1]
+
+    monochrome = monochrome_to_blender_compositor(cb=0.1, cr=-0.1, high=0.2)
+    assert monochrome[0][0] == "HUE_SAT"
+    assert monochrome[0][1]["saturation"] == 0.0
+    assert monochrome[0][1]["value"] > 1.0
+
+    negate = negate_to_blender_compositor(components="r+g+b", negate_alpha=1)
+    assert negate[0][0] == "INVERT"
+    assert negate[0][1]["invert_color"] is True
+    assert negate[0][1]["invert_alpha"] is True
+
+    result = translate_filter_chain(
+        "hue=h=30:s=1.2:b=0.1,"
+        "huesaturation=hue=45:saturation=0.25:intensity=0.1:strength=0.8,"
+        "exposure=exposure=0.5:black=0.05,"
+        "colorcorrect=rl=0.1:bl=-0.05:rh=0.03:bh=-0.02:saturation=1.08,"
+        "monochrome=cb=0.1:cr=-0.1:high=0.2,"
+        "negate=components=r+g+b:negate_alpha=1"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("hue", "huesaturation", "exposure", "colorcorrect", "monochrome", "negate")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "HUE_SAT",
+        "HUE_SAT",
+        "EXPOSURE",
+        "COLOR_CORRECTION",
+        "HUE_SAT",
+        "INVERT",
+    ]
 
 
 def test_filter_chain_reports_non_native_filters():
@@ -765,7 +821,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING"}.issubset(
+    assert {"HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

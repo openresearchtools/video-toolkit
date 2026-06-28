@@ -2658,7 +2658,7 @@ def _translation_summary(translation, modifier_count: int, target_count: int, co
     unsupported = ", ".join(translation.unsupported_filters)
     summary = f"translated {supported} into {modifier_count} live modifier(s) on {target_count} target(s)"
     if translation.compositor_nodes:
-        summary += f"; compositor-only native node(s): {len(translation.compositor_nodes)}"
+        summary += f"; compositor-native node(s): {len(translation.compositor_nodes)}"
     if color_management:
         summary += f"; color management: {', '.join(color_management)}"
     if unsupported:
@@ -2671,7 +2671,7 @@ def _translated_compositor_summary(translation, node_count: int, color_managemen
     unsupported = ", ".join(translation.unsupported_filters)
     summary = f"translated compositor {supported} into {node_count} node(s)"
     if translation.compositor_nodes:
-        summary += f"; compositor-only filter node(s): {len(translation.compositor_nodes)}"
+        summary += f"; compositor-native filter node(s): {len(translation.compositor_nodes)}"
     if color_management:
         summary += f"; color management: {', '.join(color_management)}"
     if unsupported:
@@ -3553,6 +3553,10 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "CHROMA_MATTE": "Chroma Matte",
         "COLOR_MATTE": "Color Matte",
         "LUMA_MATTE": "Luma Matte",
+        "HUE_SAT": "Hue/Saturation",
+        "EXPOSURE": "Exposure",
+        "COLOR_CORRECTION": "Color Correction",
+        "INVERT": "Invert",
         "CHANNEL_SHIFT": "Channel Shift",
         "PLANE_EXTRACT": "Plane Extract",
         "PLANE_SHUFFLE": "Plane Shuffle",
@@ -3593,6 +3597,40 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         node = _new_compositor_node(tree, "CompositorNodeLumaMatte", label, index, origin=origin)
         _set_input_default(node, "Minimum", settings.get("minimum", 0.0))
         _set_input_default(node, "Maximum", settings.get("maximum", 1.0))
+        return node
+    if compositor_type == "HUE_SAT":
+        node = _new_compositor_node(tree, "CompositorNodeHueSat", label, index, origin=origin)
+        _set_input_default(node, "Hue", settings.get("hue", 0.5))
+        _set_input_default(node, "Saturation", settings.get("saturation", 1.0))
+        _set_input_default(node, "Value", settings.get("value", 1.0))
+        _set_input_default_candidates(node, ("Factor", "Fac"), settings.get("factor", 1.0))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "hue")
+        return node
+    if compositor_type == "EXPOSURE":
+        node = _new_compositor_node(tree, "CompositorNodeExposure", label, index, origin=origin)
+        _set_input_default(node, "Exposure", settings.get("exposure", 0.0))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "exposure")
+        node["video_toolkit_black_level"] = float(settings.get("black", 0.0) or 0.0)
+        return node
+    if compositor_type == "COLOR_CORRECTION":
+        node = _new_compositor_node(tree, "CompositorNodeColorCorrection", label, index, origin=origin)
+        _set_input_default_candidates(node, ("Master Saturation", "Saturation"), settings.get("saturation", 1.0))
+        _set_input_default_candidates(node, ("Shadows Offset",), settings.get("shadow_offset", 0.0))
+        _set_input_default_candidates(node, ("Highlights Gain",), settings.get("highlight_gain", 1.0))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "colorcorrect")
+        for key in ("red_low", "blue_low", "red_high", "blue_high"):
+            if key in settings:
+                node[f"video_toolkit_{key}"] = float(settings.get(key, 0.0) or 0.0)
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
+        return node
+    if compositor_type == "INVERT":
+        node = _new_compositor_node(tree, "CompositorNodeInvert", label, index, origin=origin)
+        _set_input_default_candidates(node, ("Factor", "Fac"), settings.get("factor", 1.0))
+        _set_input_default(node, "Invert Color", bool(settings.get("invert_color", True)))
+        _set_input_default(node, "Invert Alpha", bool(settings.get("invert_alpha", False)))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "negate")
+        node["video_toolkit_components"] = settings.get("components", "")
         return node
     if compositor_type == "PREMUL_KEY":
         node = _new_compositor_node(tree, "CompositorNodePremulKey", label, index, origin=origin)

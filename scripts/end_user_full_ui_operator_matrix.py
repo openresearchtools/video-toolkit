@@ -268,6 +268,28 @@ def select_target(with_reference=False):
     scene.sequence_editor.active_strip = target_strip
 
 
+def selected_strip_evidence():
+    active = editor.active_strip
+    selected = [candidate.name for candidate in editor.strips_all if candidate.select]
+    return {
+        "selected_strip": target_strip.name,
+        "active_strip": active.name if active else None,
+        "target_strip_selected": bool(target_strip.select),
+        "selected_strips": selected,
+        "strip_filepath": target_strip.filepath,
+        "real_video_filepath": str(VIDEO),
+    }
+
+
+def assert_target_is_active():
+    evidence = selected_strip_evidence()
+    if evidence["active_strip"] != target_strip.name:
+        raise AssertionError(f"active strip is {evidence['active_strip']}, expected {target_strip.name}")
+    if not evidence["target_strip_selected"]:
+        raise AssertionError(f"target strip is not selected: {target_strip.name}")
+    return evidence
+
+
 def assert_finished(result):
     if result != {"FINISHED"}:
         raise AssertionError(f"operator returned {sorted_result(result)}")
@@ -426,7 +448,7 @@ def compact_evidence(result):
     if not isinstance(evidence, dict):
         return md_cell(evidence)
     pieces = []
-    for key in ("tool_id", "category", "engine", "selected_tool", "stack_type", "section", "preset"):
+    for key in ("tool_id", "category", "engine", "selected_strip", "active_strip", "selected_tool", "stack_type", "section", "preset"):
         if key in evidence and evidence[key] not in (None, ""):
             pieces.append(f"{key}={md_cell(evidence[key])}")
     if "modifier_count" in evidence:
@@ -494,6 +516,11 @@ def write_markdown_report(report):
     translation = find_result("translate_ffmpeg_chain")
     translated_workflow = find_result("apply_translated_color_workflow")
     professional_workflow = find_result("apply_professional_color_workflow")
+    selected_strip_results = [
+        result
+        for result in report["results"]
+        if (result.get("evidence") or {}).get("target_strip_selected") is True
+    ]
 
     lines = [
         "# Open Research Video Toolkit Full UI Matrix",
@@ -553,6 +580,16 @@ def write_markdown_report(report):
             f"- Header menu: `{md_cell(evidence.get('menu_label'))}`",
             f"- Mini tabs: {md_cell(evidence.get('sections'))}",
         ])
+
+    lines.extend([
+        "",
+        "## Real Sequencer Strip Proof",
+        "",
+        f"- Target strip: `{md_cell(report.get('target_strip'))}`",
+        f"- Reference strip: `{md_cell(report.get('reference_strip'))}`",
+        f"- Results carrying active selected-strip evidence: `{len(selected_strip_results)}`",
+        f"- Source filepath used by the target strip: `{md_cell(report.get('target_filepath'))}`",
+    ])
 
     if color_controls:
         after = color_controls["evidence"]["after"]
@@ -677,6 +714,7 @@ def exercise_catalog_tool(tool):
     def run():
         clear_modifiers()
         select_target()
+        strip_evidence = assert_target_is_active()
         scene.video_toolkit_apply_target = "ACTIVE"
         scene.video_toolkit_last_output = ""
         result = bpy.ops.video_toolkit.apply_filter(filter_id=tool.id, target="ACTIVE")
@@ -694,6 +732,7 @@ def exercise_catalog_tool(tool):
                 "modifier_count": len(mods),
                 "modifier_types": [item["type"] for item in mods],
                 "live_sequencer_strip": target_strip.name,
+                **strip_evidence,
             }
         output = Path(scene.video_toolkit_last_output)
         if not output.exists() or output.stat().st_size <= 0:
@@ -704,6 +743,7 @@ def exercise_catalog_tool(tool):
             "engine": tool.engine,
             "output": str(output),
             "bytes": output.stat().st_size,
+            **strip_evidence,
         }
     record(tool.id, "catalog_apply_filter", run)
 
@@ -713,6 +753,7 @@ def exercise_live_tool_preview_pixels(tool):
         baseline = ensure_live_preview_baseline()
         clear_modifiers()
         select_target()
+        strip_evidence = assert_target_is_active()
         result = bpy.ops.video_toolkit.apply_filter(filter_id=tool.id, target="ACTIVE")
         assert_finished(result)
         mods = modifier_evidence(f"VTK {tool.label}")
@@ -739,6 +780,7 @@ def exercise_live_tool_preview_pixels(tool):
             "baseline_png": str(LIVE_PREVIEW_BASELINE),
             "after_png": str(after_png),
             "after": after,
+            **strip_evidence,
             **delta,
         }
     record(tool.id, "catalog_live_preview_pixels", run)
@@ -747,6 +789,7 @@ def exercise_live_tool_preview_pixels(tool):
 def exercise_tool_nodes(tool):
     def run():
         select_target()
+        strip_evidence = assert_target_is_active()
         result = bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id=tool.id)
         assert_finished(result)
         evidence = node_evidence(f"VTK Tool {tool.label} ")
@@ -756,6 +799,7 @@ def exercise_tool_nodes(tool):
             "tool_id": tool.id,
             "category": tool.category,
             "last_summary": scene.video_toolkit_last_compositor_nodes,
+            **strip_evidence,
             **evidence,
         }
     record(tool.id, "catalog_tool_nodes", run)
@@ -768,6 +812,7 @@ def exercise_sidecar_group(group):
     def apply_selected():
         clear_modifiers()
         select_target()
+        strip_evidence = assert_target_is_active()
         scene.video_toolkit_sidecar_group = _enum_key(group)
         scene.video_toolkit_sidecar_tool = first_tool.id
         scene.video_toolkit_last_output = ""
@@ -790,6 +835,7 @@ def exercise_sidecar_group(group):
             "apply_result": "FINISHED",
             "modifiers": mods,
             "output": output,
+            **strip_evidence,
         }
 
     record(group, "sidecar_apply", apply_selected)
@@ -801,6 +847,7 @@ def exercise_sidecar_group(group):
 
     def create_selected_nodes():
         select_target()
+        strip_evidence = assert_target_is_active()
         scene.video_toolkit_sidecar_group = _enum_key(group)
         scene.video_toolkit_sidecar_tool = node_tool.id
         result = bpy.ops.video_toolkit.create_sidecar_compositor_nodes()
@@ -812,6 +859,7 @@ def exercise_sidecar_group(group):
             "group": group,
             "selected_tool": node_tool.id,
             "last_summary": scene.video_toolkit_last_compositor_nodes,
+            **strip_evidence,
             **evidence,
         }
 
@@ -825,6 +873,7 @@ def set_reference_selection():
 def live_modifier_control_probe():
     clear_modifiers()
     select_target()
+    strip_evidence = assert_target_is_active()
     result = bpy.ops.video_toolkit.apply_filter(filter_id="live_gamma_grade", target="ACTIVE")
     assert_finished(result)
     modifiers = vtk_modifiers("VTK Live Gamma Grade")
@@ -841,11 +890,13 @@ def live_modifier_control_probe():
         "edited_modifier": modifier.name,
         "type": modifier.type,
         "controls": modifier_evidence("VTK Live Gamma Grade"),
+        **strip_evidence,
     }
 
 
 def strip_control_probe():
     select_target()
+    strip_evidence = assert_target_is_active()
     target_strip.blend_alpha = 0.82
     if hasattr(target_strip, "transform"):
         target_strip.transform.offset_x = 3.0
@@ -871,6 +922,7 @@ def strip_control_probe():
             "min_y": getattr(target_strip.crop, "min_y", None),
             "max_y": getattr(target_strip.crop, "max_y", None),
         } if hasattr(target_strip, "crop") else {},
+        **strip_evidence,
     }
 
 
@@ -935,6 +987,7 @@ def workflow_operator(name, op, *, reference=False, minimum_modifiers=0, minimum
     def run():
         clear_modifiers()
         set_reference_selection() if reference else select_target()
+        strip_evidence = assert_target_is_active()
         result = op()
         assert_finished(result)
         mods = modifier_evidence()
@@ -944,6 +997,7 @@ def workflow_operator(name, op, *, reference=False, minimum_modifiers=0, minimum
             "result": "FINISHED",
             "modifier_count": len(mods),
             "modifier_types": [item["type"] for item in mods],
+            **strip_evidence,
         }
         if minimum_nodes:
             all_vtk_nodes = [node for node in tree().nodes if node.name.startswith("VTK ")]
@@ -961,6 +1015,7 @@ def node_stack_operator(stack_type):
 
     def run():
         set_reference_selection() if requires_reference else select_target()
+        strip_evidence = assert_target_is_active()
         if stack_type == "TRANSLATED_COLOR":
             scene.video_toolkit_ffmpeg_chain = (
                 "colorspace=iall=bt709:all=bt709:irange=tv:range=pc,"
@@ -1031,6 +1086,7 @@ def node_stack_operator(stack_type):
             "last_summary": scene.video_toolkit_last_compositor_nodes,
             "total_vtk_nodes": len(all_vtk_nodes),
             "node_types": sorted({node.bl_idname for node in all_vtk_nodes}),
+            **strip_evidence,
         }
     record(stack_type, "compositor_stack_operators", run)
 
@@ -1038,6 +1094,7 @@ def node_stack_operator(stack_type):
 def preview_probe():
     clear_modifiers()
     select_target()
+    strip_evidence = assert_target_is_active()
     before = render_preview(BEFORE_PREVIEW)
     result = bpy.ops.video_toolkit.apply_filter(filter_id="live_contrast_pop", target="ACTIVE")
     assert_finished(result)
@@ -1054,6 +1111,7 @@ def preview_probe():
         "luma_delta": delta,
         "before_png": str(BEFORE_PREVIEW),
         "after_png": str(AFTER_PREVIEW),
+        **strip_evidence,
     }
 
 
@@ -1139,17 +1197,36 @@ workflow_operator("apply_professional_color_workflow", lambda: bpy.ops.video_too
 for stack_type, _label, _description in COMPOSITOR_STACK_ITEMS:
     node_stack_operator(stack_type)
 
+
+def create_all_tool_nodes_probe():
+    select_target()
+    strip_evidence = assert_target_is_active()
+    result = bpy.ops.video_toolkit.create_all_tool_compositor_nodes()
+    assert_finished(result)
+    return {
+        "summary": scene.video_toolkit_last_compositor_nodes,
+        "recipe_ids": scene.get("video_toolkit_last_compositor_recipe_ids", ""),
+        **strip_evidence,
+    }
+
+
+def clear_live_modifiers_probe():
+    select_target()
+    strip_evidence = assert_target_is_active()
+    result = bpy.ops.video_toolkit.apply_filter(filter_id="neutral_grade", target="ACTIVE")
+    assert_finished(result)
+    result = bpy.ops.video_toolkit.clear_live_modifiers()
+    assert_finished(result)
+    return {
+        "remaining_vtk_modifiers": len(vtk_modifiers()),
+        **strip_evidence,
+    }
+
+
 record(
     "create_all_tool_compositor_nodes",
     "workflow_operators",
-    lambda: (
-        select_target()
-        or assert_finished(bpy.ops.video_toolkit.create_all_tool_compositor_nodes())
-        or {
-            "summary": scene.video_toolkit_last_compositor_nodes,
-            "recipe_ids": scene.get("video_toolkit_last_compositor_recipe_ids", ""),
-        }
-    ),
+    create_all_tool_nodes_probe,
 )
 record(
     "write_catalog_coverage_report",
@@ -1165,12 +1242,7 @@ record(
 record(
     "clear_live_modifiers",
     "workflow_operators",
-    lambda: (
-        select_target()
-        or assert_finished(bpy.ops.video_toolkit.apply_filter(filter_id="neutral_grade", target="ACTIVE"))
-        or assert_finished(bpy.ops.video_toolkit.clear_live_modifiers())
-        or {"remaining_vtk_modifiers": len(vtk_modifiers())}
-    ),
+    clear_live_modifiers_probe,
 )
 record(
     "sequencer_preview_live_change",
@@ -1193,6 +1265,10 @@ bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH))
 report = {
     "source_video": str(VIDEO),
     "reference_video": str(REFERENCE_VIDEO),
+    "target_strip": target_strip.name,
+    "reference_strip": reference_strip.name,
+    "target_filepath": str(VIDEO),
+    "target_strip_filepath": target_strip.filepath,
     "blend": str(BLEND_PATH),
     "total_catalog_tools": len(all_tools()),
     "categories": {category: sum(1 for tool in all_tools() if tool.category == category) for category in categories()},
@@ -1211,6 +1287,12 @@ report = {
         for result in results
         if result["group"] == "catalog_live_preview_pixels"
         and (result.get("evidence") or {}).get("visual_requirement") == "structural_only"
+    ),
+    "selected_strip_evidence_checks": sum(
+        1
+        for result in results
+        if (result.get("evidence") or {}).get("target_strip_selected") is True
+        and (result.get("evidence") or {}).get("active_strip") == target_strip.name
     ),
     "passed": sum(1 for result in results if result["status"] == "passed"),
     "failed": len(failures),

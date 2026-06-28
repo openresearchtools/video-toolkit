@@ -132,9 +132,11 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             supported.append(name)
         elif name == "hue":
             stack.extend(hue_to_blender_stack(**args))
+            compositor_nodes.extend(hue_to_blender_compositor(**args))
             supported.append(name)
         elif name == "huesaturation":
             stack.extend(huesaturation_to_blender_stack(**args))
+            compositor_nodes.extend(huesaturation_to_blender_compositor(**args))
             supported.append(name)
         elif name == "colorchannelmixer":
             stack.extend(colorchannelmixer_to_blender_stack(**args))
@@ -155,6 +157,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             notes.append("Vibrance is approximated with Blender Hue Correct and Color Balance saturation controls.")
         elif name == "exposure":
             stack.extend(exposure_to_blender_stack(**args))
+            compositor_nodes.extend(exposure_to_blender_compositor(**args))
             supported.append(name)
         elif name == "colortemperature":
             stack.extend(colortemperature_to_blender_stack(**args))
@@ -172,6 +175,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             notes.append("Normalize is approximated as a live Blender curves/tone-map stack; temporal smoothing is not native VSE.")
         elif name == "colorcorrect":
             stack.extend(colorcorrect_to_blender_stack(**args))
+            compositor_nodes.extend(colorcorrect_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Colorcorrect is approximated with Blender Lift/Gamma/Gain plus Hue Correct saturation.")
         elif name == "colorcontrast":
@@ -184,6 +188,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             notes.append("Selectivecolor is approximated with Blender Hue Correct hue-zone curves and Color Balance tonal zones.")
         elif name == "monochrome":
             stack.extend(monochrome_to_blender_stack(**args))
+            compositor_nodes.extend(monochrome_to_blender_compositor(**args))
             supported.append(name)
         elif name == "colorize":
             stack.extend(colorize_to_blender_stack(**args))
@@ -199,6 +204,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             notes.append("Greyedge is approximated with editable Blender White Balance plus edge-weighted contrast curves; use sampled white balance for frame-measured auto values.")
         elif name == "negate":
             stack.extend(negate_to_blender_stack(**args))
+            compositor_nodes.extend(negate_to_blender_compositor(**args))
             supported.append(name)
         elif name in {"chromahold", "colorhold"}:
             stack.extend(colorhold_to_blender_stack(**args))
@@ -437,6 +443,32 @@ def hue_to_blender_stack(
     )
 
 
+def hue_to_blender_compositor(
+    *,
+    h: str | float = 0.0,
+    H: str | float | None = None,
+    s: str | float = 1.0,
+    b: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    hue_degrees = _float(h, 0.0)
+    if H is not None:
+        hue_degrees = _float(H, 0.0) * 57.29577951308232
+    return (
+        (
+            "HUE_SAT",
+            {
+                "label": "Hue/Saturation",
+                "hue": _hue_shift_to_curve_y(hue_degrees),
+                "saturation": _clamp(_float(s, 1.0), 0.0, 4.0),
+                "value": _clamp(1.0 + _float(b, 0.0), 0.0, 4.0),
+                "factor": 1.0,
+                "source": "hue",
+            },
+        ),
+    )
+
+
 def huesaturation_to_blender_stack(
     *,
     hue: str | float = 0.0,
@@ -456,6 +488,30 @@ def huesaturation_to_blender_stack(
                     "saturation": _saturation_to_curve_y(saturation_factor),
                     "value": _value_to_curve_y(1.0 + _float(intensity, 0.0) * strength_value),
                 }
+            },
+        ),
+    )
+
+
+def huesaturation_to_blender_compositor(
+    *,
+    hue: str | float = 0.0,
+    saturation: str | float = 0.0,
+    intensity: str | float = 0.0,
+    strength: str | float = 1.0,
+    **_unused: str,
+) -> CompositorStack:
+    strength_value = _clamp(_float(strength, 1.0), 0.0, 100.0) / 100.0 if _float(strength, 1.0) > 1.0 else _clamp(_float(strength, 1.0), 0.0, 1.0)
+    return (
+        (
+            "HUE_SAT",
+            {
+                "label": "Hue/Saturation/Intensity",
+                "hue": _hue_shift_to_curve_y(_float(hue, 0.0) * strength_value),
+                "saturation": _clamp(1.0 + _float(saturation, 0.0) * strength_value, 0.0, 4.0),
+                "value": _clamp(1.0 + _float(intensity, 0.0) * strength_value, 0.0, 4.0),
+                "factor": strength_value,
+                "source": "huesaturation",
             },
         ),
     )
@@ -652,6 +708,26 @@ def exposure_to_blender_stack(
     )
 
 
+def exposure_to_blender_compositor(
+    *,
+    exposure: str | float = 0.0,
+    black: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    exposure_value = _clamp(_float(exposure, 0.0), -10.0, 10.0)
+    return (
+        (
+            "EXPOSURE",
+            {
+                "label": "Exposure",
+                "exposure": exposure_value,
+                "black": _clamp(_float(black, 0.0), -1.0, 1.0),
+                "source": "exposure",
+            },
+        ),
+    )
+
+
 def colortemperature_to_blender_stack(
     *,
     temperature: str | float = 6500.0,
@@ -796,6 +872,38 @@ def colorcorrect_to_blender_stack(
     )
 
 
+def colorcorrect_to_blender_compositor(
+    *,
+    rl: str | float = 0.0,
+    bl: str | float = 0.0,
+    rh: str | float = 0.0,
+    bh: str | float = 0.0,
+    saturation: str | float = 1.0,
+    analyze: str | int = 0,
+    **_unused: str,
+) -> CompositorStack:
+    analyze_strength = 1.0 + (0.10 if str(analyze).lower() not in {"0", "manual"} else 0.0)
+    shadow_offset = _clamp((_float(rl, 0.0) + _float(bl, 0.0)) * 0.025 * analyze_strength, -0.25, 0.25)
+    highlight_gain = _clamp(1.0 + (_float(rh, 0.0) + _float(bh, 0.0)) * 0.075 * analyze_strength, 0.25, 4.0)
+    return (
+        (
+            "COLOR_CORRECTION",
+            {
+                "label": "Color Correction",
+                "saturation": _clamp(_float(saturation, 1.0), 0.0, 4.0),
+                "shadow_offset": shadow_offset,
+                "highlight_gain": highlight_gain,
+                "red_low": _float(rl, 0.0),
+                "blue_low": _float(bl, 0.0),
+                "red_high": _float(rh, 0.0),
+                "blue_high": _float(bh, 0.0),
+                "source": "colorcorrect",
+                "approximation": "Blender Color Correction exposes tonal scalar controls; FFmpeg red/blue low/high values are kept as editable metadata and approximated as shadow offset/highlight gain.",
+            },
+        ),
+    )
+
+
 def colorcontrast_to_blender_stack(
     *,
     rc: str | float = 0.0,
@@ -851,6 +959,30 @@ def monochrome_to_blender_stack(
                     )
                 ),
                 "color_multiply": _clamp(1.0 + (_float(size, 1.0) - 1.0) * 0.025, 0.8, 1.2),
+            },
+        ),
+    )
+
+
+def monochrome_to_blender_compositor(
+    *,
+    cb: str | float = 0.0,
+    cr: str | float = 0.0,
+    size: str | float = 1.0,
+    high: str | float = 0.0,
+    **_unused: str,
+) -> CompositorStack:
+    high_value = _clamp(_float(high, 0.0), 0.0, 1.0)
+    return (
+        (
+            "HUE_SAT",
+            {
+                "label": "Monochrome",
+                "hue": _hue_shift_to_curve_y((_float(cr, 0.0) - _float(cb, 0.0)) * 12.0),
+                "saturation": 0.0,
+                "value": _clamp(1.0 + high_value * 0.12 + (_float(size, 1.0) - 1.0) * 0.025, 0.0, 4.0),
+                "factor": 1.0,
+                "source": "monochrome",
             },
         ),
     )
@@ -973,6 +1105,29 @@ def negate_to_blender_stack(
     if not curve_points:
         curve_points[0] = invert
     return (("CURVES", {"__curve_points__": curve_points}),)
+
+
+def negate_to_blender_compositor(
+    *,
+    components: str = "y+u+v+r+g+b",
+    negate_alpha: str | int | bool = False,
+    **_unused: str,
+) -> CompositorStack:
+    component_set = {part.strip().lower() for part in str(components or "").replace("|", "+").split("+") if part.strip()}
+    invert_color = not component_set or bool(component_set & {"y", "u", "v", "r", "g", "b"})
+    return (
+        (
+            "INVERT",
+            {
+                "label": "Invert",
+                "factor": 1.0,
+                "invert_color": invert_color,
+                "invert_alpha": _truthy(negate_alpha),
+                "components": str(components),
+                "source": "negate",
+            },
+        ),
+    )
 
 
 def colorhold_to_blender_stack(
