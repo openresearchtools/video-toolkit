@@ -259,6 +259,11 @@ _HSV_KEY_MATTE_TRANSLATION = translate_filter_chain("hsvkey=hue=210:sat=0.75:val
 _LUMA_KEY_MATTE_TRANSLATION = translate_filter_chain("lumakey=threshold=0.20:tolerance=0.10:softness=0.04")
 _THRESHOLD_MATTE_TRANSLATION = translate_filter_chain("threshold=planes=7")
 _MASKED_THRESHOLD_MATTE_TRANSLATION = translate_filter_chain("maskedthreshold=threshold=2048:planes=7:mode=abs")
+_BLEND_OVERLAY_TRANSLATION = translate_filter_chain("blend=all_mode=overlay:all_opacity=0.35")
+_TEMPORAL_BLEND_TRANSLATION = translate_filter_chain("tblend=all_mode=average:all_opacity=0.45")
+_LUT2_EXPRESSION_MIX_TRANSLATION = translate_filter_chain("lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x")
+_MASKED_MERGE_TRANSLATION = translate_filter_chain("maskedmerge=planes=15")
+_MERGEPLANES_ROUTER_TRANSLATION = translate_filter_chain("mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3")
 _RGBA_CHANNEL_SHIFT_TRANSLATION = translate_filter_chain("rgbashift=rh=5:rv=-2:bh=-4:bv=2")
 _CHROMA_CHANNEL_SHIFT_TRANSLATION = translate_filter_chain("chromashift=cbh=3:cbv=-1:crh=-3:crv=1")
 _LUMA_PLANE_EXTRACT_TRANSLATION = translate_filter_chain("extractplanes=planes=y")
@@ -1391,6 +1396,46 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg maskedthreshold intent as a native Blender Luma Matte threshold graph for selected-strip matte work.",
         compositor_stack=_MASKED_THRESHOLD_MATTE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_blend_overlay_composite",
+        label="Native Blend Overlay Composite",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg blend overlay intent as a native Blender Alpha Over graph with an editable color-processing foreground branch.",
+        compositor_stack=_BLEND_OVERLAY_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_temporal_blend_ghost",
+        label="Native Temporal Blend Ghost",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg tblend intent as a Blender Alpha Over temporal-style composite graph for selected-strip preview work.",
+        compositor_stack=_TEMPORAL_BLEND_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_lut2_expression_mix",
+        label="Native LUT2 Expression Mix",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg lut2 two-input expression intent as an editable Blender Alpha Over composite graph with expression metadata.",
+        compositor_stack=_LUT2_EXPRESSION_MIX_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_masked_merge",
+        label="Native Masked Merge",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg maskedmerge intent as a Blender Luma Matte driven Alpha Over composite graph.",
+        compositor_stack=_MASKED_MERGE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_mergeplanes_router",
+        label="Native Mergeplanes Router",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg mergeplanes channel routing as Blender Separate/Combine Color nodes.",
+        compositor_stack=_MERGEPLANES_ROUTER_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_rgba_channel_shift",

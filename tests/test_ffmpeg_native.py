@@ -1,5 +1,6 @@
 from video_toolkit.ffmpeg_native import (
     alphaextract_to_blender_compositor,
+    blend_to_blender_compositor,
     chromakey_to_blender_compositor,
     colorbalance_to_blender_stack,
     colorchannelmixer_to_blender_stack,
@@ -34,7 +35,10 @@ from video_toolkit.ffmpeg_native import (
     limiter_to_blender_compositor,
     lumakey_to_blender_compositor,
     lut_file_filter_to_blender_stack,
+    lut2_to_blender_compositor,
     lut_to_blender_stack,
+    maskedmerge_to_blender_compositor,
+    mergeplanes_to_blender_compositor,
     midwayequalizer_to_blender_stack,
     morphology_to_blender_compositor,
     monochrome_to_blender_compositor,
@@ -550,6 +554,51 @@ def test_key_filters_translate_to_compositor_only_nodes():
     ]
 
 
+def test_blend_lut2_maskedmerge_and_mergeplanes_translate_to_native_graph_specs():
+    blend = blend_to_blender_compositor("blend", all_mode="overlay", all_opacity=0.35)
+    assert blend[0][0] == "BLEND_COMPOSITE"
+    assert blend[0][1]["mode"] == "overlay"
+    assert blend[0][1]["factor"] == 0.35
+
+    temporal = blend_to_blender_compositor("tblend", all_mode="average", all_opacity=0.45)
+    assert temporal[0][0] == "BLEND_COMPOSITE"
+    assert temporal[0][1]["temporal"] is True
+
+    lut2 = lut2_to_blender_compositor(c0="(x+y)/2", c1="(x+y)/2", c2="(x+y)/2", c3="x")
+    assert lut2[0][0] == "BLEND_COMPOSITE"
+    assert lut2[0][1]["source"] == "lut2"
+    assert lut2[0][1]["factor"] == 0.5
+    assert lut2[0][1]["expressions"][0] == "(x+y)/2"
+
+    masked = maskedmerge_to_blender_compositor(planes=15)
+    assert masked[0][0] == "MASKED_BLEND_COMPOSITE"
+    assert masked[0][1]["source"] == "maskedmerge"
+    assert masked[0][1]["planes"] == "15"
+
+    merged = mergeplanes_to_blender_compositor(map0p=2, map1p=1, map2p=0, map3p=3)
+    assert merged[0][0] == "PLANE_SHUFFLE"
+    assert merged[0][1]["source"] == "mergeplanes"
+    assert merged[0][1]["outputs"] == {"red": "blue", "green": "green", "blue": "red", "alpha": "alpha"}
+
+    result = translate_filter_chain(
+        "blend=all_mode=overlay:all_opacity=0.35,"
+        "tblend=all_mode=average:all_opacity=0.45,"
+        "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
+        "maskedmerge=planes=15,"
+        "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3"
+    )
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("blend", "tblend", "lut2", "maskedmerge", "mergeplanes")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "BLEND_COMPOSITE",
+        "BLEND_COMPOSITE",
+        "BLEND_COMPOSITE",
+        "MASKED_BLEND_COMPOSITE",
+        "PLANE_SHUFFLE",
+    ]
+
+
 def test_channel_shift_filters_translate_to_compositor_graph_specs():
     rgba = rgbashift_to_blender_compositor(rh=4, rv=-2, gh=0, gv=1, bh=-3, bv=2, ah=1, av=0)
     assert rgba[0][0] == "CHANNEL_SHIFT"
@@ -1005,6 +1054,11 @@ def test_filter_chain_supports_more_color_grading_filters():
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "threshold=planes=7,"
         "maskedthreshold=threshold=2048:planes=7:mode=abs,"
+        "blend=all_mode=overlay:all_opacity=0.35,"
+        "tblend=all_mode=average:all_opacity=0.45,"
+        "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
+        "maskedmerge=planes=15,"
+        "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "alphaextract,"
@@ -1098,6 +1152,11 @@ def test_filter_chain_supports_more_color_grading_filters():
         "lumakey",
         "threshold",
         "maskedthreshold",
+        "blend",
+        "tblend",
+        "lut2",
+        "maskedmerge",
+        "mergeplanes",
         "rgbashift",
         "chromashift",
         "alphaextract",
@@ -1163,7 +1222,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR"}.issubset(
+    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

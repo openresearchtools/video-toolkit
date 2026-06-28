@@ -327,6 +327,11 @@ scene.video_toolkit_ffmpeg_chain = (
     'lumakey=threshold=0.20:tolerance=0.08:softness=0.02,'
     'threshold=planes=7,'
     'maskedthreshold=threshold=2048:planes=7:mode=abs,'
+    "blend=all_mode=overlay:all_opacity=0.35,"
+    "tblend=all_mode=average:all_opacity=0.45,"
+    "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
+    "maskedmerge=planes=15,"
+    "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3,"
     'rgbashift=rh=4:rv=-2:bh=-3:bv=2,'
     'chromashift=cbh=2:cbv=-1:crh=-2:crv=1,'
     'alphaextract,'
@@ -836,6 +841,11 @@ scene.video_toolkit_ffmpeg_chain = (
     'lumakey=threshold=0.20:tolerance=0.08:softness=0.02,'
     'threshold=planes=7,'
     'maskedthreshold=threshold=2048:planes=7:mode=abs,'
+    "blend=all_mode=overlay:all_opacity=0.35,"
+    "tblend=all_mode=average:all_opacity=0.45,"
+    "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
+    "maskedmerge=planes=15,"
+    "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3,"
     'rgbashift=rh=4:rv=-2:bh=-3:bv=2,'
     'chromashift=cbh=2:cbv=-1:crh=-2:crv=1,'
     'alphaextract,'

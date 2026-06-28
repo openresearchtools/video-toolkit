@@ -3387,6 +3387,10 @@ def _append_translated_compositor_filter(
         return _append_plane_extract_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "PLANE_SHUFFLE":
         return _append_plane_shuffle_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "BLEND_COMPOSITE":
+        return _append_blend_composite_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "MASKED_BLEND_COMPOSITE":
+        return _append_masked_blend_composite_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "BOX_MASK_ALPHA":
         return _append_shape_mask_alpha_filter(tree, input_socket, settings, index, origin, label_prefix, "CompositorNodeBoxMask")
     if compositor_type == "ELLIPSE_MASK_ALPHA":
@@ -3613,6 +3617,82 @@ def _append_plane_shuffle_compositor_filter(tree, input_socket, settings: dict[s
     ):
         _link_socket(tree, _socket_by_name(separate.outputs, output_name), _socket_by_name(combine.inputs, input_name))
     return _image_output(combine), [separate, combine]
+
+
+def _append_blend_composite_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Blend Composite'}"
+    foreground_socket, processor_nodes = _processed_blend_foreground(tree, input_socket, settings, index, origin, label)
+    alpha = _new_compositor_node(tree, "CompositorNodeAlphaOver", label, index + len(processor_nodes), origin=origin)
+    _set_input_default(alpha, "Factor", settings.get("factor", 0.35))
+    _set_input_default(alpha, "Type", settings.get("type", "Straight"))
+    _set_input_default(alpha, "Straight Alpha", bool(settings.get("straight_alpha", True)))
+    _link_socket(tree, input_socket, _socket_by_name(alpha.inputs, "Background"))
+    _link_socket(tree, foreground_socket, _socket_by_name(alpha.inputs, "Foreground"))
+    alpha["video_toolkit_ffmpeg_filter"] = settings.get("source", "blend")
+    alpha["video_toolkit_blend_mode"] = str(settings.get("mode", "average"))
+    alpha["video_toolkit_blend_factor"] = float(settings.get("factor", 0.35) or 0.0)
+    if settings.get("temporal"):
+        alpha["video_toolkit_temporal_approximation"] = True
+    if settings.get("expression"):
+        alpha["video_toolkit_blend_expression"] = settings.get("expression")
+    if settings.get("expressions"):
+        alpha["video_toolkit_lut2_expressions"] = ",".join(str(item) for item in settings.get("expressions", ()))
+    if settings.get("approximation"):
+        alpha["video_toolkit_approximation"] = settings.get("approximation")
+    return _image_output(alpha), [*processor_nodes, alpha]
+
+
+def _processed_blend_foreground(tree, input_socket, settings: dict[str, object], index: int, origin, label: str):
+    mode = str(settings.get("mode", "average")).lower()
+    if mode in {"difference", "subtract", "negation"}:
+        invert = _new_compositor_node(tree, "CompositorNodeInvert", f"{label} Difference Branch", index, y_offset=-180, origin=origin)
+        _set_input_default_candidates(invert, ("Factor", "Fac"), 1.0)
+        _set_input_default(invert, "Invert Color", True)
+        _set_input_default(invert, "Invert Alpha", False)
+        _link_socket(tree, input_socket, _image_input(invert))
+        invert["video_toolkit_blend_mode"] = mode
+        return _image_output(invert), [invert]
+    if mode in {"screen", "lighten", "dodge", "addition", "glow"}:
+        bright = _new_compositor_node(tree, "CompositorNodeBrightContrast", f"{label} Lighten Branch", index, y_offset=-180, origin=origin)
+        _set_input_default_candidates(bright, ("Brightness", "Bright"), 0.08)
+        _set_input_default(bright, "Contrast", 8.0)
+        _link_socket(tree, input_socket, _image_input(bright))
+        bright["video_toolkit_blend_mode"] = mode
+        return _image_output(bright), [bright]
+    if mode in {"multiply", "darken", "burn", "and", "stain"}:
+        curves = _new_compositor_node(tree, "CompositorNodeCurveRGB", f"{label} Multiply Branch", index, y_offset=-180, origin=origin)
+        _apply_curve_points(curves.mapping, {0: [(0.0, 0.0), (0.45, 0.28), (1.0, 0.82)]})
+        _link_socket(tree, input_socket, _image_input(curves))
+        curves["video_toolkit_blend_mode"] = mode
+        return _image_output(curves), [curves]
+    if mode in {"overlay", "softlight", "hardlight", "hardoverlay"}:
+        curves = _new_compositor_node(tree, "CompositorNodeCurveRGB", f"{label} Contrast Branch", index, y_offset=-180, origin=origin)
+        _apply_curve_points(curves.mapping, {0: [(0.0, 0.0), (0.25, 0.18), (0.50, 0.50), (0.75, 0.84), (1.0, 1.0)]})
+        _link_socket(tree, input_socket, _image_input(curves))
+        curves["video_toolkit_blend_mode"] = mode
+        return _image_output(curves), [curves]
+    return input_socket, []
+
+
+def _append_masked_blend_composite_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Masked Blend Composite'}"
+    matte = _new_compositor_node(tree, "CompositorNodeLumaMatte", f"{label} Luma Matte", index, y_offset=-180, origin=origin)
+    _set_input_default(matte, "Minimum", settings.get("minimum", 0.08))
+    _set_input_default(matte, "Maximum", settings.get("maximum", 0.92))
+    _link_socket(tree, input_socket, _image_input(matte))
+    foreground_socket, processor_nodes = _processed_blend_foreground(tree, input_socket, {"mode": "overlay"}, index + 1, origin, label)
+    alpha = _new_compositor_node(tree, "CompositorNodeAlphaOver", label, index + 1 + len(processor_nodes), origin=origin)
+    _set_input_default(alpha, "Factor", settings.get("factor", 1.0))
+    _set_input_default(alpha, "Type", settings.get("type", "Straight"))
+    _set_input_default(alpha, "Straight Alpha", bool(settings.get("straight_alpha", True)))
+    _link_socket(tree, input_socket, _socket_by_name(alpha.inputs, "Background"))
+    _link_socket(tree, foreground_socket, _socket_by_name(alpha.inputs, "Foreground"))
+    _link_socket(tree, _socket_by_name(matte.outputs, "Matte"), _socket_by_name(alpha.inputs, "Factor"))
+    alpha["video_toolkit_ffmpeg_filter"] = settings.get("source", "maskedmerge")
+    alpha["video_toolkit_planes"] = str(settings.get("planes", "15"))
+    if settings.get("approximation"):
+        alpha["video_toolkit_approximation"] = settings.get("approximation")
+    return _image_output(alpha), [matte, *processor_nodes, alpha]
 
 
 def _append_shape_mask_alpha_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str, node_type: str):
@@ -4759,6 +4839,11 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "threshold=planes=7,"
         "maskedthreshold=threshold=2048:planes=7:mode=abs,"
+        "blend=all_mode=overlay:all_opacity=0.35,"
+        "tblend=all_mode=average:all_opacity=0.45,"
+        "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
+        "maskedmerge=planes=15,"
+        "mergeplanes=map0p=2:map1p=1:map2p=0:map3p=3,"
         "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
         "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "alphaextract,"

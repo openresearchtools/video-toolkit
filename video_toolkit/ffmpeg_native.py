@@ -63,6 +63,11 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "lumakey",
     "threshold",
     "maskedthreshold",
+    "blend",
+    "tblend",
+    "lut2",
+    "maskedmerge",
+    "mergeplanes",
     "rgbashift",
     "chromashift",
     "alphaextract",
@@ -285,6 +290,22 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(threshold_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is represented with Blender compositor Luma Matte threshold nodes; secondary-stream comparison is approximated for the selected strip.")
+        elif name in {"blend", "tblend"}:
+            compositor_nodes.extend(blend_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is represented with Blender Alpha Over plus native color-processing branches; exact two-stream/temporal blend math is approximated for the selected strip.")
+        elif name == "lut2":
+            compositor_nodes.extend(lut2_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Lut2 two-stream expressions are represented with a Blender Alpha Over composite plus expression metadata; simple x/y averaging maps to editable opacity.")
+        elif name == "maskedmerge":
+            compositor_nodes.extend(maskedmerge_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Maskedmerge is represented with a Blender Luma Matte driving an Alpha Over composite for selected-strip matte work.")
+        elif name == "mergeplanes":
+            compositor_nodes.extend(mergeplanes_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Mergeplanes is represented with Blender Separate/Combine Color channel routing; extra input streams use the selected strip as the editable source.")
         elif name == "rgbashift":
             compositor_nodes.extend(rgbashift_to_blender_compositor(**args))
             supported.append(name)
@@ -1516,6 +1537,101 @@ def threshold_to_blender_compositor(source: str, **options: str | int | float) -
                 "source": name,
                 "planes": str(_option(options, "planes", "p", default="7")),
                 "mode": str(_option(options, "mode", default="diff" if name == "threshold" else "abs")),
+            },
+        ),
+    )
+
+
+def blend_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    mode = _blend_mode_name(_option(options, "all_mode", "mode", "c0_mode", "arg0", default="average"))
+    opacity = _clamp(
+        _float(_option(options, "all_opacity", "opacity", "c0_opacity", "arg1", default=0.5 if name == "tblend" else 0.35), 0.35),
+        0.0,
+        1.0,
+    )
+    expression = str(_option(options, "all_expr", "c0_expr", default="")).strip()
+    if expression:
+        mode = _blend_expression_mode(expression, fallback=mode)
+        opacity = _blend_expression_opacity(expression, opacity)
+    return (
+        (
+            "BLEND_COMPOSITE",
+            {
+                "mode": mode,
+                "factor": opacity,
+                "source": name,
+                "temporal": name == "tblend",
+                "expression": expression,
+                "approximation": "Blender has no native two-stream FFmpeg blend expression node in this build; this uses an editable native Alpha Over graph with a processed foreground branch.",
+            },
+        ),
+    )
+
+
+def lut2_to_blender_compositor(
+    *,
+    c0: str = "x",
+    c1: str = "x",
+    c2: str = "x",
+    c3: str = "x",
+    **_unused: str,
+) -> CompositorStack:
+    expressions = tuple(str(value or "x").strip().lower() for value in (c0, c1, c2, c3))
+    expression_text = " ".join(expressions)
+    mode = _blend_expression_mode(expression_text, fallback="average" if "y" in expression_text else "normal")
+    factor = _blend_expression_opacity(expression_text, 0.5 if "y" in expression_text else 0.0)
+    return (
+        (
+            "BLEND_COMPOSITE",
+            {
+                "mode": mode,
+                "factor": factor,
+                "source": "lut2",
+                "expressions": expressions,
+                "approximation": "Lut2 is a two-input pixel expression filter; this single-strip Blender graph keeps the editable composite intent and records the channel expressions.",
+            },
+        ),
+    )
+
+
+def maskedmerge_to_blender_compositor(**options: str | int | float) -> CompositorStack:
+    planes = str(_option(options, "planes", "p", default="15"))
+    return (
+        (
+            "MASKED_BLEND_COMPOSITE",
+            {
+                "source": "maskedmerge",
+                "planes": planes,
+                "factor": 1.0,
+                "minimum": 0.08,
+                "maximum": 0.92,
+                "approximation": "Maskedmerge normally uses a third mask input; this graph derives an editable luma matte from the selected strip.",
+            },
+        ),
+    )
+
+
+def mergeplanes_to_blender_compositor(
+    *,
+    map0p: str | int = 0,
+    map1p: str | int = 1,
+    map2p: str | int = 2,
+    map3p: str | int = 3,
+    **_unused: str,
+) -> CompositorStack:
+    return (
+        (
+            "PLANE_SHUFFLE",
+            {
+                "outputs": {
+                    "red": _shuffle_plane_name(map0p),
+                    "green": _shuffle_plane_name(map1p),
+                    "blue": _shuffle_plane_name(map2p),
+                    "alpha": _shuffle_plane_name(map3p),
+                },
+                "source": "mergeplanes",
+                "approximation": "Mergeplanes multi-stream routing is represented as editable channel routing from the selected strip.",
             },
         ),
     )
@@ -3354,6 +3470,88 @@ def _lut_interp_weight(value: str | int | float | None) -> float:
     if text in weights:
         return weights[text]
     return _clamp(_float(value, 0.35), 0.0, 1.0)
+
+
+def _blend_mode_name(value: str | int | float | None) -> str:
+    text = str(value if value is not None else "average").strip().lower()
+    numeric = {
+        "0": "normal",
+        "1": "addition",
+        "3": "average",
+        "4": "burn",
+        "5": "darken",
+        "6": "difference",
+        "8": "divide",
+        "9": "dodge",
+        "11": "hardlight",
+        "12": "lighten",
+        "13": "multiply",
+        "16": "overlay",
+        "20": "screen",
+        "21": "softlight",
+        "22": "subtract",
+    }
+    aliases = {
+        "addition128": "addition",
+        "grainmerge": "addition",
+        "grainextract": "difference",
+        "difference128": "difference",
+        "hardoverlay": "overlay",
+        "linearlight": "overlay",
+        "vividlight": "overlay",
+        "pinlight": "overlay",
+        "softdifference": "difference",
+        "geometric": "average",
+        "harmonic": "average",
+        "interpolate": "average",
+        "glow": "screen",
+        "reflect": "screen",
+        "heat": "screen",
+        "freeze": "screen",
+        "bleach": "screen",
+        "stain": "multiply",
+        "phoenix": "difference",
+        "negation": "difference",
+        "xor": "difference",
+        "or": "screen",
+        "and": "multiply",
+    }
+    text = numeric.get(text, text)
+    return aliases.get(text, text or "average")
+
+
+def _blend_expression_mode(expression: str, *, fallback: str = "average") -> str:
+    text = str(expression or "").strip().lower().replace(" ", "")
+    if not text:
+        return fallback
+    if "*" in text and "x" in text and "y" in text:
+        return "multiply"
+    if "max(" in text:
+        return "lighten"
+    if "min(" in text:
+        return "darken"
+    if "abs(" in text or "x-y" in text or "y-x" in text:
+        return "difference"
+    if "1-" in text and ("x" in text or "y" in text):
+        return "screen"
+    if "+" in text and "x" in text and "y" in text:
+        return "average"
+    return fallback
+
+
+def _blend_expression_opacity(expression: str, fallback: float) -> float:
+    text = str(expression or "").strip().lower().replace(" ", "")
+    if not text:
+        return _clamp(fallback, 0.0, 1.0)
+    if "/2" in text or "*0.5" in text or "0.5*" in text:
+        return 0.5
+    if "/3" in text:
+        return 1.0 / 3.0
+    if "y" in text and "x" not in text:
+        return 1.0
+    if "x" in text and "y" not in text:
+        return 0.0
+    return _clamp(fallback, 0.0, 1.0)
 
 
 def _shift_pixels(value: str | float | int | None) -> float:
