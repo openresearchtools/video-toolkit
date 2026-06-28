@@ -358,6 +358,7 @@ _PLANE_SHUFFLE_BGR_TRANSLATION = translate_filter_chain("shuffleplanes=2:1:0:3")
 _STRAIGHT_ALPHA_TRANSLATION = translate_filter_chain("unpremultiply")
 _NATIVE_ELBG_POSTERIZE_TRANSLATION = translate_filter_chain("elbg=codebook_length=32:nb_steps=1")
 _NATIVE_UNSHARP_TRANSLATION = translate_filter_chain("unsharp=5:5:0.55:3:3:0.20")
+_OPENCL_UNSHARP_TRANSLATION = translate_filter_chain("unsharp_opencl=lx=5:ly=5:la=0.55:cx=3:cy=3:ca=0.20")
 _NATIVE_CAS_SHARPEN_TRANSLATION = translate_filter_chain("cas=strength=0.45")
 _NATIVE_SOBEL_TRANSLATION = translate_filter_chain("sobel=scale=1.2:delta=0.02")
 _NATIVE_PREWITT_TRANSLATION = translate_filter_chain("prewitt=scale=0.9:delta=0.01")
@@ -376,8 +377,12 @@ _OPENCL_CONVOLUTION_TRANSLATION = translate_filter_chain(
     "convolution_opencl=0m='0 -1 0 -1 5 -1 0 -1 0':0rdiv=1:0bias=0"
 )
 _NATIVE_AVERAGE_BLUR_TRANSLATION = translate_filter_chain("avgblur=sizeX=4:sizeY=6")
+_OPENCL_AVERAGE_BLUR_TRANSLATION = translate_filter_chain("avgblur_opencl=sizeX=4:sizeY=6")
+_VULKAN_AVERAGE_BLUR_TRANSLATION = translate_filter_chain("avgblur_vulkan=sizeX=4:sizeY=6")
 _NATIVE_BOX_BLUR_TRANSLATION = translate_filter_chain("boxblur=lr=3:lp=2")
+_OPENCL_BOX_BLUR_TRANSLATION = translate_filter_chain("boxblur_opencl=lr=3:lp=2")
 _NATIVE_GAUSSIAN_BLUR_TRANSLATION = translate_filter_chain("gblur=sigma=1.2:steps=2:sigmaV=0.8")
+_VULKAN_GAUSSIAN_BLUR_TRANSLATION = translate_filter_chain("gblur_vulkan=sigma=1.2:steps=2:sigmaV=0.8")
 _NATIVE_SMART_BLUR_TRANSLATION = translate_filter_chain("smartblur=lr=2:ls=0.8:lt=8")
 _NATIVE_DIRECTIONAL_BLUR_TRANSLATION = translate_filter_chain("dblur=angle=30:radius=12")
 _NATIVE_SHAPE_ADAPTIVE_BLUR_TRANSLATION = translate_filter_chain("sab=lr=3:lpfr=1.2:ls=8:cr=2:cs=0.8:ct=6")
@@ -405,9 +410,11 @@ _NATIVE_FPS_RESAMPLE_TRANSLATION = translate_filter_chain("fps=fps=30:round=near
 _NATIVE_FRAMERATE_INTERPOLATION_TRANSLATION = translate_filter_chain("framerate=fps=60:interp_start=15:interp_end=240")
 _NATIVE_MINTERPOLATE_TRANSLATION = translate_filter_chain("minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1")
 _NATIVE_CHROMANR_CLEANUP_TRANSLATION = translate_filter_chain("chromanr=thres=24:sizew=5:sizeh=5")
+_VAAPI_DENOISE_TRANSLATION = translate_filter_chain("denoise_vaapi=denoise=18")
 _NATIVE_FFT_DENOISE_TRANSLATION = translate_filter_chain("fftdnoiz=sigma=1.8:amount=1.0")
 _NATIVE_FFT_DETAIL_TRANSLATION = translate_filter_chain("fftfilt=dc_Y=0:weight_Y=1.35")
 _NATIVE_GRADFUN_DEBAND_TRANSLATION = translate_filter_chain("gradfun=strength=1.2:radius=12")
+_VAAPI_SHARPNESS_TRANSLATION = translate_filter_chain("sharpness_vaapi=sharpness=44")
 _NATIVE_XBR_UPSCALE_TRANSLATION = translate_filter_chain("xbr=n=2")
 _NATIVE_SCALE_FIT_TRANSLATION = translate_filter_chain("scale=w=1920:h=1080:flags=lanczos")
 _NATIVE_CENTER_CROP_TRANSLATION = translate_filter_chain("crop=w=iw*0.9:h=ih*0.9:x=iw*0.05:y=ih*0.05")
@@ -2186,6 +2193,14 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_UNSHARP_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_opencl_unsharp_filter",
+        label="OpenCL Unsharp Filter",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg unsharp_opencl intent as Blender's native compositor Filter sharpen graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_UNSHARP_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_cas_sharpen",
         label="Native CAS Sharpen",
         category="Native Filter & Blur",
@@ -2274,12 +2289,36 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_FFT_DETAIL_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_vaapi_sharpness",
+        label="VAAPI Sharpness Preview",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg sharpness_vaapi intent as Blender's native compositor Filter sharpen graph without requiring VAAPI rendering.",
+        compositor_stack=_VAAPI_SHARPNESS_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_average_blur",
         label="Native Average Blur",
         category="Native Filter & Blur",
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg avgblur intent as Blender's native Blur compositor graph.",
         compositor_stack=_NATIVE_AVERAGE_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_opencl_average_blur",
+        label="OpenCL Average Blur",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg avgblur_opencl intent as Blender's native Blur compositor graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_AVERAGE_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vulkan_average_blur",
+        label="Vulkan Average Blur",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg avgblur_vulkan intent as Blender's native Blur compositor graph without requiring Vulkan rendering.",
+        compositor_stack=_VULKAN_AVERAGE_BLUR_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_box_blur",
@@ -2290,12 +2329,28 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_NATIVE_BOX_BLUR_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_opencl_box_blur",
+        label="OpenCL Box Blur",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg boxblur_opencl intent as Blender's native Blur compositor graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_BOX_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_gaussian_blur",
         label="Native Gaussian Blur",
         category="Native Filter & Blur",
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg gblur intent as Blender's native Gaussian Blur compositor graph.",
         compositor_stack=_NATIVE_GAUSSIAN_BLUR_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vulkan_gaussian_blur",
+        label="Vulkan Gaussian Blur",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg gblur_vulkan intent as Blender's native Gaussian Blur compositor graph without requiring Vulkan rendering.",
+        compositor_stack=_VULKAN_GAUSSIAN_BLUR_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_smart_blur",
@@ -2962,6 +3017,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg chromanr intent as Blender's native edge-preserving Bilateral Blur cleanup graph.",
         compositor_stack=_NATIVE_CHROMANR_CLEANUP_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vaapi_denoise",
+        label="VAAPI Denoise Preview",
+        category="Native Denoise & Cleanup",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg denoise_vaapi intent as Blender's native compositor Denoise graph without requiring VAAPI rendering.",
+        compositor_stack=_VAAPI_DENOISE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_fft_denoise",

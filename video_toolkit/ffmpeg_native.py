@@ -89,6 +89,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "shuffleplanes",
     "elbg",
     "unsharp",
+    "unsharp_opencl",
     "cas",
     "sobel",
     "prewitt",
@@ -99,8 +100,12 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "convolution",
     "convolution_opencl",
     "avgblur",
+    "avgblur_opencl",
+    "avgblur_vulkan",
     "boxblur",
+    "boxblur_opencl",
     "gblur",
+    "gblur_vulkan",
     "smartblur",
     "sab",
     "yaepblur",
@@ -133,9 +138,11 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "framerate",
     "minterpolate",
     "chromanr",
+    "denoise_vaapi",
     "fftdnoiz",
     "fftfilt",
     "gradfun",
+    "sharpness_vaapi",
     "xbr",
     "histogram",
     "thistogram",
@@ -411,11 +418,14 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(elbg_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Elbg posterization is translated to Blender compositor Posterize nodes.")
-        elif name == "unsharp":
-            compositor_nodes.extend(unsharp_to_blender_compositor(**args))
+        elif name in {"unsharp", "unsharp_opencl"}:
+            compositor_nodes.extend(unsharp_to_blender_compositor(source=name, **args))
             supported.append(name)
-            notes.append("Unsharp is approximated with Blender compositor Filter sharpen/soften nodes.")
-        elif name in {"cas", "chromanr", "fftdnoiz", "fftfilt", "gradfun", "xbr"}:
+            if name == "unsharp_opencl":
+                notes.append("unsharp_opencl is approximated with Blender compositor Filter sharpen/soften nodes; OpenCL execution is replaced by native Blender preview controls.")
+            else:
+                notes.append("Unsharp is approximated with Blender compositor Filter sharpen/soften nodes.")
+        elif name in {"cas", "chromanr", "denoise_vaapi", "fftdnoiz", "fftfilt", "gradfun", "sharpness_vaapi", "xbr"}:
             compositor_nodes.extend(detail_cleanup_filter_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor detail/cleanup nodes.")
@@ -431,7 +441,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(convolution_to_blender_compositor(**args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Convolve nodes with generated kernel images.")
-        elif name in {"avgblur", "boxblur", "gblur"}:
+        elif name in {"avgblur", "avgblur_opencl", "avgblur_vulkan", "boxblur", "boxblur_opencl", "gblur", "gblur_vulkan"}:
             compositor_nodes.extend(blur_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Blur nodes.")
@@ -2166,8 +2176,10 @@ def unsharp_to_blender_compositor(
     arg6: str | int | None = None,
     arg7: str | int | None = None,
     arg8: str | float | None = None,
+    source: str = "unsharp",
     **_unused: str,
 ) -> CompositorStack:
+    source_name = str(source).strip().lower() or "unsharp"
     lx_value = _unsharp_size(arg0 if arg0 is not None else (lx if lx is not None else luma_msize_x))
     ly_value = _unsharp_size(arg1 if arg1 is not None else (ly if ly is not None else luma_msize_y))
     la_value = _float(arg2 if arg2 is not None else (la if la is not None else luma_amount), 1.0)
@@ -2193,7 +2205,9 @@ def unsharp_to_blender_compositor(
                 "chroma_amount": ca_value,
                 "alpha_size": (ax_value, ay_value),
                 "alpha_amount": aa_value,
-                "source": "unsharp",
+                "source": source_name,
+                "hardware_filter": source_name if source_name != "unsharp" else "",
+                "approximation": "OpenCL unsharp intent is represented with Blender's native compositor sharpen/soften controls." if source_name != "unsharp" else "",
             },
         ),
     )
@@ -2252,6 +2266,23 @@ def detail_cleanup_filter_to_blender_compositor(source: str, **options: str | in
                 },
             ),
         )
+    if name == "denoise_vaapi":
+        denoise = _clamp(_float(_option(options, "denoise", "d", "arg0", default=16), 16.0), 0.0, 64.0)
+        return (
+            (
+                "DENOISE",
+                {
+                    "label": "VAAPI Denoise Preview",
+                    "hdr": denoise >= 24.0,
+                    "prefilter": "Accurate" if denoise >= 12.0 else "Fast",
+                    "quality": "High" if denoise >= 20.0 else "Balanced",
+                    "strength": denoise,
+                    "source": "denoise_vaapi",
+                    "hardware_filter": "denoise_vaapi",
+                    "approximation": "FFmpeg VAAPI denoise hardware execution is represented with Blender's native compositor Denoise node and editable denoise strength metadata.",
+                },
+            ),
+        )
     if name == "fftfilt":
         dc_y = _float(_option(options, "dc_Y", "dc_y", "arg0", default=0), 0.0)
         weight_y = _float(_option(options, "weight_Y", "weight_y", "arg1", default=1), 1.0)
@@ -2283,6 +2314,22 @@ def detail_cleanup_filter_to_blender_compositor(source: str, **options: str | in
                     "strength": radius,
                     "source": "gradfun",
                     "approximation": "Gradfun anti-banding is represented with Blender's bilateral smoothing over low-gradient areas.",
+                },
+            ),
+        )
+    if name == "sharpness_vaapi":
+        sharpness = _clamp(_float(_option(options, "sharpness", "s", "arg0", default=44), 44.0), -64.0, 64.0)
+        return (
+            (
+                "FILTER",
+                {
+                    "label": "VAAPI Sharpness Preview",
+                    "filter_type": "Box Sharpen" if sharpness >= 0.0 else "Soften",
+                    "factor": _clamp(abs(sharpness) / 32.0, 0.0, 2.0),
+                    "sharpness": sharpness,
+                    "source": "sharpness_vaapi",
+                    "hardware_filter": "sharpness_vaapi",
+                    "approximation": "FFmpeg VAAPI sharpness hardware execution is represented with Blender's native compositor Filter sharpen/soften controls.",
                 },
             ),
         )
@@ -2437,14 +2484,20 @@ def convolution_to_blender_compositor(**options: str | int | float) -> Composito
 
 def blur_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
     name = str(source).strip().lower()
-    if name == "avgblur":
+    base_name = {
+        "avgblur_opencl": "avgblur",
+        "avgblur_vulkan": "avgblur",
+        "boxblur_opencl": "boxblur",
+        "gblur_vulkan": "gblur",
+    }.get(name, name)
+    if base_name == "avgblur":
         size_x = _clamp(_float(_option(options, "sizeX", "sizex", "arg0", default=1), 1.0), 1.0, 1024.0)
         size_y = _clamp(_float(_option(options, "sizeY", "sizey", "arg2", default=0), 0.0), 0.0, 1024.0)
         if size_y <= 0.0:
             size_y = size_x
         blur_type = "Flat"
         samples = 1
-    elif name == "boxblur":
+    elif base_name == "boxblur":
         radius = _radius_expression(_option(options, "luma_radius", "lr", "arg0", default=2), 2.0)
         power = _clamp(_float(_option(options, "luma_power", "lp", "arg1", default=2), 2.0), 0.0, 12.0)
         scale = max(1.0, power)
@@ -2468,14 +2521,16 @@ def blur_to_blender_compositor(source: str, **options: str | int | float) -> Com
                     "avgblur": "Average Blur",
                     "boxblur": "Box Blur",
                     "gblur": "Gaussian Blur",
-                }.get(name, "Blur"),
+                }.get(base_name, "Blur"),
                 "size": (size_x, size_y),
                 "blur_type": blur_type,
                 "extend_bounds": False,
                 "separable": True,
                 "samples": samples,
-                "planes": str(_option(options, "planes", "arg1" if name == "avgblur" else "arg2", default=15)),
+                "planes": str(_option(options, "planes", "arg1" if base_name == "avgblur" else "arg2", default=15)),
                 "source": name,
+                "hardware_filter": name if name != base_name else "",
+                "approximation": f"{name} hardware/API execution is represented with Blender's native compositor Blur node." if name != base_name else "",
             },
         ),
     )

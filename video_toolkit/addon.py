@@ -4457,6 +4457,11 @@ def _translated_compositor_filter_to_node(
         node = _new_compositor_node(tree, "CompositorNodeFilter", label, index, origin=origin)
         _set_input_default(node, "Type", settings.get("filter_type", "Box Sharpen"))
         _set_input_default(node, "Factor", settings.get("factor", 1.0))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "filter")
+        if settings.get("hardware_filter"):
+            node["video_toolkit_hardware_filter"] = settings.get("hardware_filter")
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
         return node
     if compositor_type == "DILATE_ERODE":
         node = _new_compositor_node(tree, "CompositorNodeDilateErode", label, index, origin=origin)
@@ -4472,6 +4477,8 @@ def _translated_compositor_filter_to_node(
         _set_input_default(node, "Extend Bounds", bool(settings.get("extend_bounds", False)))
         _set_input_default(node, "Separable", bool(settings.get("separable", True)))
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "blur")
+        if settings.get("hardware_filter"):
+            node["video_toolkit_hardware_filter"] = settings.get("hardware_filter")
         node["video_toolkit_blur_samples"] = int(settings.get("samples", 1) or 1)
         for key in ("mode", "parity", "deint", "frames", "weights"):
             if key in settings:
@@ -4557,6 +4564,8 @@ def _translated_compositor_filter_to_node(
         _set_input_default(node, "Prefilter", settings.get("prefilter", "Accurate"))
         _set_input_default(node, "Quality", settings.get("quality", "Balanced"))
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "denoise")
+        if settings.get("hardware_filter"):
+            node["video_toolkit_hardware_filter"] = settings.get("hardware_filter")
         node["video_toolkit_denoise_strength"] = float(settings.get("strength", 1.0) or 1.0)
         if settings.get("approximation"):
             node["video_toolkit_approximation"] = settings.get("approximation")

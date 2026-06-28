@@ -946,13 +946,19 @@ def test_unsharp_translates_to_native_filter_graph_specs():
     assert soften[0][1]["filter_type"] == "Soften"
     assert soften[0][1]["factor"] == 0.6
 
-    result = translate_filter_chain("unsharp=5:5:0.45:3:3:0.20,unsharp=lx=7:ly=7:la=-0.40")
+    opencl = unsharp_to_blender_compositor(source="unsharp_opencl", lx=7, ly=5, la=0.8)
+    assert opencl[0][0] == "FILTER"
+    assert opencl[0][1]["source"] == "unsharp_opencl"
+    assert opencl[0][1]["hardware_filter"] == "unsharp_opencl"
+
+    result = translate_filter_chain("unsharp=5:5:0.45:3:3:0.20,unsharp=lx=7:ly=7:la=-0.40,unsharp_opencl=lx=7:ly=5:la=0.80")
     assert result.stack == ()
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("unsharp", "unsharp")
-    assert [node_type for node_type, _settings in result.compositor_nodes] == ["FILTER", "FILTER"]
+    assert result.supported_filters == ("unsharp", "unsharp", "unsharp_opencl")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["FILTER", "FILTER", "FILTER"]
     assert result.compositor_nodes[0][1]["filter_type"] == "Box Sharpen"
     assert result.compositor_nodes[1][1]["filter_type"] == "Soften"
+    assert result.compositor_nodes[2][1]["source"] == "unsharp_opencl"
 
 
 def test_edge_filters_translate_to_native_filter_graph_specs():
@@ -1046,6 +1052,16 @@ def test_blur_filters_translate_to_native_blender_blur_nodes():
     assert gaussian[0][1]["blur_type"] == "Gaussian"
     assert gaussian[0][1]["size"][0] > gaussian[0][1]["size"][1]
 
+    opencl_average = blur_to_blender_compositor("avgblur_opencl", sizeX=4, sizeY=6)
+    vulkan_average = blur_to_blender_compositor("avgblur_vulkan", sizeX=4, sizeY=6)
+    opencl_box = blur_to_blender_compositor("boxblur_opencl", lr=3, lp=2)
+    vulkan_gaussian = blur_to_blender_compositor("gblur_vulkan", sigma=1.2, steps=2, sigmaV=0.8)
+    assert [item[0][0] for item in (opencl_average, vulkan_average, opencl_box, vulkan_gaussian)] == ["BLUR"] * 4
+    assert opencl_average[0][1]["source"] == "avgblur_opencl"
+    assert vulkan_average[0][1]["source"] == "avgblur_vulkan"
+    assert opencl_box[0][1]["source"] == "boxblur_opencl"
+    assert vulkan_gaussian[0][1]["source"] == "gblur_vulkan"
+
     smart = edge_preserving_blur_to_blender_compositor("smartblur", lr=2.0, ls=0.8, lt=8)
     assert smart[0][0] == "BILATERAL_BLUR"
     assert smart[0][1]["size"] >= 1
@@ -1064,16 +1080,36 @@ def test_blur_filters_translate_to_native_blender_blur_nodes():
 
     result = translate_filter_chain(
         "avgblur=sizeX=4:sizeY=6,"
+        "avgblur_opencl=sizeX=4:sizeY=6,"
+        "avgblur_vulkan=sizeX=4:sizeY=6,"
         "boxblur=lr=3:lp=2,"
+        "boxblur_opencl=lr=3:lp=2,"
         "gblur=sigma=1.2:steps=2:sigmaV=0.8,"
+        "gblur_vulkan=sigma=1.2:steps=2:sigmaV=0.8,"
         "smartblur=lr=2:ls=0.8:lt=8,"
         "sab=lr=2:lpfr=1:ls=12,"
         "yaepblur=r=4:s=192,"
         "dblur=angle=30:radius=12"
     )
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("avgblur", "boxblur", "gblur", "smartblur", "sab", "yaepblur", "dblur")
+    assert result.supported_filters == (
+        "avgblur",
+        "avgblur_opencl",
+        "avgblur_vulkan",
+        "boxblur",
+        "boxblur_opencl",
+        "gblur",
+        "gblur_vulkan",
+        "smartblur",
+        "sab",
+        "yaepblur",
+        "dblur",
+    )
     assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "BLUR",
+        "BLUR",
+        "BLUR",
+        "BLUR",
         "BLUR",
         "BLUR",
         "BLUR",
@@ -1235,6 +1271,10 @@ def test_detail_cleanup_filters_translate_to_native_blender_nodes():
     assert fft_denoise[0][0] == "DENOISE"
     assert fft_denoise[0][1]["source"] == "fftdnoiz"
 
+    vaapi_denoise = detail_cleanup_filter_to_blender_compositor("denoise_vaapi", denoise=18)
+    assert vaapi_denoise[0][0] == "DENOISE"
+    assert vaapi_denoise[0][1]["source"] == "denoise_vaapi"
+
     fft_detail = detail_cleanup_filter_to_blender_compositor("fftfilt", dc_Y=0, weight_Y=1.35)
     assert fft_detail[0][0] == "FILTER"
     assert fft_detail[0][1]["source"] == "fftfilt"
@@ -1243,19 +1283,25 @@ def test_detail_cleanup_filters_translate_to_native_blender_nodes():
     assert gradfun[0][0] == "BILATERAL_BLUR"
     assert gradfun[0][1]["source"] == "gradfun"
 
+    vaapi_sharpness = detail_cleanup_filter_to_blender_compositor("sharpness_vaapi", sharpness=44)
+    assert vaapi_sharpness[0][0] == "FILTER"
+    assert vaapi_sharpness[0][1]["source"] == "sharpness_vaapi"
+
     xbr = detail_cleanup_filter_to_blender_compositor("xbr", n=2)
     assert xbr[0][0] == "SCALE"
     assert xbr[0][1]["x"] == 2.0
 
-    result = translate_filter_chain("cas=strength=0.45,chromanr=thres=24,fftdnoiz=sigma=1.8,fftfilt=weight_Y=1.35,gradfun=strength=1.2,xbr=n=2")
+    result = translate_filter_chain("cas=strength=0.45,chromanr=thres=24,denoise_vaapi=denoise=18,fftdnoiz=sigma=1.8,fftfilt=weight_Y=1.35,gradfun=strength=1.2,sharpness_vaapi=sharpness=44,xbr=n=2")
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("cas", "chromanr", "fftdnoiz", "fftfilt", "gradfun", "xbr")
+    assert result.supported_filters == ("cas", "chromanr", "denoise_vaapi", "fftdnoiz", "fftfilt", "gradfun", "sharpness_vaapi", "xbr")
     assert [node_type for node_type, _settings in result.compositor_nodes] == [
         "FILTER",
         "BILATERAL_BLUR",
         "DENOISE",
+        "DENOISE",
         "FILTER",
         "BILATERAL_BLUR",
+        "FILTER",
         "SCALE",
     ]
 

@@ -657,6 +657,28 @@ combine_control_names = {{
     for control in _compositor_node_control_names(node)
 }}
 assert {{'mode', 'ycc_mode', 'Red', 'Green', 'Blue', 'Alpha'}}.issubset(combine_control_names)
+scene.video_toolkit_sidecar_group = 'NATIVE_FILTER_BLUR'
+scene.video_toolkit_sidecar_tool = 'native_opencl_average_blur'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor OpenCL Average Blur')
+opencl_blur_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_opencl_average_blur'
+]
+assert any(node.bl_idname == 'CompositorNodeBlur' for node in opencl_blur_nodes)
+assert any(node.get('video_toolkit_ffmpeg_filter') == 'avgblur_opencl' for node in opencl_blur_nodes)
+assert any(node.get('video_toolkit_hardware_filter') == 'avgblur_opencl' for node in opencl_blur_nodes)
+scene.video_toolkit_sidecar_group = 'NATIVE_DENOISE_CLEANUP'
+scene.video_toolkit_sidecar_tool = 'native_vaapi_denoise'
+bpy.ops.video_toolkit.apply_sidecar_tool()
+assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor VAAPI Denoise Preview')
+vaapi_denoise_nodes = [
+    node for node in tree.nodes
+    if node.get('video_toolkit_filter_id') == 'native_vaapi_denoise'
+]
+assert any(node.bl_idname == 'CompositorNodeDenoise' for node in vaapi_denoise_nodes)
+assert any(node.get('video_toolkit_ffmpeg_filter') == 'denoise_vaapi' for node in vaapi_denoise_nodes)
+assert any(node.get('video_toolkit_hardware_filter') == 'denoise_vaapi' for node in vaapi_denoise_nodes)
 scene.video_toolkit_sidecar_group = 'NATIVE_COLOR_COMPOSITE'
 scene.video_toolkit_sidecar_tool = 'native_rgb_channel_board'
 bpy.ops.video_toolkit.apply_sidecar_tool()
