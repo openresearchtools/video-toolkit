@@ -3561,6 +3561,9 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "FILTER": "Filter",
         "DILATE_ERODE": "Dilate/Erode",
         "CONVOLVE": "Convolve",
+        "BLUR": "Blur",
+        "BILATERAL_BLUR": "Bilateral Blur",
+        "DIRECTIONAL_BLUR": "Directional Blur",
     }
     node_label = str(settings.get("label") or labels.get(compositor_type, compositor_type.title()))
     label = f"VTK {label_prefix} {node_label}"
@@ -3602,6 +3605,34 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         _set_input_default(node, "Size", settings.get("size", 1))
         _set_input_default(node, "Falloff Size", settings.get("falloff_size", 0.0))
         _set_input_default(node, "Falloff", settings.get("falloff", "Smooth"))
+        return node
+    if compositor_type == "BLUR":
+        node = _new_compositor_node(tree, "CompositorNodeBlur", label, index, origin=origin)
+        _set_input_default(node, "Size", settings.get("size", (1.0, 1.0)))
+        _set_input_default(node, "Type", settings.get("blur_type", "Gaussian"))
+        _set_input_default(node, "Extend Bounds", bool(settings.get("extend_bounds", False)))
+        _set_input_default(node, "Separable", bool(settings.get("separable", True)))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "blur")
+        node["video_toolkit_blur_samples"] = int(settings.get("samples", 1) or 1)
+        return node
+    if compositor_type == "BILATERAL_BLUR":
+        node = _new_compositor_node(tree, "CompositorNodeBilateralblur", label, index, origin=origin)
+        _set_input_default(node, "Size", settings.get("size", 1))
+        _set_input_default(node, "Threshold", settings.get("threshold", 0.1))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "smartblur")
+        node["video_toolkit_blur_strength"] = float(settings.get("strength", 1.0) or 1.0)
+        return node
+    if compositor_type == "DIRECTIONAL_BLUR":
+        node = _new_compositor_node(tree, "CompositorNodeDBlur", label, index, origin=origin)
+        _set_input_default(node, "Samples", settings.get("samples", 1))
+        _set_input_default(node, "Center", settings.get("center", (0.5, 0.5)))
+        _set_input_default(node, "Rotation", settings.get("rotation", 0.0))
+        _set_input_default(node, "Scale", settings.get("scale", 1.0))
+        _set_input_default(node, "Amount", settings.get("amount", 0.0))
+        _set_input_default(node, "Direction", settings.get("direction", 0.0))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "dblur")
+        node["video_toolkit_blur_angle"] = float(settings.get("angle", 0.0) or 0.0)
+        node["video_toolkit_blur_radius"] = float(settings.get("radius", 0.0) or 0.0)
         return node
     return None
 
@@ -4316,6 +4347,13 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "convolution=0m=\"0 -1 0 -1 5 -1 0 -1 0\":0rdiv=1:0bias=0,"
+        "avgblur=sizeX=4:sizeY=6,"
+        "boxblur=lr=3:lp=2,"
+        "gblur=sigma=1.2:steps=2:sigmaV=0.8,"
+        "smartblur=lr=2:ls=0.8:lt=8,"
+        "sab=lr=2:lpfr=1:ls=12,"
+        "yaepblur=r=4:s=192,"
+        "dblur=angle=30:radius=12,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"

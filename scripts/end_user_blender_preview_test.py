@@ -349,14 +349,21 @@ scene.video_toolkit_ffmpeg_chain = (
     'erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'convolution=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
+    'avgblur=sizeX=4:sizeY=6,'
+    'boxblur=lr=3:lp=2,'
+    'gblur=sigma=1.2:steps=2:sigmaV=0.8,'
+    'smartblur=lr=2:ls=0.8:lt=8,'
+    'sab=lr=2:lpfr=1:ls=12,'
+    'yaepblur=r=4:s=192,'
+    'dblur=angle=30:radius=12,'
     'pseudocolor=preset=viridis:opacity=0.75:index=1,'
     'histeq=strength=0.22:intensity=0.20:antibanding=1,'
     'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
 )
 result = bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert result == {{'FINISHED'}}, result
-assert 'translated colorspace, normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, pseudocolor, histeq, zscale' in scene.video_toolkit_last_translation
-assert 'compositor-only native node(s): 20' in scene.video_toolkit_last_translation
+assert 'translated colorspace, normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur, pseudocolor, histeq, zscale' in scene.video_toolkit_last_translation
+assert 'compositor-only native node(s): 27' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 translated_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Translated Color Chain')]
 for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'HUE_CORRECT', 'TONEMAP', 'WHITE_BALANCE']:
@@ -943,8 +950,8 @@ assert f'Compositor-compatible catalog recipes: {{len(expected_all_recipe_ids)}}
 assert 'VSE-only native tools:' in catalog_coverage_report
 assert 'native_mask_slot: Mask Slot' in catalog_coverage_report
 assert 'Rendered fallback tools:' in catalog_coverage_report
-assert 'Native-translated FFmpeg filters: 54' in catalog_coverage_report
-assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution' in catalog_coverage_report
+assert 'Native-translated FFmpeg filters: 61' in catalog_coverage_report
+assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur' in catalog_coverage_report
 assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_coverage_report
 assert 'Rendered-only FFmpeg filters:' in catalog_coverage_report
 assert 'deflicker' in catalog_coverage_report
@@ -1181,7 +1188,7 @@ result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_CO
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
 assert 'color management:' in scene.video_toolkit_last_compositor_nodes
-assert 'compositor-only filter node(s): 20' in scene.video_toolkit_last_compositor_nodes
+assert 'compositor-only filter node(s): 27' in scene.video_toolkit_last_compositor_nodes
 translated_compositor_summary = scene.video_toolkit_last_compositor_nodes
 translated_compositor_node_types = [
     node.bl_idname
@@ -1207,6 +1214,9 @@ for required in [
     'CompositorNodeFilter',
     'CompositorNodeDilateErode',
     'CompositorNodeConvolve',
+    'CompositorNodeBlur',
+    'CompositorNodeBilateralblur',
+    'CompositorNodeDBlur',
     'CompositorNodeTonemap',
     'CompositorNodeViewer',
     'CompositorNodeOutputFile',
@@ -1224,6 +1234,17 @@ assert tuple(translated_convolve_kernel_node.image.size[:]) == (3, 3)
 translated_convolve_kernel_pixels = list(translated_convolve_kernel_node.image.pixels[:20])
 assert translated_convolve_kernel_pixels[4] < 0.0
 assert translated_convolve_kernel_pixels[16] > 4.0
+translated_gaussian_blur_node = next(node for node in tree.nodes if node.name == 'VTK Translated Gaussian Blur')
+translated_gaussian_blur_size = next(socket for socket in translated_gaussian_blur_node.inputs if socket.name == 'Size').default_value
+assert translated_gaussian_blur_size[0] > translated_gaussian_blur_size[1]
+translated_smart_blur_node = next(node for node in tree.nodes if node.name == 'VTK Translated Smart Blur')
+translated_smart_blur_threshold = next(socket for socket in translated_smart_blur_node.inputs if socket.name == 'Threshold')
+assert translated_smart_blur_threshold.default_value > 0.05
+translated_directional_blur_node = next(node for node in tree.nodes if node.name == 'VTK Translated Directional Blur')
+translated_direction_socket = next(socket for socket in translated_directional_blur_node.inputs if socket.name == 'Direction')
+translated_amount_socket = next(socket for socket in translated_directional_blur_node.inputs if socket.name == 'Amount')
+assert 0.52 < translated_direction_socket.default_value < 0.53
+assert translated_amount_socket.default_value > 0.10
 translated_bright_node = next(node for node in tree.nodes if node.name == 'VTK Translated Bright Contrast')
 translated_contrast_socket = next(socket for socket in translated_bright_node.inputs if socket.name == 'Contrast')
 assert translated_contrast_socket.default_value > 0.0

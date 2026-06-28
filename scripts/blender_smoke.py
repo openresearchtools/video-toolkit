@@ -337,6 +337,13 @@ scene.video_toolkit_ffmpeg_chain = (
     'erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'convolution=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
+    'avgblur=sizeX=4:sizeY=6,'
+    'boxblur=lr=3:lp=2,'
+    'gblur=sigma=1.2:steps=2:sigmaV=0.8,'
+    'smartblur=lr=2:ls=0.8:lt=8,'
+    'sab=lr=2:lpfr=1:ls=12,'
+    'yaepblur=r=4:s=192,'
+    'dblur=angle=30:radius=12,'
     'vibrance=intensity=0.4,'
     'pseudocolor=preset=viridis:opacity=0.75:index=1,'
     'exposure=exposure=0.25:black=0.02,'
@@ -344,8 +351,8 @@ scene.video_toolkit_ffmpeg_chain = (
     'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
 )
 bpy.ops.video_toolkit.translate_ffmpeg_chain()
-assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, vibrance, pseudocolor, exposure, histeq, zscale' in scene.video_toolkit_last_translation
-assert 'compositor-only native node(s): 20' in scene.video_toolkit_last_translation
+assert 'translated colorspace, normalize, colorlevels, colorcorrect, colorcontrast, selectivecolor, monochrome, colorize, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur, vibrance, pseudocolor, exposure, histeq, zscale' in scene.video_toolkit_last_translation
+assert 'compositor-only native node(s): 27' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 assert scene.sequencer_colorspace_settings.name in {'sRGB', 'Gamma 2.2 Encoded Rec.709', 'Gamma 2.4 Encoded Rec.709', 'Rec.1886', 'Linear Rec.709'}
 translated_types = [m.type for m in strip.modifiers if m.name.startswith('VTK Translated Color Chain')]
@@ -470,9 +477,9 @@ assert 'VSE-only native tools:' in catalog_report
 assert 'native_mask_slot: Mask Slot' in catalog_report
 assert 'Rendered fallback tools:' in catalog_report
 assert 'Tracked native compositor node library:' in catalog_report
-assert 'Native-translated FFmpeg filters: 54' in catalog_report
+assert 'Native-translated FFmpeg filters: 61' in catalog_report
 assert 'Native-translated FFmpeg color filters: eq, hue, huesaturation' in catalog_report
-assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution' in catalog_report
+assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, alphaextract, extractplanes, premultiply, unpremultiply, shuffleplanes, elbg, unsharp, sobel, prewitt, kirsch, edgedetect, erosion, dilation, convolution, avgblur, boxblur, gblur, smartblur, sab, yaepblur, dblur' in catalog_report
 assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_report
 assert 'Rendered fallback FFmpeg filters:' in catalog_report
 assert 'Rendered-only FFmpeg filters:' in catalog_report
@@ -815,12 +822,19 @@ scene.video_toolkit_ffmpeg_chain = (
     'erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'convolution=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
+    'avgblur=sizeX=4:sizeY=6,'
+    'boxblur=lr=3:lp=2,'
+    'gblur=sigma=1.2:steps=2:sigmaV=0.8,'
+    'smartblur=lr=2:ls=0.8:lt=8,'
+    'sab=lr=2:lpfr=1:ls=12,'
+    'yaepblur=r=4:s=192,'
+    'dblur=angle=30:radius=12,'
     'histeq=strength=0.20:intensity=0.18'
 )
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_COLOR')
 assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
 assert 'color management:' in scene.video_toolkit_last_compositor_nodes
-assert 'compositor-only filter node(s): 20' in scene.video_toolkit_last_compositor_nodes
+assert 'compositor-only filter node(s): 27' in scene.video_toolkit_last_compositor_nodes
 translated_node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK Translated ')]
 for required in [
     'CompositorNodeMovieClip',
@@ -841,6 +855,9 @@ for required in [
     'CompositorNodeFilter',
     'CompositorNodeDilateErode',
     'CompositorNodeConvolve',
+    'CompositorNodeBlur',
+    'CompositorNodeBilateralblur',
+    'CompositorNodeDBlur',
     'CompositorNodeTonemap',
     'CompositorNodeViewer',
     'CompositorNodeOutputFile',
@@ -858,6 +875,17 @@ assert tuple(translated_kernel_node.image.size[:]) == (3, 3)
 translated_kernel_pixels = list(translated_kernel_node.image.pixels[:20])
 assert translated_kernel_pixels[4] < 0.0
 assert translated_kernel_pixels[16] > 4.0
+translated_gaussian_blur = next(node for node in tree.nodes if node.name == 'VTK Translated Gaussian Blur')
+translated_gaussian_size = next(socket for socket in translated_gaussian_blur.inputs if socket.name == 'Size').default_value
+assert translated_gaussian_size[0] > translated_gaussian_size[1]
+translated_smart_blur = next(node for node in tree.nodes if node.name == 'VTK Translated Smart Blur')
+translated_smart_threshold = next(socket for socket in translated_smart_blur.inputs if socket.name == 'Threshold')
+assert translated_smart_threshold.default_value > 0.05
+translated_directional_blur = next(node for node in tree.nodes if node.name == 'VTK Translated Directional Blur')
+translated_direction_socket = next(socket for socket in translated_directional_blur.inputs if socket.name == 'Direction')
+translated_amount_socket = next(socket for socket in translated_directional_blur.inputs if socket.name == 'Amount')
+assert 0.52 < translated_direction_socket.default_value < 0.53
+assert translated_amount_socket.default_value > 0.10
 translated_bright = next(node for node in tree.nodes if node.name == 'VTK Translated Bright Contrast')
 translated_contrast = next(socket for socket in translated_bright.inputs if socket.name == 'Contrast')
 assert translated_contrast.default_value > 0.0

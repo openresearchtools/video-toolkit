@@ -7,7 +7,10 @@ from video_toolkit.ffmpeg_native import (
     convolution_to_blender_compositor,
     colorlevels_to_blender_stack,
     curves_to_blender_stack,
+    blur_to_blender_compositor,
+    directional_blur_to_blender_compositor,
     edge_filter_to_blender_compositor,
+    edge_preserving_blur_to_blender_compositor,
     elbg_to_blender_compositor,
     eq_to_blender_stack,
     exposure_to_blender_stack,
@@ -423,6 +426,58 @@ def test_convolution_translates_to_native_convolve_graph_specs():
     assert [node_type for node_type, _settings in result.compositor_nodes] == ["CONVOLVE"]
 
 
+def test_blur_filters_translate_to_native_blender_blur_nodes():
+    avg = blur_to_blender_compositor("avgblur", sizeX=4, sizeY=6)
+    assert avg[0][0] == "BLUR"
+    assert avg[0][1]["blur_type"] == "Flat"
+    assert avg[0][1]["size"] == (4.0, 6.0)
+
+    box = blur_to_blender_compositor("boxblur", lr=3, lp=2)
+    assert box[0][1]["label"] == "Box Blur"
+    assert box[0][1]["size"] == (6.0, 6.0)
+
+    gaussian = blur_to_blender_compositor("gblur", sigma=1.2, steps=2, sigmaV=0.8)
+    assert gaussian[0][1]["blur_type"] == "Gaussian"
+    assert gaussian[0][1]["size"][0] > gaussian[0][1]["size"][1]
+
+    smart = edge_preserving_blur_to_blender_compositor("smartblur", lr=2.0, ls=0.8, lt=8)
+    assert smart[0][0] == "BILATERAL_BLUR"
+    assert smart[0][1]["size"] >= 1
+    assert smart[0][1]["threshold"] > 0.05
+
+    sab = edge_preserving_blur_to_blender_compositor("sab", lr=2.0, lpfr=1.0, ls=12)
+    yaep = edge_preserving_blur_to_blender_compositor("yaepblur", r=4, s=192)
+    assert sab[0][1]["label"] == "Shape Adaptive Blur"
+    assert yaep[0][1]["label"] == "Edge Preserving Blur"
+    assert yaep[0][1]["threshold"] > sab[0][1]["threshold"]
+
+    directional = directional_blur_to_blender_compositor(angle=30, radius=12)
+    assert directional[0][0] == "DIRECTIONAL_BLUR"
+    assert directional[0][1]["samples"] == 24
+    assert 0.52 < directional[0][1]["direction"] < 0.53
+
+    result = translate_filter_chain(
+        "avgblur=sizeX=4:sizeY=6,"
+        "boxblur=lr=3:lp=2,"
+        "gblur=sigma=1.2:steps=2:sigmaV=0.8,"
+        "smartblur=lr=2:ls=0.8:lt=8,"
+        "sab=lr=2:lpfr=1:ls=12,"
+        "yaepblur=r=4:s=192,"
+        "dblur=angle=30:radius=12"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("avgblur", "boxblur", "gblur", "smartblur", "sab", "yaepblur", "dblur")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "BLUR",
+        "BLUR",
+        "BLUR",
+        "BILATERAL_BLUR",
+        "BILATERAL_BLUR",
+        "BILATERAL_BLUR",
+        "DIRECTIONAL_BLUR",
+    ]
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -463,6 +518,13 @@ def test_filter_chain_supports_more_color_grading_filters():
         "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "convolution=0m='0 -1 0 -1 5 -1 0 -1 0':0rdiv=1:0bias=0,"
+        "avgblur=sizeX=4:sizeY=6,"
+        "boxblur=lr=3:lp=2,"
+        "gblur=sigma=1.2:steps=2:sigmaV=0.8,"
+        "smartblur=lr=2:ls=0.8:lt=8,"
+        "sab=lr=2:lpfr=1:ls=12,"
+        "yaepblur=r=4:s=192,"
+        "dblur=angle=30:radius=12,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -508,6 +570,13 @@ def test_filter_chain_supports_more_color_grading_filters():
         "erosion",
         "dilation",
         "convolution",
+        "avgblur",
+        "boxblur",
+        "gblur",
+        "smartblur",
+        "sab",
+        "yaepblur",
+        "dblur",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -516,7 +585,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

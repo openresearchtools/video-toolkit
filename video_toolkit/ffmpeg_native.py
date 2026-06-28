@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import pi
 from typing import Any
 
 BlenderStack = tuple[tuple[str, dict[str, Any]], ...]
@@ -69,6 +70,13 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "erosion",
     "dilation",
     "convolution",
+    "avgblur",
+    "boxblur",
+    "gblur",
+    "smartblur",
+    "sab",
+    "yaepblur",
+    "dblur",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -246,6 +254,18 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(convolution_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Convolution is translated to Blender compositor Convolve nodes with generated kernel images.")
+        elif name in {"avgblur", "boxblur", "gblur"}:
+            compositor_nodes.extend(blur_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is translated to Blender compositor Blur nodes.")
+        elif name in {"smartblur", "sab", "yaepblur"}:
+            compositor_nodes.extend(edge_preserving_blur_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is approximated with Blender compositor Bilateral Blur nodes.")
+        elif name == "dblur":
+            compositor_nodes.extend(directional_blur_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Dblur is translated to Blender compositor Directional Blur nodes.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -1378,6 +1398,123 @@ def convolution_to_blender_compositor(**options: str | int | float) -> Composito
     )
 
 
+def blur_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    if name == "avgblur":
+        size_x = _clamp(_float(_option(options, "sizeX", "sizex", "arg0", default=1), 1.0), 1.0, 1024.0)
+        size_y = _clamp(_float(_option(options, "sizeY", "sizey", "arg2", default=0), 0.0), 0.0, 1024.0)
+        if size_y <= 0.0:
+            size_y = size_x
+        blur_type = "Flat"
+        samples = 1
+    elif name == "boxblur":
+        radius = _radius_expression(_option(options, "luma_radius", "lr", "arg0", default=2), 2.0)
+        power = _clamp(_float(_option(options, "luma_power", "lp", "arg1", default=2), 2.0), 0.0, 12.0)
+        scale = max(1.0, power)
+        size_x = _clamp(radius * scale, 0.0, 1024.0)
+        size_y = size_x
+        blur_type = "Flat"
+        samples = int(max(1, round(power)))
+    else:
+        sigma = _clamp(_float(_option(options, "sigma", "arg0", default=0.5), 0.5), 0.0, 1024.0)
+        steps = _clamp(_float(_option(options, "steps", "arg1", default=1), 1.0), 1.0, 6.0)
+        sigma_v = _float(_option(options, "sigmaV", "sigmav", "arg3", default=-1), -1.0)
+        size_x = _clamp(max(0.0, sigma) * (2.0 + steps * 0.35), 0.0, 1024.0)
+        size_y = _clamp((sigma_v if sigma_v >= 0.0 else sigma) * (2.0 + steps * 0.35), 0.0, 1024.0)
+        blur_type = "Gaussian"
+        samples = int(round(steps))
+    return (
+        (
+            "BLUR",
+            {
+                "label": {
+                    "avgblur": "Average Blur",
+                    "boxblur": "Box Blur",
+                    "gblur": "Gaussian Blur",
+                }.get(name, "Blur"),
+                "size": (size_x, size_y),
+                "blur_type": blur_type,
+                "extend_bounds": False,
+                "separable": True,
+                "samples": samples,
+                "planes": str(_option(options, "planes", "arg1" if name == "avgblur" else "arg2", default=15)),
+                "source": name,
+            },
+        ),
+    )
+
+
+def edge_preserving_blur_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    if name == "smartblur":
+        radius = _clamp(_float(_option(options, "luma_radius", "lr", "arg0", default=1), 1.0), 0.1, 5.0)
+        strength = _float(_option(options, "luma_strength", "ls", "arg1", default=1), 1.0)
+        threshold = abs(_float(_option(options, "luma_threshold", "lt", "arg2", default=0), 0.0)) / 30.0
+        size = radius * max(0.25, abs(strength))
+        threshold = _clamp(0.05 + threshold * 0.45, 0.0, 1.0)
+    elif name == "sab":
+        radius = _clamp(_float(_option(options, "luma_radius", "lr", "arg0", default=1), 1.0), 0.1, 4.0)
+        pre_radius = _clamp(_float(_option(options, "luma_pre_filter_radius", "lpfr", "arg1", default=1), 1.0), 0.1, 2.0)
+        strength = _clamp(_float(_option(options, "luma_strength", "ls", "arg2", default=1), 1.0), 0.1, 100.0)
+        size = radius + pre_radius * 0.5
+        threshold = _clamp(0.04 + strength / 250.0, 0.0, 1.0)
+    else:
+        radius = _clamp(_float(_option(options, "radius", "r", "arg0", default=3), 3.0), 0.0, 256.0)
+        sigma = _clamp(_float(_option(options, "sigma", "s", "arg2", default=128), 128.0), 1.0, 65535.0)
+        strength = sigma / 128.0
+        size = radius
+        threshold = _clamp(sigma / 512.0, 0.0, 1.0)
+    return (
+        (
+            "BILATERAL_BLUR",
+            {
+                "label": {
+                    "smartblur": "Smart Blur",
+                    "sab": "Shape Adaptive Blur",
+                    "yaepblur": "Edge Preserving Blur",
+                }.get(name, "Bilateral Blur"),
+                "size": int(_clamp(round(size), 1.0, 128.0)),
+                "threshold": threshold,
+                "strength": strength,
+                "source": name,
+            },
+        ),
+    )
+
+
+def directional_blur_to_blender_compositor(
+    *,
+    angle: str | float = 45.0,
+    radius: str | float = 5.0,
+    planes: str | int = 15,
+    arg0: str | float | None = None,
+    arg1: str | float | None = None,
+    arg2: str | int | None = None,
+    **_unused: str,
+) -> CompositorStack:
+    angle_value = _float(arg0 if arg0 is not None else angle, 45.0) % 360.0
+    radius_value = _clamp(_float(arg1 if arg1 is not None else radius, 5.0), 0.0, 8192.0)
+    planes_value = arg2 if arg2 is not None else planes
+    return (
+        (
+            "DIRECTIONAL_BLUR",
+            {
+                "label": "Directional Blur",
+                "samples": int(_clamp(round(radius_value * 2.0), 1.0, 256.0)),
+                "center": (0.5, 0.5),
+                "rotation": 0.0,
+                "scale": 1.0,
+                "amount": _clamp(radius_value / 100.0, 0.0, 1.0),
+                "direction": angle_value * pi / 180.0,
+                "angle": angle_value,
+                "radius": radius_value,
+                "planes": str(planes_value),
+                "source": "dblur",
+            },
+        ),
+    )
+
+
 def pseudocolor_to_blender_stack(
     *,
     preset: str | int = "turbo",
@@ -2055,6 +2192,26 @@ def _unsharp_size(value: str | int | None) -> int:
     parsed = int(round(_float(value, 5.0)))
     parsed = int(_clamp(float(parsed), 3.0, 23.0))
     return parsed if parsed % 2 == 1 else min(23, parsed + 1)
+
+
+def _option(options: dict[str, object], *keys: str, default=None):
+    for key in keys:
+        value = options.get(key)
+        if value not in (None, ""):
+            return value
+    return default
+
+
+def _radius_expression(value: str | int | float | None, default: float) -> float:
+    parsed = _float(value, float("nan"))
+    if parsed == parsed:
+        return parsed
+    text = str(value or "").replace("/", " ").replace("*", " ").replace("+", " ").replace("-", " ")
+    for token in text.split():
+        parsed = _float(token, float("nan"))
+        if parsed == parsed:
+            return parsed
+    return default
 
 
 def _parse_convolution_values(value: str | int | float | None) -> tuple[float, ...]:
