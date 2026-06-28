@@ -25,6 +25,7 @@ from video_toolkit.ffmpeg_native import (
     normalize_to_blender_stack,
     premultiply_to_blender_compositor,
     pseudocolor_to_blender_stack,
+    restoration_filter_to_blender_compositor,
     rgbashift_to_blender_compositor,
     selectivecolor_to_blender_stack,
     shuffleplanes_to_blender_compositor,
@@ -142,12 +143,13 @@ def test_selectivecolor_translates_to_hue_zones_and_tonal_balance():
 
 def test_filter_chain_reports_non_native_filters():
     result = translate_filter_chain(
-        "normalize=smoothing=30,eq=contrast=1.08:saturation=1.1:gamma=1.02,unsharp=5:5:0.45,hqdn3d=1.5:1.5:6:6"
+        "normalize=smoothing=30,eq=contrast=1.08:saturation=1.1:gamma=1.02,unsharp=5:5:0.45,hqdn3d=1.5:1.5:6:6,tmix=frames=5"
     )
     assert "normalize" in result.supported_filters
     assert "eq" in result.supported_filters
     assert "unsharp" in result.supported_filters
-    assert result.unsupported_filters == ("hqdn3d",)
+    assert "hqdn3d" in result.supported_filters
+    assert result.unsupported_filters == ("tmix",)
     assert [modifier_type for modifier_type, _settings in result.stack][:5] == [
         "CURVES",
         "TONEMAP",
@@ -155,7 +157,7 @@ def test_filter_chain_reports_non_native_filters():
         "COLOR_BALANCE",
         "HUE_CORRECT",
     ]
-    assert result.compositor_nodes[0][0] == "FILTER"
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["FILTER", "DENOISE"]
 
 
 def test_filter_chain_supports_color_space_metadata():
@@ -478,6 +480,72 @@ def test_blur_filters_translate_to_native_blender_blur_nodes():
     ]
 
 
+def test_restoration_filters_translate_to_native_blender_nodes():
+    hq = restoration_filter_to_blender_compositor("hqdn3d", arg0=1.5, arg1=1.5, arg2=6, arg3=6)
+    assert hq[0][0] == "DENOISE"
+    assert hq[0][1]["quality"] == "High"
+    assert hq[0][1]["strength"] > 4.0
+
+    nlmeans = restoration_filter_to_blender_compositor("nlmeans", s=2.5, p=7, r=9)
+    bm3d = restoration_filter_to_blender_compositor("bm3d", sigma=3.0, group=8, range=12)
+    ow = restoration_filter_to_blender_compositor("owdenoise", ls=2.0, cs=1.5)
+    vague = restoration_filter_to_blender_compositor("vaguedenoiser", threshold=2.5, percent=80)
+    ata = restoration_filter_to_blender_compositor("atadenoise", s=9)
+    assert [item[0][0] for item in (nlmeans, bm3d, ow, vague, ata)] == ["DENOISE"] * 5
+    assert nlmeans[0][1]["label"] == "Non-Local Means Denoise"
+    assert bm3d[0][1]["label"] == "BM3D Denoise"
+
+    median = restoration_filter_to_blender_compositor("median", radius=3, radiusV=5, percentile=0.55)
+    dedot = restoration_filter_to_blender_compositor("dedot", lt=0.08, tl=0.09, tc=0.06, ct=0.02)
+    assert median[0][0] == "DESPECKLE"
+    assert dedot[0][0] == "DESPECKLE"
+    assert median[0][1]["neighbor_threshold"] > median[0][1]["color_threshold"]
+
+    deband = restoration_filter_to_blender_compositor("deband", **{"1thr": 0.03, "2thr": 0.025, "3thr": 0.02, "range": 20})
+    deblock = restoration_filter_to_blender_compositor("deblock", block=16, alpha=0.12, beta=0.08)
+    assert deband[0][0] == "BILATERAL_BLUR"
+    assert deblock[0][0] == "ANTI_ALIASING"
+    assert deblock[0][1]["contrast_limit"] > 2.0
+
+    result = translate_filter_chain(
+        "hqdn3d=1.5:1.5:6:6,"
+        "nlmeans=s=2.5:p=7:r=9,"
+        "bm3d=sigma=3:group=8:range=12,"
+        "owdenoise=ls=2:cs=1.5,"
+        "vaguedenoiser=threshold=2.5:percent=80,"
+        "atadenoise=s=9,"
+        "median=radius=3:radiusV=5:percentile=0.55,"
+        "dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,"
+        "deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,"
+        "deblock=block=16:alpha=0.12:beta=0.08"
+    )
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == (
+        "hqdn3d",
+        "nlmeans",
+        "bm3d",
+        "owdenoise",
+        "vaguedenoiser",
+        "atadenoise",
+        "median",
+        "dedot",
+        "deband",
+        "deblock",
+    )
+    assert [node_type for node_type, _settings in result.compositor_nodes] == [
+        "DENOISE",
+        "DENOISE",
+        "DENOISE",
+        "DENOISE",
+        "DENOISE",
+        "DENOISE",
+        "DESPECKLE",
+        "DESPECKLE",
+        "BILATERAL_BLUR",
+        "ANTI_ALIASING",
+    ]
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -525,6 +593,16 @@ def test_filter_chain_supports_more_color_grading_filters():
         "sab=lr=2:lpfr=1:ls=12,"
         "yaepblur=r=4:s=192,"
         "dblur=angle=30:radius=12,"
+        "hqdn3d=1.5:1.5:6:6,"
+        "nlmeans=s=2.5:p=7:r=9,"
+        "bm3d=sigma=3:group=8:range=12,"
+        "owdenoise=ls=2:cs=1.5,"
+        "vaguedenoiser=threshold=2.5:percent=80,"
+        "atadenoise=s=9,"
+        "median=radius=3:radiusV=5:percentile=0.55,"
+        "dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,"
+        "deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,"
+        "deblock=block=16:alpha=0.12:beta=0.08,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -577,6 +655,16 @@ def test_filter_chain_supports_more_color_grading_filters():
         "sab",
         "yaepblur",
         "dblur",
+        "hqdn3d",
+        "nlmeans",
+        "bm3d",
+        "owdenoise",
+        "vaguedenoiser",
+        "atadenoise",
+        "median",
+        "dedot",
+        "deband",
+        "deblock",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -585,7 +673,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "DENOISE", "DESPECKLE", "ANTI_ALIASING"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

@@ -77,6 +77,16 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "sab",
     "yaepblur",
     "dblur",
+    "hqdn3d",
+    "nlmeans",
+    "bm3d",
+    "owdenoise",
+    "vaguedenoiser",
+    "atadenoise",
+    "median",
+    "dedot",
+    "deband",
+    "deblock",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -266,6 +276,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(directional_blur_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Dblur is translated to Blender compositor Directional Blur nodes.")
+        elif name in {"hqdn3d", "nlmeans", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise", "median", "dedot", "deband", "deblock"}:
+            compositor_nodes.extend(restoration_filter_to_blender_compositor(name, **args))
+            supported.append(name)
+            notes.append(f"{name} is translated to Blender compositor restoration nodes; temporal behavior is approximated spatially where Blender has no temporal node.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -1510,6 +1524,140 @@ def directional_blur_to_blender_compositor(
                 "radius": radius_value,
                 "planes": str(planes_value),
                 "source": "dblur",
+            },
+        ),
+    )
+
+
+def restoration_filter_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    if name in {"hqdn3d", "nlmeans", "bm3d", "owdenoise", "vaguedenoiser", "atadenoise"}:
+        return _denoise_to_blender_compositor(name, options)
+    if name in {"median", "dedot"}:
+        return _despeckle_to_blender_compositor(name, options)
+    if name == "deband":
+        return _deband_to_blender_compositor(options)
+    if name == "deblock":
+        return _deblock_to_blender_compositor(options)
+    return ()
+
+
+def _denoise_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    if source == "hqdn3d":
+        luma_spatial = _float(_option(options, "luma_spatial", "arg0", default=1.5), 1.5)
+        chroma_spatial = _float(_option(options, "chroma_spatial", "arg1", default=luma_spatial), luma_spatial)
+        luma_tmp = _float(_option(options, "luma_tmp", "arg2", default=0.0), 0.0)
+        chroma_tmp = _float(_option(options, "chroma_tmp", "arg3", default=0.0), 0.0)
+        strength = luma_spatial + chroma_spatial * 0.75 + luma_tmp * 0.30 + chroma_tmp * 0.20
+    elif source == "nlmeans":
+        strength = _float(_option(options, "s", "arg0", default=1.0), 1.0) + _float(_option(options, "p", "arg1", default=7), 7.0) / 12.0 + _float(_option(options, "r", "arg2", default=15), 15.0) / 24.0
+    elif source == "bm3d":
+        strength = _float(_option(options, "sigma", "arg0", default=1.0), 1.0) + _float(_option(options, "group", default=1), 1.0) / 48.0 + _float(_option(options, "range", default=9), 9.0) / 32.0
+    elif source == "owdenoise":
+        strength = (_float(_option(options, "luma_strength", "ls", "arg1", default=1.0), 1.0) + _float(_option(options, "chroma_strength", "cs", "arg2", default=1.0), 1.0)) / 2.0
+    elif source == "vaguedenoiser":
+        threshold = _float(_option(options, "threshold", "arg0", default=2.0), 2.0)
+        percent = _float(_option(options, "percent", "arg3", default=85.0), 85.0) / 100.0
+        strength = threshold * percent
+    else:
+        window = _float(_option(options, "s", "arg0", default=9), 9.0)
+        sigma = _float(_option(options, "0s", default=32767.0), 32767.0) / 32767.0
+        strength = window / 6.0 + sigma
+    strength = _clamp(strength, 0.0, 30.0)
+    quality = "High" if strength >= 2.5 else "Balanced"
+    prefilter = "Accurate" if strength >= 1.0 else "Fast"
+    return (
+        (
+            "DENOISE",
+            {
+                "label": {
+                    "hqdn3d": "High Quality Denoise",
+                    "nlmeans": "Non-Local Means Denoise",
+                    "bm3d": "BM3D Denoise",
+                    "owdenoise": "Wavelet Denoise",
+                    "vaguedenoiser": "Wavelet Threshold Denoise",
+                    "atadenoise": "Adaptive Temporal Denoise",
+                }.get(source, "Denoise"),
+                "hdr": strength >= 6.0,
+                "prefilter": prefilter,
+                "quality": quality,
+                "strength": strength,
+                "source": source,
+                "approximation": "Blender compositor Denoise is spatial; FFmpeg temporal accumulation is represented as editable spatial denoise strength.",
+            },
+        ),
+    )
+
+
+def _despeckle_to_blender_compositor(source: str, options: dict[str, object]) -> CompositorStack:
+    if source == "median":
+        radius = _clamp(_float(_option(options, "radius", "arg0", default=1), 1.0), 1.0, 127.0)
+        radius_v = _float(_option(options, "radiusV", "radiusv", "arg2", default=0), 0.0)
+        percentile = _clamp(_float(_option(options, "percentile", "arg3", default=0.5), 0.5), 0.0, 1.0)
+        factor = _clamp((radius + max(radius_v, radius) * 0.5) / 8.0, 0.05, 1.0)
+        color_threshold = _clamp(0.15 + abs(percentile - 0.5), 0.0, 1.0)
+        neighbor_threshold = _clamp(0.25 + radius / 16.0, 0.0, 1.0)
+    else:
+        lt = _clamp(_float(_option(options, "lt", "arg1", default=0.079), 0.079), 0.0, 1.0)
+        tl = _clamp(_float(_option(options, "tl", "arg2", default=0.079), 0.079), 0.0, 1.0)
+        tc = _clamp(_float(_option(options, "tc", "arg3", default=0.058), 0.058), 0.0, 1.0)
+        ct = _clamp(_float(_option(options, "ct", "arg4", default=0.019), 0.019), 0.0, 1.0)
+        factor = _clamp(0.35 + (lt + tl + tc + ct), 0.0, 1.0)
+        color_threshold = _clamp(lt + ct, 0.0, 1.0)
+        neighbor_threshold = _clamp(tl + tc, 0.0, 1.0)
+    return (
+        (
+            "DESPECKLE",
+            {
+                "label": "Median Despeckle" if source == "median" else "Dot Crawl Despeckle",
+                "factor": factor,
+                "color_threshold": color_threshold,
+                "neighbor_threshold": neighbor_threshold,
+                "source": source,
+            },
+        ),
+    )
+
+
+def _deband_to_blender_compositor(options: dict[str, object]) -> CompositorStack:
+    thresholds = (
+        _float(_option(options, "1thr", default=0.02), 0.02),
+        _float(_option(options, "2thr", default=0.02), 0.02),
+        _float(_option(options, "3thr", default=0.02), 0.02),
+        _float(_option(options, "4thr", default=0.02), 0.02),
+    )
+    range_value = abs(_float(_option(options, "range", "r", "arg4", default=16), 16.0))
+    threshold = _clamp(sum(thresholds) / len(thresholds) * 8.0, 0.0, 1.0)
+    return (
+        (
+            "BILATERAL_BLUR",
+            {
+                "label": "Deband Smooth",
+                "size": int(_clamp(round(range_value / 4.0), 1.0, 128.0)),
+                "threshold": threshold,
+                "strength": range_value,
+                "source": "deband",
+            },
+        ),
+    )
+
+
+def _deblock_to_blender_compositor(options: dict[str, object]) -> CompositorStack:
+    block = _clamp(_float(_option(options, "block", "arg1", default=8), 8.0), 4.0, 512.0)
+    alpha = _clamp(_float(_option(options, "alpha", "arg2", default=0.098), 0.098), 0.0, 1.0)
+    beta = _clamp(_float(_option(options, "beta", "arg3", default=0.05), 0.05), 0.0, 1.0)
+    gamma = _clamp(_float(_option(options, "gamma", "arg4", default=0.05), 0.05), 0.0, 1.0)
+    delta = _clamp(_float(_option(options, "delta", "arg5", default=0.05), 0.05), 0.0, 1.0)
+    return (
+        (
+            "ANTI_ALIASING",
+            {
+                "label": "Deblock Smoothing",
+                "threshold": _clamp(alpha + beta * 0.5, 0.0, 1.0),
+                "contrast_limit": _clamp(1.0 + block / 8.0, 1.0, 12.0),
+                "corner_rounding": _clamp(gamma + delta + block / 256.0, 0.0, 1.0),
+                "block": block,
+                "source": "deblock",
             },
         ),
     )

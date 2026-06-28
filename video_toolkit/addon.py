@@ -3564,6 +3564,9 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         "BLUR": "Blur",
         "BILATERAL_BLUR": "Bilateral Blur",
         "DIRECTIONAL_BLUR": "Directional Blur",
+        "DENOISE": "Denoise",
+        "DESPECKLE": "Despeckle",
+        "ANTI_ALIASING": "Anti-Aliasing",
     }
     node_label = str(settings.get("label") or labels.get(compositor_type, compositor_type.title()))
     label = f"VTK {label_prefix} {node_label}"
@@ -3633,6 +3636,31 @@ def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: 
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "dblur")
         node["video_toolkit_blur_angle"] = float(settings.get("angle", 0.0) or 0.0)
         node["video_toolkit_blur_radius"] = float(settings.get("radius", 0.0) or 0.0)
+        return node
+    if compositor_type == "DENOISE":
+        node = _new_compositor_node(tree, "CompositorNodeDenoise", label, index, origin=origin)
+        _set_input_default(node, "HDR", bool(settings.get("hdr", False)))
+        _set_input_default(node, "Prefilter", settings.get("prefilter", "Accurate"))
+        _set_input_default(node, "Quality", settings.get("quality", "Balanced"))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "denoise")
+        node["video_toolkit_denoise_strength"] = float(settings.get("strength", 1.0) or 1.0)
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
+        return node
+    if compositor_type == "DESPECKLE":
+        node = _new_compositor_node(tree, "CompositorNodeDespeckle", label, index, origin=origin)
+        _set_input_default_candidates(node, ("Factor", "Fac"), settings.get("factor", 0.35))
+        _set_input_default(node, "Color Threshold", settings.get("color_threshold", 0.35))
+        _set_input_default(node, "Neighbor Threshold", settings.get("neighbor_threshold", 0.35))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "median")
+        return node
+    if compositor_type == "ANTI_ALIASING":
+        node = _new_compositor_node(tree, "CompositorNodeAntiAliasing", label, index, origin=origin)
+        _set_input_default(node, "Threshold", settings.get("threshold", 0.2))
+        _set_input_default(node, "Contrast Limit", settings.get("contrast_limit", 2.0))
+        _set_input_default(node, "Corner Rounding", settings.get("corner_rounding", 0.25))
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "deblock")
+        node["video_toolkit_block_size"] = float(settings.get("block", 8.0) or 8.0)
         return node
     return None
 
@@ -4354,6 +4382,16 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "sab=lr=2:lpfr=1:ls=12,"
         "yaepblur=r=4:s=192,"
         "dblur=angle=30:radius=12,"
+        "hqdn3d=1.5:1.5:6:6,"
+        "nlmeans=s=2.5:p=7:r=9,"
+        "bm3d=sigma=3:group=8:range=12,"
+        "owdenoise=ls=2:cs=1.5,"
+        "vaguedenoiser=threshold=2.5:percent=80,"
+        "atadenoise=s=9,"
+        "median=radius=3:radiusV=5:percentile=0.55,"
+        "dedot=lt=0.08:tl=0.09:tc=0.06:ct=0.02,"
+        "deband=1thr=0.03:2thr=0.025:3thr=0.02:range=20,"
+        "deblock=block=16:alpha=0.12:beta=0.08,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"
