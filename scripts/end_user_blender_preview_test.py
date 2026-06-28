@@ -333,14 +333,16 @@ scene.video_toolkit_ffmpeg_chain = (
     'colorkey=color=blue:similarity=0.10:blend=0.03,'
     'hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,'
     'lumakey=threshold=0.20:tolerance=0.08:softness=0.02,'
+    'rgbashift=rh=4:rv=-2:bh=-3:bv=2,'
+    'chromashift=cbh=2:cbv=-1:crh=-2:crv=1,'
     'pseudocolor=preset=viridis:opacity=0.75:index=1,'
     'histeq=strength=0.22:intensity=0.20:antibanding=1,'
     'zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full'
 )
 result = bpy.ops.video_toolkit.translate_ffmpeg_chain()
 assert result == {{'FINISHED'}}, result
-assert 'translated colorspace, normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, greyedge, chromakey, colorkey, hsvkey, lumakey, pseudocolor, histeq, zscale' in scene.video_toolkit_last_translation
-assert 'compositor-only native node(s): 4' in scene.video_toolkit_last_translation
+assert 'translated colorspace, normalize, eq, colorbalance, colorcorrect, colorcontrast, selectivecolor, colortemperature, greyedge, chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift, pseudocolor, histeq, zscale' in scene.video_toolkit_last_translation
+assert 'compositor-only native node(s): 6' in scene.video_toolkit_last_translation
 assert 'color management:' in scene.video_toolkit_last_translation
 translated_types = [modifier.type for modifier in strip.modifiers if modifier.name.startswith('VTK Translated Color Chain')]
 for required in ['BRIGHT_CONTRAST', 'COLOR_BALANCE', 'HUE_CORRECT', 'TONEMAP', 'WHITE_BALANCE']:
@@ -366,6 +368,8 @@ assert 'chromakey' in translated_workflow_supported
 assert 'colorkey' in translated_workflow_supported
 assert 'hsvkey' in translated_workflow_supported
 assert 'lumakey' in translated_workflow_supported
+assert 'rgbashift' in translated_workflow_supported
+assert 'chromashift' in translated_workflow_supported
 assert 'pseudocolor' in translated_workflow_supported
 assert 'zscale' in translated_workflow_supported
 translated_workflow_modifier_types = [
@@ -391,6 +395,9 @@ for required in [
     'CompositorNodeChromaMatte',
     'CompositorNodeColorMatte',
     'CompositorNodeLumaMatte',
+    'CompositorNodeSeparateColor',
+    'CompositorNodeTranslate',
+    'CompositorNodeCombineColor',
     'CompositorNodeTonemap',
     'CompositorNodeLevels',
     'CompositorNodeViewer',
@@ -907,8 +914,8 @@ assert f'Compositor-compatible catalog recipes: {{len(expected_all_recipe_ids)}}
 assert 'VSE-only native tools:' in catalog_coverage_report
 assert 'native_mask_slot: Mask Slot' in catalog_coverage_report
 assert 'Rendered fallback tools:' in catalog_coverage_report
-assert 'Native-translated FFmpeg filters: 38' in catalog_coverage_report
-assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey' in catalog_coverage_report
+assert 'Native-translated FFmpeg filters: 40' in catalog_coverage_report
+assert 'Native compositor-only FFmpeg filters: chromakey, colorkey, hsvkey, lumakey, rgbashift, chromashift' in catalog_coverage_report
 assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_coverage_report
 assert 'Rendered-only FFmpeg filters:' in catalog_coverage_report
 assert 'deflicker' in catalog_coverage_report
@@ -1145,7 +1152,7 @@ result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='TRANSLATED_CO
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_compositor_nodes.startswith('translated compositor')
 assert 'color management:' in scene.video_toolkit_last_compositor_nodes
-assert 'compositor-only filter node(s): 4' in scene.video_toolkit_last_compositor_nodes
+assert 'compositor-only filter node(s): 6' in scene.video_toolkit_last_compositor_nodes
 translated_compositor_summary = scene.video_toolkit_last_compositor_nodes
 translated_compositor_node_types = [
     node.bl_idname
@@ -1162,6 +1169,9 @@ for required in [
     'CompositorNodeChromaMatte',
     'CompositorNodeColorMatte',
     'CompositorNodeLumaMatte',
+    'CompositorNodeSeparateColor',
+    'CompositorNodeTranslate',
+    'CompositorNodeCombineColor',
     'CompositorNodeTonemap',
     'CompositorNodeViewer',
     'CompositorNodeOutputFile',

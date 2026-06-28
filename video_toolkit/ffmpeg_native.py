@@ -53,6 +53,8 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "colorkey",
     "hsvkey",
     "lumakey",
+    "rgbashift",
+    "chromashift",
 )
 
 NATIVE_FFMPEG_FILTERS = NATIVE_FFMPEG_COLOR_FILTERS + NATIVE_FFMPEG_COMPOSITOR_FILTERS + NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS
@@ -182,6 +184,14 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(lumakey_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Lumakey is translated to Blender compositor Luma Matte nodes.")
+        elif name == "rgbashift":
+            compositor_nodes.extend(rgbashift_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Rgbashift is translated to Blender compositor Separate/Translate/Combine channel nodes.")
+        elif name == "chromashift":
+            compositor_nodes.extend(chromashift_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Chromashift is approximated with Blender compositor red/blue channel Translate nodes.")
         elif name == "pseudocolor":
             stack.extend(pseudocolor_to_blender_stack(**args))
             supported.append(name)
@@ -978,6 +988,61 @@ def lumakey_to_blender_compositor(
     )
 
 
+def rgbashift_to_blender_compositor(
+    *,
+    rh: str | float = 0.0,
+    rv: str | float = 0.0,
+    gh: str | float = 0.0,
+    gv: str | float = 0.0,
+    bh: str | float = 0.0,
+    bv: str | float = 0.0,
+    ah: str | float = 0.0,
+    av: str | float = 0.0,
+    edge: str | int = "smear",
+    **_unused: str,
+) -> CompositorStack:
+    return (
+        (
+            "CHANNEL_SHIFT",
+            {
+                "offsets": {
+                    "red": (_shift_pixels(rh), _shift_pixels(rv)),
+                    "green": (_shift_pixels(gh), _shift_pixels(gv)),
+                    "blue": (_shift_pixels(bh), _shift_pixels(bv)),
+                    "alpha": (_shift_pixels(ah), _shift_pixels(av)),
+                },
+                "edge": str(edge).lower(),
+            },
+        ),
+    )
+
+
+def chromashift_to_blender_compositor(
+    *,
+    cbh: str | float = 0.0,
+    cbv: str | float = 0.0,
+    crh: str | float = 0.0,
+    crv: str | float = 0.0,
+    edge: str | int = "smear",
+    **_unused: str,
+) -> CompositorStack:
+    return (
+        (
+            "CHANNEL_SHIFT",
+            {
+                "offsets": {
+                    "red": (_shift_pixels(crh), _shift_pixels(crv)),
+                    "green": (0.0, 0.0),
+                    "blue": (_shift_pixels(cbh), _shift_pixels(cbv)),
+                    "alpha": (0.0, 0.0),
+                },
+                "edge": str(edge).lower(),
+                "approximation": "YUV chroma offsets are approximated as red/blue RGB channel offsets.",
+            },
+        ),
+    )
+
+
 def pseudocolor_to_blender_stack(
     *,
     preset: str | int = "turbo",
@@ -1591,6 +1656,10 @@ def _lut_offset(value: str) -> float:
     if abs(parsed) > 1.0:
         return parsed / 255.0
     return parsed
+
+
+def _shift_pixels(value: str | float | int | None) -> float:
+    return _clamp(_float(value, 0.0), -512.0, 512.0)
 
 
 def _truthy(value: str | int | bool) -> bool:

@@ -15,6 +15,7 @@ from video_toolkit.ffmpeg_native import (
     negate_to_blender_stack,
     normalize_to_blender_stack,
     pseudocolor_to_blender_stack,
+    rgbashift_to_blender_compositor,
     selectivecolor_to_blender_stack,
     translate_filter_chain,
     vibrance_to_blender_stack,
@@ -214,6 +215,22 @@ def test_key_filters_translate_to_compositor_only_nodes():
     ]
 
 
+def test_channel_shift_filters_translate_to_compositor_graph_specs():
+    rgba = rgbashift_to_blender_compositor(rh=4, rv=-2, gh=0, gv=1, bh=-3, bv=2, ah=1, av=0)
+    assert rgba[0][0] == "CHANNEL_SHIFT"
+    assert rgba[0][1]["offsets"]["red"] == (4.0, -2.0)
+    assert rgba[0][1]["offsets"]["blue"] == (-3.0, 2.0)
+    assert rgba[0][1]["offsets"]["alpha"] == (1.0, 0.0)
+
+    result = translate_filter_chain("rgbashift=rh=4:rv=-2:bh=-3:bv=2,chromashift=cbh=2:cbv=-1:crh=-2:crv=1")
+    assert result.stack == ()
+    assert result.unsupported_filters == ()
+    assert result.supported_filters == ("rgbashift", "chromashift")
+    assert [node_type for node_type, _settings in result.compositor_nodes] == ["CHANNEL_SHIFT", "CHANNEL_SHIFT"]
+    assert result.compositor_nodes[1][1]["offsets"]["red"] == (-2.0, 1.0)
+    assert result.compositor_nodes[1][1]["offsets"]["blue"] == (2.0, -1.0)
+
+
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
@@ -238,6 +255,8 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colorkey=color=blue:similarity=0.10:blend=0.03,"
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
+        "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
+        "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.35:intensity=0.25:antibanding=1,"
@@ -267,6 +286,8 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colorkey",
         "hsvkey",
         "lumakey",
+        "rgbashift",
+        "chromashift",
         "pseudocolor",
         "lutrgb",
         "histeq",
@@ -275,7 +296,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE"}.issubset(
+    assert {"CHROMA_MATTE", "COLOR_MATTE", "LUMA_MATTE", "CHANNEL_SHIFT"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management

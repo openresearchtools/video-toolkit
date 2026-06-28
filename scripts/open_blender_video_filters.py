@@ -81,6 +81,8 @@ def _setup_scene() -> None:
         "colorkey=color=blue:similarity=0.10:blend=0.03,"
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
+        "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
+        "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "histeq=strength=0.20:intensity=0.18,"
         "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"

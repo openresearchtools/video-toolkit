@@ -3231,29 +3231,31 @@ def _create_compositor_nodes_from_blender_stack(scene, strip, stack, label_prefi
             skipped += 1
             continue
         chain_nodes.append(node)
+    final_socket = _link_compositor_chain(tree, chain_nodes)
+    created = list(chain_nodes)
     for compositor_type, settings in compositor_nodes:
-        node = _translated_compositor_filter_to_node(
+        final_socket, filter_nodes = _append_translated_compositor_filter(
             tree,
+            final_socket,
             compositor_type,
             settings,
-            len(chain_nodes),
+            len(created),
             origin,
             label_prefix,
         )
-        if node is None:
+        if not filter_nodes:
             skipped += 1
             continue
-        chain_nodes.append(node)
-    levels = _new_compositor_node(tree, "CompositorNodeLevels", f"VTK {label_prefix} Levels", len(chain_nodes), y_offset=160, origin=origin)
-    viewer = _new_compositor_node(tree, "CompositorNodeViewer", f"VTK {label_prefix} Viewer", len(chain_nodes) + 1, origin=origin)
-    output = _new_output_file_node(tree, scene, len(chain_nodes) + 1, y_offset=-160, origin=origin)
+        created.extend(filter_nodes)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", f"VTK {label_prefix} Levels", len(created), y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", f"VTK {label_prefix} Viewer", len(created) + 1, origin=origin)
+    output = _new_output_file_node(tree, scene, len(created) + 1, y_offset=-160, origin=origin)
     output.name = f"VTK {label_prefix} Output File"
     output.label = f"VTK {label_prefix} Output File"
-    final_socket = _link_compositor_chain(tree, chain_nodes)
     _link_socket(tree, final_socket, _image_input(levels))
     _link_socket(tree, final_socket, _image_input(viewer))
     _link_socket(tree, final_socket, _first_socket(output.inputs))
-    created = chain_nodes + [levels, viewer, output]
+    created += [levels, viewer, output]
     if skipped:
         for node in created:
             node["video_toolkit_skipped_translated_modifiers"] = skipped
@@ -3332,11 +3334,79 @@ def _translated_modifier_to_compositor_node(tree, modifier_type: str, settings: 
     return None
 
 
+def _append_translated_compositor_filter(tree, input_socket, compositor_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    if compositor_type == "CHANNEL_SHIFT":
+        return _append_channel_shift_compositor_filter(tree, input_socket, settings, index, origin, label_prefix)
+    node = _translated_compositor_filter_to_node(tree, compositor_type, settings, index, origin, label_prefix)
+    if node is None:
+        return input_socket, []
+    _link_socket(tree, input_socket, _image_input(node))
+    return _image_output(node), [node]
+
+
+def _append_channel_shift_compositor_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    offsets = settings.get("offsets") or {}
+    if not isinstance(offsets, dict):
+        return input_socket, []
+
+    label = f"VTK {label_prefix} Channel Shift"
+    base_separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", f"{label} Separate", index, y_offset=-140, origin=origin)
+    _link_socket(tree, input_socket, _image_input(base_separate))
+    created = [base_separate]
+    channel_outputs = []
+
+    channel_specs = (
+        ("red", "Red", "Red", -360),
+        ("green", "Green", "Green", -120),
+        ("blue", "Blue", "Blue", 120),
+        ("alpha", "Alpha", "Alpha", 360),
+    )
+    for channel_key, output_name, input_name, y_offset in channel_specs:
+        dx, dy = _channel_shift_offset(offsets.get(channel_key))
+        if abs(dx) > 1e-6 or abs(dy) > 1e-6:
+            shift = _new_compositor_node(
+                tree,
+                "CompositorNodeTranslate",
+                f"{label} {input_name} Offset",
+                index + len(created),
+                y_offset=y_offset,
+                origin=origin,
+            )
+            _set_input_default(shift, "X", dx)
+            _set_input_default(shift, "Y", dy)
+            shifted_separate = _new_compositor_node(
+                tree,
+                "CompositorNodeSeparateColor",
+                f"{label} {input_name} Separate",
+                index + len(created) + 1,
+                y_offset=y_offset,
+                origin=origin,
+            )
+            _link_socket(tree, input_socket, _image_input(shift))
+            _link_socket(tree, _image_output(shift), _image_input(shifted_separate))
+            channel_outputs.append((_socket_by_name(shifted_separate.outputs, output_name), input_name))
+            created.extend([shift, shifted_separate])
+        else:
+            channel_outputs.append((_socket_by_name(base_separate.outputs, output_name), input_name))
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", f"{label} Combine", index + len(created), y_offset=-140, origin=origin)
+    for output_socket, input_name in channel_outputs:
+        _link_socket(tree, output_socket, _socket_by_name(combine.inputs, input_name))
+    created.append(combine)
+    return _image_output(combine), created
+
+
+def _channel_shift_offset(value) -> tuple[float, float]:
+    if isinstance(value, (tuple, list)) and len(value) >= 2:
+        return float(value[0] or 0.0), float(value[1] or 0.0)
+    return (0.0, 0.0)
+
+
 def _translated_compositor_filter_to_node(tree, compositor_type: str, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
     labels = {
         "CHROMA_MATTE": "Chroma Matte",
         "COLOR_MATTE": "Color Matte",
         "LUMA_MATTE": "Luma Matte",
+        "CHANNEL_SHIFT": "Channel Shift",
     }
     label = f"VTK {label_prefix} {labels.get(compositor_type, compositor_type.title())}"
     if compositor_type == "CHROMA_MATTE":
@@ -4055,6 +4125,8 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "colorkey=color=blue:similarity=0.10:blend=0.03,"
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
+        "rgbashift=rh=4:rv=-2:bh=-3:bv=2,"
+        "chromashift=cbh=2:cbv=-1:crh=-2:crv=1,"
         "pseudocolor=preset=viridis:opacity=0.75:index=1,"
         "lutrgb=r=negval:g=val*0.9:b=val+12,"
         "histeq=strength=0.22:intensity=0.20:antibanding=1"
