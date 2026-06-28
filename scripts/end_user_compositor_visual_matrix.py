@@ -54,11 +54,19 @@ def main(argv: list[str] | None = None) -> int:
         handle.write(script)
         script_path = Path(handle.name)
     try:
-        subprocess.run(
+        result = subprocess.run(
             [str(BLENDER), "--background", "--factory-startup", "--python", str(script_path)],
             cwd=ROOT,
-            check=True,
+            capture_output=True,
+            text=True,
         )
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        blender_output = result.stdout + result.stderr
+        if result.returncode != 0 or "Traceback (most recent call last):" in blender_output or "AssertionError" in blender_output:
+            return result.returncode or 1
     finally:
         script_path.unlink(missing_ok=True)
     _convert_compositor_snapshots(output_dir / "compositor_visual_report.json")

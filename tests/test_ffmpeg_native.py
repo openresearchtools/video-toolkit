@@ -10,6 +10,7 @@ from video_toolkit.ffmpeg_native import (
     colormap_to_blender_stack,
     colorkey_to_blender_compositor,
     convolution_to_blender_compositor,
+    colorspace_cuda_to_blender_color_management,
     colorlevels_to_blender_stack,
     curves_to_blender_stack,
     despill_to_blender_compositor,
@@ -51,6 +52,8 @@ from video_toolkit.ffmpeg_native import (
     negate_to_blender_stack,
     normalize_to_blender_stack,
     premultiply_to_blender_compositor,
+    procamp_vaapi_to_blender_compositor,
+    procamp_vaapi_to_blender_stack,
     pseudocolor_to_blender_stack,
     quality_compare_to_blender_compositor,
     restoration_filter_to_blender_compositor,
@@ -66,6 +69,8 @@ from video_toolkit.ffmpeg_native import (
     translate_filter_chain,
     transpose_to_blender_compositor,
     tonemap_to_blender_compositor,
+    accelerated_tonemap_to_blender_color_management,
+    accelerated_tonemap_to_blender_compositor,
     unpremultiply_to_blender_compositor,
     unsharp_to_blender_compositor,
     vibrance_to_blender_stack,
@@ -304,6 +309,31 @@ def test_direct_pro_color_filters_translate_to_compositor_nodes():
     tonemap = tonemap_to_blender_compositor(tonemap="mobius", param=0.35, desat=0.4, peak=400)
     assert [node_type for node_type, _settings in tonemap] == ["TONEMAP", "HUE_CORRECT"]
     assert tonemap[0][1]["tonemap_type"] == "RD_PHOTORECEPTOR"
+
+    procamp_stack = procamp_vaapi_to_blender_stack(brightness=8, contrast=1.2, saturation=1.15, hue=5)
+    assert [modifier_type for modifier_type, _settings in procamp_stack] == ["BRIGHT_CONTRAST", "HUE_CORRECT", "COLOR_BALANCE"]
+    assert procamp_stack[0][1]["bright"] == 0.08
+
+    procamp_nodes = procamp_vaapi_to_blender_compositor(brightness=8, contrast=1.2, saturation=1.15, hue=5)
+    assert [node_type for node_type, _settings in procamp_nodes] == ["BRIGHT_CONTRAST", "HUE_SAT", "COLOR_BALANCE"]
+    assert procamp_nodes[1][1]["hue_degrees"] == 5
+
+    opencl_tonemap = accelerated_tonemap_to_blender_compositor(
+        "tonemap_opencl",
+        tonemap=6,
+        param=0.35,
+        desat=0.4,
+        peak=500,
+        transfer="bt709",
+        matrix="bt709",
+        primaries="bt709",
+        range="pc",
+    )
+    assert [node_type for node_type, _settings in opencl_tonemap] == ["TONEMAP", "HUE_CORRECT"]
+    assert opencl_tonemap[0][1]["source"] == "tonemap_opencl"
+    assert opencl_tonemap[0][1]["hardware_filter"] == "tonemap_opencl"
+    assert ("output_range", "full") in accelerated_tonemap_to_blender_color_management(range="pc")
+    assert colorspace_cuda_to_blender_color_management(range="tv") == (("output_range", "limited"),)
 
     contrast = colorcontrast_to_blender_compositor(rc=0.2, gm=-0.1, by=0.15, rcw=0.6, gmw=0.4, byw=0.5, pl=1)
     assert [node_type for node_type, _settings in contrast] == ["COLOR_BALANCE", "COLOR_BALANCE"]
@@ -1135,6 +1165,7 @@ def test_detail_cleanup_filters_translate_to_native_blender_nodes():
 def test_filter_chain_supports_more_color_grading_filters():
     result = translate_filter_chain(
         "colorspace=iall=bt709:all=bt709:range=pc,"
+        "colorspace_cuda=range=pc,"
         "colorlevels=rimin=0.02:rimax=0.98,"
         "colorbalance=rs=0.1:bm=0.2,"
         "vibrance=intensity=0.4,"
@@ -1142,6 +1173,9 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colortemperature=temperature=5200:mix=0.7,"
         "limiter=min=16:max=235,"
         "tonemap=tonemap=mobius:param=0.35:desat=0.4,"
+        "procamp_vaapi=brightness=8:contrast=1.18:saturation=1.14:hue=4,"
+        "tonemap_opencl=tonemap=mobius:param=0.35:desat=0.45:peak=600:transfer=bt709:matrix=bt709:primaries=bt709:range=pc,"
+        "tonemap_vaapi=transfer=bt709:matrix=bt709:primaries=bt709:range=pc,"
         "colorcorrect=rl=0.1:bl=-0.05:rh=0.03:bh=-0.02:saturation=1.08,"
         "colorcontrast=rc=0.2:gm=-0.1:by=0.15:rcw=0.6:gmw=0.4:byw=0.5:pl=1,"
         "selectivecolor=reds=0.10 -0.04 -0.02 0.00:blues=-0.04 0.02 0.10 0.03:whites=0.02 0.00 -0.08 0.01,"
@@ -1158,7 +1192,9 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colorhold=color=blue:similarity=0.12:blend=0.2,"
         "hsvhold=hue=210:similarity=0.10,"
         "chromakey=color=green:similarity=0.12:blend=0.04,"
+        "chromakey_cuda=color=green:similarity=0.12:blend=0.04,"
         "colorkey=color=blue:similarity=0.10:blend=0.03,"
+        "colorkey_opencl=color=blue:similarity=0.10:blend=0.03,"
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "despill=type=green:mix=0.65:expand=0.12:green=-1.0,"
@@ -1166,6 +1202,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "threshold=planes=7,"
         "maskedthreshold=threshold=2048:planes=7:mode=abs,"
         "blend=all_mode=overlay:all_opacity=0.35,"
+        "blend_vulkan=all_mode=multiply:all_opacity=0.42,"
         "tblend=all_mode=average:all_opacity=0.45,"
         "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
         "tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
@@ -1190,6 +1227,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
         "convolution=0m='0 -1 0 -1 5 -1 0 -1 0':0rdiv=1:0bias=0,"
+        "convolution_opencl=0m='0 -1 0 -1 5 -1 0 -1 0':0rdiv=1:0bias=0,"
         "avgblur=sizeX=4:sizeY=6,"
         "boxblur=lr=3:lp=2,"
         "gblur=sigma=1.2:steps=2:sigmaV=0.8,"
@@ -1246,6 +1284,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert result.unsupported_filters == ()
     assert result.supported_filters == (
         "colorspace",
+        "colorspace_cuda",
         "colorlevels",
         "colorbalance",
         "vibrance",
@@ -1253,6 +1292,9 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colortemperature",
         "limiter",
         "tonemap",
+        "procamp_vaapi",
+        "tonemap_opencl",
+        "tonemap_vaapi",
         "colorcorrect",
         "colorcontrast",
         "selectivecolor",
@@ -1269,7 +1311,9 @@ def test_filter_chain_supports_more_color_grading_filters():
         "colorhold",
         "hsvhold",
         "chromakey",
+        "chromakey_cuda",
         "colorkey",
+        "colorkey_opencl",
         "hsvkey",
         "lumakey",
         "despill",
@@ -1277,6 +1321,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "threshold",
         "maskedthreshold",
         "blend",
+        "blend_vulkan",
         "tblend",
         "lut2",
         "tlut2",
@@ -1301,6 +1346,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "erosion",
         "dilation",
         "convolution",
+        "convolution_opencl",
         "avgblur",
         "boxblur",
         "gblur",

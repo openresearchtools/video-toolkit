@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -52,11 +53,19 @@ def main(argv: list[str] | None = None) -> int:
         handle.write(script)
         script_path = Path(handle.name)
     try:
-        subprocess.run(
+        result = subprocess.run(
             [str(BLENDER), "--background", "--factory-startup", "--python", str(script_path)],
             cwd=ROOT,
-            check=True,
+            capture_output=True,
+            text=True,
         )
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        blender_output = result.stdout + result.stderr
+        if result.returncode != 0 or "Traceback (most recent call last):" in blender_output or "AssertionError" in blender_output:
+            return result.returncode or 1
     finally:
         script_path.unlink(missing_ok=True)
     print(output_dir / "report.json")
@@ -149,6 +158,7 @@ scene.video_toolkit_match_smoothing = 3
 scene.video_toolkit_color_match_smoothing = 3
 scene.video_toolkit_ffmpeg_chain = (
     "colorspace=iall=bt709:all=bt709:irange=tv:range=pc,"
+    "colorspace_cuda=range=pc,"
     "normalize=smoothing=12:independence=0.55:strength=0.45,"
     "eq=contrast=1.10:saturation=1.06:gamma=1.02,"
     "colorlevels=rimin=0.02:rimax=0.98,"
@@ -157,13 +167,18 @@ scene.video_toolkit_ffmpeg_chain = (
     "exposure=exposure=0.18:black=0.02,"
     "grayworld,"
     "greyedge=difford=2:minknorm=5:sigma=2,"
+    "procamp_vaapi=brightness=8:contrast=1.18:saturation=1.14:hue=4,"
+    "tonemap_opencl=tonemap=mobius:param=0.35:desat=0.45:peak=600:transfer=bt709:matrix=bt709:primaries=bt709:range=pc,"
+    "tonemap_vaapi=transfer=bt709:matrix=bt709:primaries=bt709:range=pc,"
     "lut1d=file=warm_print.spi1d:interp=cubic,"
     "lut3d=file=teal_orange.cube:interp=tetrahedral,"
     "haldclut=interp=tetrahedral:clut=all,"
     "colormap=patch_size=64x64:nb_patches=32:type=absolute:kernel=weuclidean,"
     "geq=r='r(X,Y)*1.04':g='g(X,Y)+4':b='b(X,Y)-6',"
     "chromakey=color=green:similarity=0.12:blend=0.04,"
+    "chromakey_cuda=color=green:similarity=0.12:blend=0.04,"
     "colorkey=color=blue:similarity=0.10:blend=0.03,"
+    "colorkey_opencl=color=blue:similarity=0.10:blend=0.03,"
     "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
     "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
     "despill=type=green:mix=0.65:expand=0.12:green=-1.0,"
@@ -171,6 +186,7 @@ scene.video_toolkit_ffmpeg_chain = (
     "threshold=planes=7,"
     "maskedthreshold=threshold=2048:planes=7:mode=abs,"
     "blend=all_mode=overlay:all_opacity=0.35,"
+    "blend_vulkan=all_mode=multiply:all_opacity=0.42,"
     "tblend=all_mode=average:all_opacity=0.45,"
     "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
     "tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
@@ -195,6 +211,7 @@ scene.video_toolkit_ffmpeg_chain = (
     "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
     "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
     "convolution=0m=\"0 -1 0 -1 5 -1 0 -1 0\":0rdiv=1:0bias=0,"
+    "convolution_opencl=0m=\"0 -1 0 -1 5 -1 0 -1 0\":0rdiv=1:0bias=0,"
     "avgblur=sizeX=4:sizeY=6,"
     "boxblur=lr=3:lp=2,"
     "gblur=sigma=1.2:steps=2:sigmaV=0.8,"
@@ -1194,18 +1211,24 @@ def node_stack_operator(stack_type):
         if stack_type == "TRANSLATED_COLOR":
             scene.video_toolkit_ffmpeg_chain = (
                 "colorspace=iall=bt709:all=bt709:irange=tv:range=pc,"
+                "colorspace_cuda=range=pc,"
                 "eq=contrast=1.12:saturation=1.08:gamma=1.02,"
                 "colorbalance=rs=0.04:bm=0.03:bh=-0.04:pl=1,"
                 "curves=preset=strong_contrast,"
                 "grayworld,"
                 "greyedge=difford=2:minknorm=5:sigma=2,"
+                "procamp_vaapi=brightness=8:contrast=1.18:saturation=1.14:hue=4,"
+                "tonemap_opencl=tonemap=mobius:param=0.35:desat=0.45:peak=600:transfer=bt709:matrix=bt709:primaries=bt709:range=pc,"
+                "tonemap_vaapi=transfer=bt709:matrix=bt709:primaries=bt709:range=pc,"
                 "lut1d=file=warm_print.spi1d:interp=cubic,"
                 "lut3d=file=teal_orange.cube:interp=tetrahedral,"
                 "haldclut=interp=tetrahedral:clut=all,"
                 "colormap=patch_size=64x64:nb_patches=32:type=absolute:kernel=weuclidean,"
                 "geq=r='r(X,Y)*1.04':g='g(X,Y)+4':b='b(X,Y)-6',"
                 "chromakey=color=green:similarity=0.12:blend=0.04,"
+                "chromakey_cuda=color=green:similarity=0.12:blend=0.04,"
                 "colorkey=color=blue:similarity=0.10:blend=0.03,"
+                "colorkey_opencl=color=blue:similarity=0.10:blend=0.03,"
                 "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
                 "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
                 "despill=type=green:mix=0.65:expand=0.12:green=-1.0,"
@@ -1213,6 +1236,7 @@ def node_stack_operator(stack_type):
                 "threshold=planes=7,"
                 "maskedthreshold=threshold=2048:planes=7:mode=abs,"
                 "blend=all_mode=overlay:all_opacity=0.35,"
+                "blend_vulkan=all_mode=multiply:all_opacity=0.42,"
                 "tblend=all_mode=average:all_opacity=0.45,"
                 "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
                 "tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
@@ -1237,6 +1261,7 @@ def node_stack_operator(stack_type):
                 "erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
                 "dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,"
                 "convolution=0m=\"0 -1 0 -1 5 -1 0 -1 0\":0rdiv=1:0bias=0,"
+                "convolution_opencl=0m=\"0 -1 0 -1 5 -1 0 -1 0\":0rdiv=1:0bias=0,"
                 "avgblur=sizeX=4:sizeY=6,"
                 "boxblur=lr=3:lp=2,"
                 "gblur=sigma=1.2:steps=2:sigmaV=0.8,"

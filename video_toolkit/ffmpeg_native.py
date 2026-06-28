@@ -46,10 +46,14 @@ NATIVE_FFMPEG_COLOR_FILTERS = (
     "histeq",
     "midequalizer",
     "tmidequalizer",
+    "procamp_vaapi",
+    "tonemap_opencl",
+    "tonemap_vaapi",
 )
 
 NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS = (
     "colorspace",
+    "colorspace_cuda",
     "colormatrix",
     "setparams",
     "setrange",
@@ -58,7 +62,9 @@ NATIVE_FFMPEG_COLOR_MANAGEMENT_FILTERS = (
 
 NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "chromakey",
+    "chromakey_cuda",
     "colorkey",
+    "colorkey_opencl",
     "hsvkey",
     "lumakey",
     "despill",
@@ -66,6 +72,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "threshold",
     "maskedthreshold",
     "blend",
+    "blend_vulkan",
     "tblend",
     "lut2",
     "tlut2",
@@ -90,6 +97,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "erosion",
     "dilation",
     "convolution",
+    "convolution_opencl",
     "avgblur",
     "boxblur",
     "gblur",
@@ -226,6 +234,19 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             stack.extend(tonemap_to_blender_stack(**args))
             compositor_nodes.extend(tonemap_to_blender_compositor(**args))
             supported.append(name)
+        elif name == "procamp_vaapi":
+            procamp_stack = procamp_vaapi_to_blender_stack(**args)
+            stack.extend(procamp_stack)
+            compositor_nodes.extend(procamp_vaapi_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Procamp_vaapi is translated to Blender Brightness/Contrast, Hue/Saturation, and Color Balance controls; VAAPI hardware execution is not required for native preview.")
+        elif name in {"tonemap_opencl", "tonemap_vaapi"}:
+            accel_tonemap_stack = accelerated_tonemap_to_blender_stack(name, **args)
+            stack.extend(accel_tonemap_stack)
+            compositor_nodes.extend(accelerated_tonemap_to_blender_compositor(name, **args))
+            color_management.extend(accelerated_tonemap_to_blender_color_management(**args))
+            supported.append(name)
+            notes.append(f"{name} is translated to Blender Tone Map/Hue controls plus color-management metadata; OpenCL/VAAPI hardware execution is replaced by native Blender preview nodes.")
         elif name == "normalize":
             normalize_stack = normalize_to_blender_stack(**args)
             stack.extend(normalize_stack)
@@ -283,14 +304,14 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(hsvhold_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Hsvhold is approximated with Blender Hue Correct saturation-zone curves.")
-        elif name == "chromakey":
+        elif name in {"chromakey", "chromakey_cuda"}:
             compositor_nodes.extend(chromakey_to_blender_compositor(**args))
             supported.append(name)
-            notes.append("Chromakey is translated to Blender compositor Chroma Matte nodes.")
-        elif name == "colorkey":
+            notes.append(f"{name} is translated to Blender compositor Chroma Matte nodes.")
+        elif name in {"colorkey", "colorkey_opencl"}:
             compositor_nodes.extend(colorkey_to_blender_compositor(**args))
             supported.append(name)
-            notes.append("Colorkey is translated to Blender compositor Color Matte nodes.")
+            notes.append(f"{name} is translated to Blender compositor Color Matte nodes.")
         elif name == "hsvkey":
             compositor_nodes.extend(hsvkey_to_blender_compositor(**args))
             supported.append(name)
@@ -311,7 +332,7 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(threshold_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is represented with Blender compositor Luma Matte threshold nodes; secondary-stream comparison is approximated for the selected strip.")
-        elif name in {"blend", "tblend"}:
+        elif name in {"blend", "blend_vulkan", "tblend"}:
             compositor_nodes.extend(blend_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is represented with Blender Alpha Over plus native color-processing branches; exact two-stream/temporal blend math is approximated for the selected strip.")
@@ -383,10 +404,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(morphology_to_blender_compositor(name, **args))
             supported.append(name)
             notes.append(f"{name} is translated to Blender compositor Dilate/Erode matte cleanup nodes.")
-        elif name == "convolution":
+        elif name in {"convolution", "convolution_opencl"}:
             compositor_nodes.extend(convolution_to_blender_compositor(**args))
             supported.append(name)
-            notes.append("Convolution is translated to Blender compositor Convolve nodes with generated kernel images.")
+            notes.append(f"{name} is translated to Blender compositor Convolve nodes with generated kernel images.")
         elif name in {"avgblur", "boxblur", "gblur"}:
             compositor_nodes.extend(blur_to_blender_compositor(name, **args))
             supported.append(name)
@@ -493,6 +514,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             color_management.extend(colorspace_to_blender_color_management(**args))
             supported.append(name)
             notes.append("Colorspace is applied through Blender Sequencer input color-management settings where possible.")
+        elif name == "colorspace_cuda":
+            color_management.extend(colorspace_cuda_to_blender_color_management(**args))
+            supported.append(name)
+            notes.append("Colorspace_cuda range metadata is applied through Blender color-management intent; CUDA hardware execution is not required for native preview.")
         elif name == "colormatrix":
             color_management.extend(colormatrix_to_blender_color_management(**args))
             supported.append(name)
@@ -1001,6 +1026,136 @@ def tonemap_to_blender_compositor(
 ) -> CompositorStack:
     stack = tonemap_to_blender_stack(tonemap=tonemap, param=param, desat=desat, peak=peak)
     return _stack_to_compositor_nodes(stack, "tonemap", "Tone Map")
+
+
+def procamp_vaapi_to_blender_stack(**options: str | int | float) -> BlenderStack:
+    brightness = _clamp(_float(_option(options, "brightness", "b", default=0.0), 0.0), -100.0, 100.0)
+    contrast = _clamp(_float(_option(options, "contrast", "c", default=1.0), 1.0), 0.0, 10.0)
+    saturation = _clamp(_float(_option(options, "saturation", "saturatio", "s", default=1.0), 1.0), 0.0, 10.0)
+    hue = _clamp(_float(_option(options, "hue", "h", default=0.0), 0.0), -180.0, 180.0)
+    stack: list[tuple[str, dict[str, Any]]] = [
+        (
+            "BRIGHT_CONTRAST",
+            {
+                "bright": _clamp(brightness / 100.0, -1.0, 1.0),
+                "contrast": _clamp((contrast - 1.0) * 100.0, -100.0, 100.0),
+            },
+        ),
+        (
+            "HUE_CORRECT",
+            {
+                "__hue_correct__": {
+                    "hue": _hue_shift_to_curve_y(hue),
+                    "saturation": _saturation_to_curve_y(saturation),
+                    "value": _value_to_curve_y(1.0 + brightness / 350.0),
+                },
+            },
+        ),
+    ]
+    if abs(saturation - 1.0) > 1e-6 or abs(contrast - 1.0) > 1e-6:
+        stack.append(
+            (
+                "COLOR_BALANCE",
+                {
+                    "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                    "color_balance.gamma": tuple(_clamp(1.0 + (contrast - 1.0) * 0.035, 0.65, 1.45) for _ in range(3)),
+                    "color_balance.gain": tuple(_clamp(1.0 + (contrast - 1.0) * 0.055, 0.55, 1.65) for _ in range(3)),
+                    "color_multiply": _clamp(1.0 + (saturation - 1.0) * 0.045, 0.5, 1.8),
+                },
+            )
+        )
+    return tuple(stack)
+
+
+def procamp_vaapi_to_blender_compositor(**options: str | int | float) -> CompositorStack:
+    brightness = _clamp(_float(_option(options, "brightness", "b", default=0.0), 0.0), -100.0, 100.0)
+    contrast = _clamp(_float(_option(options, "contrast", "c", default=1.0), 1.0), 0.0, 10.0)
+    saturation = _clamp(_float(_option(options, "saturation", "saturatio", "s", default=1.0), 1.0), 0.0, 10.0)
+    hue = _clamp(_float(_option(options, "hue", "h", default=0.0), 0.0), -180.0, 180.0)
+    return (
+        (
+            "BRIGHT_CONTRAST",
+            {
+                "label": "VAAPI ProcAmp Brightness/Contrast",
+                "bright": _clamp(brightness / 100.0, -1.0, 1.0),
+                "contrast": _clamp((contrast - 1.0) * 100.0, -100.0, 100.0),
+                "brightness": brightness,
+                "contrast_factor": contrast,
+                "source": "procamp_vaapi",
+            },
+        ),
+        (
+            "HUE_SAT",
+            {
+                "label": "VAAPI ProcAmp Hue/Saturation",
+                "hue": _hue_shift_to_curve_y(hue),
+                "saturation": saturation,
+                "value": _clamp(1.0 + brightness / 250.0, 0.0, 4.0),
+                "factor": 1.0,
+                "hue_degrees": hue,
+                "source": "procamp_vaapi",
+            },
+        ),
+        (
+            "COLOR_BALANCE",
+            {
+                "label": "VAAPI ProcAmp Balance",
+                "color_balance.correction_method": "LIFT_GAMMA_GAIN",
+                "color_balance.gamma": tuple(_clamp(1.0 + (contrast - 1.0) * 0.035, 0.65, 1.45) for _ in range(3)),
+                "color_balance.gain": tuple(_clamp(1.0 + (contrast - 1.0) * 0.055, 0.55, 1.65) for _ in range(3)),
+                "color_multiply": _clamp(1.0 + (saturation - 1.0) * 0.045, 0.5, 1.8),
+                "source": "procamp_vaapi",
+                "approximation": "FFmpeg procamp_vaapi is a hardware brightness/contrast/saturation/hue processor. Blender maps that intent to editable Brightness/Contrast, Hue/Saturation, and Color Balance nodes.",
+            },
+        ),
+    )
+
+
+def accelerated_tonemap_to_blender_stack(source: str, **options: str | int | float) -> BlenderStack:
+    method = _accelerated_tonemap_method(_option(options, "tonemap", "arg0", default="reinhard" if source == "tonemap_vaapi" else "mobius"))
+    param = _option(options, "param", default=0.35 if method in {"mobius", "hable"} else 0.18)
+    desat = _option(options, "desat", default=0.5 if source == "tonemap_opencl" else 0.25)
+    peak = _option(options, "peak", default=400.0 if source == "tonemap_opencl" else 100.0)
+    return tonemap_to_blender_stack(tonemap=method, param=param, desat=desat, peak=peak)
+
+
+def accelerated_tonemap_to_blender_compositor(source: str, **options: str | int | float) -> CompositorStack:
+    name = str(source).strip().lower()
+    label = "OpenCL Tone Map" if name == "tonemap_opencl" else "VAAPI Tone Map"
+    nodes = list(_stack_to_compositor_nodes(accelerated_tonemap_to_blender_stack(name, **options), name, label))
+    for _node_type, settings in nodes:
+        settings["hardware_filter"] = name
+        settings["transfer"] = str(_option(options, "transfer", "t", default=""))
+        settings["matrix"] = str(_option(options, "matrix", "m", default=""))
+        settings["primaries"] = str(_option(options, "primaries", "p", default=""))
+        settings["range"] = str(_option(options, "range", "r", default=""))
+        settings["format"] = str(_option(options, "format", default=""))
+        settings["threshold"] = _float(_option(options, "threshold", default=0.2), 0.2)
+        settings["approximation"] = "FFmpeg's accelerated tonemap runs on OpenCL/VAAPI surfaces. This graph preserves the HDR/SDR tone-map intent with Blender's native Tone Map/Hue controls and stores output color metadata on the nodes."
+    return tuple(nodes)
+
+
+def accelerated_tonemap_to_blender_color_management(**options: str | int | float) -> tuple[tuple[str, str], ...]:
+    pairs: list[tuple[str, str]] = []
+    for key, value in (
+        ("output_matrix", _option(options, "matrix", "m", default="")),
+        ("output_primaries", _option(options, "primaries", "p", default="")),
+        ("output_transfer", _option(options, "transfer", "t", default="")),
+    ):
+        normalized = _normalize_color_value(value)
+        if normalized:
+            pairs.append((key, normalized))
+    normalized_range = _normalize_range_value(_option(options, "range", "r", default=""))
+    if normalized_range:
+        pairs.append(("output_range", normalized_range))
+    sequencer_input = _first_color_value(
+        _option(options, "primaries", "p", default=""),
+        _option(options, "transfer", "t", default=""),
+        _option(options, "matrix", "m", default=""),
+    )
+    if sequencer_input:
+        pairs.insert(0, ("sequencer_input", sequencer_input))
+    return tuple(_dedupe_pairs(pairs))
 
 
 def normalize_to_blender_stack(
@@ -3251,6 +3406,16 @@ def colorspace_to_blender_color_management(
     return tuple(_dedupe_pairs(pairs))
 
 
+def colorspace_cuda_to_blender_color_management(
+    *,
+    range: str | int = "",
+    r: str | int = "",
+    **_unused: str,
+) -> tuple[tuple[str, str], ...]:
+    normalized = _normalize_range_value(range or r)
+    return (("output_range", normalized),) if normalized else ()
+
+
 def colormatrix_to_blender_color_management(
     *,
     src: str | int = "",
@@ -3502,6 +3667,22 @@ def _normalize_limiter_value(value: float) -> float:
     if value > 1.0:
         return _clamp(value / 255.0, 0.0, 1.0)
     return _clamp(value, 0.0, 1.0)
+
+
+def _accelerated_tonemap_method(value: object) -> str:
+    text = str(value if value is not None else "reinhard").strip().lower()
+    aliases = {
+        "0": "none",
+        "1": "linear",
+        "2": "gamma",
+        "3": "clip",
+        "4": "reinhard",
+        "5": "hable",
+        "6": "mobius",
+        "-1": "reinhard",
+        "": "reinhard",
+    }
+    return aliases.get(text, text)
 
 
 def _first_color_value(*values: str | int) -> str:

@@ -193,6 +193,9 @@ _TEMP_WARM_STACK = translate_filter_chain("colortemperature=temperature=5200:mix
 _TEMP_COOL_STACK = translate_filter_chain("colortemperature=temperature=7600:mix=0.75:pl=1").stack
 _LEGAL_RANGE_STACK = translate_filter_chain("limiter=min=16:max=235").stack
 _HDR_TONE_COMPRESS_STACK = translate_filter_chain("tonemap=tonemap=mobius:param=0.35:desat=0.4:peak=400").stack
+_PROCAMP_VAAPI_TRANSLATION = translate_filter_chain("procamp_vaapi=brightness=8:contrast=1.18:saturation=1.14:hue=4")
+_TONEMAP_OPENCL_TRANSLATION = translate_filter_chain("tonemap_opencl=tonemap=mobius:param=0.35:desat=0.45:peak=600:transfer=bt709:matrix=bt709:primaries=bt709:range=pc")
+_TONEMAP_VAAPI_TRANSLATION = translate_filter_chain("tonemap_vaapi=transfer=bt709:matrix=bt709:primaries=bt709:range=pc")
 _SELECTIVE_COLOR_TRANSLATION = translate_filter_chain(
     "selectivecolor=reds=0.10 -0.04 -0.02 0.00:blues=-0.04 0.02 0.10 0.03:whites=0.02 0.00 -0.08 0.01"
 )
@@ -262,7 +265,9 @@ _NATIVE_CORR_COMPARE_TRANSLATION = translate_filter_chain("corr=eof_action=repea
 _NATIVE_MSAD_COMPARE_TRANSLATION = translate_filter_chain("msad=eof_action=repeat:repeatlast=1")
 _NATIVE_XCORRELATE_COMPARE_TRANSLATION = translate_filter_chain("xcorrelate=planes=7:secondary=all:eof_action=repeat")
 _CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey=color=green:similarity=0.18:blend=0.06")
+_CUDA_CHROMA_KEY_MATTE_TRANSLATION = translate_filter_chain("chromakey_cuda=color=green:similarity=0.18:blend=0.06")
 _COLOR_KEY_MATTE_TRANSLATION = translate_filter_chain("colorkey=color=blue:similarity=0.16:blend=0.04")
+_OPENCL_COLOR_KEY_MATTE_TRANSLATION = translate_filter_chain("colorkey_opencl=color=blue:similarity=0.16:blend=0.04")
 _HSV_KEY_MATTE_TRANSLATION = translate_filter_chain("hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.03")
 _LUMA_KEY_MATTE_TRANSLATION = translate_filter_chain("lumakey=threshold=0.20:tolerance=0.10:softness=0.04")
 _DESPILL_TRANSLATION = translate_filter_chain("despill=type=green:mix=0.65:expand=0.12:green=-1.0")
@@ -270,6 +275,7 @@ _BACKGROUND_KEY_TRANSLATION = translate_filter_chain("backgroundkey=threshold=0.
 _THRESHOLD_MATTE_TRANSLATION = translate_filter_chain("threshold=planes=7")
 _MASKED_THRESHOLD_MATTE_TRANSLATION = translate_filter_chain("maskedthreshold=threshold=2048:planes=7:mode=abs")
 _BLEND_OVERLAY_TRANSLATION = translate_filter_chain("blend=all_mode=overlay:all_opacity=0.35")
+_VULKAN_BLEND_TRANSLATION = translate_filter_chain("blend_vulkan=all_mode=multiply:all_opacity=0.42")
 _TEMPORAL_BLEND_TRANSLATION = translate_filter_chain("tblend=all_mode=average:all_opacity=0.45")
 _LUT2_EXPRESSION_MIX_TRANSLATION = translate_filter_chain("lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x")
 _TEMPORAL_LUT2_EXPRESSION_TRANSLATION = translate_filter_chain("tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x")
@@ -299,6 +305,9 @@ _NATIVE_DILATION_TRANSLATION = translate_filter_chain(
 )
 _NATIVE_CONVOLUTION_SHARPEN_TRANSLATION = translate_filter_chain(
     "convolution=0m='0 -1 0 -1 5 -1 0 -1 0':0rdiv=1:0bias=0"
+)
+_OPENCL_CONVOLUTION_TRANSLATION = translate_filter_chain(
+    "convolution_opencl=0m='0 -1 0 -1 5 -1 0 -1 0':0rdiv=1:0bias=0"
 )
 _NATIVE_AVERAGE_BLUR_TRANSLATION = translate_filter_chain("avgblur=sizeX=4:sizeY=6")
 _NATIVE_BOX_BLUR_TRANSLATION = translate_filter_chain("boxblur=lr=3:lp=2")
@@ -772,6 +781,33 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_BLENDER_MODIFIER,
         description="Translated FFmpeg tonemap intent into Blender Tone Map plus saturation control.",
         blender_stack=_HDR_TONE_COMPRESS_STACK,
+    ),
+    VideoTool(
+        id="procamp_vaapi_color_controls",
+        label="VAAPI ProcAmp Controls",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg procamp_vaapi brightness, contrast, saturation, and hue into live Blender color controls.",
+        blender_stack=_PROCAMP_VAAPI_TRANSLATION.stack,
+        compositor_stack=_PROCAMP_VAAPI_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="opencl_tone_map",
+        label="OpenCL Tone Map",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg tonemap_opencl HDR/SDR intent into Blender Tone Map, Hue Correct, and color-management metadata.",
+        blender_stack=_TONEMAP_OPENCL_TRANSLATION.stack,
+        compositor_stack=_TONEMAP_OPENCL_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="vaapi_tone_map",
+        label="VAAPI Tone Map",
+        category="Live Blender Color",
+        engine=ENGINE_BLENDER_MODIFIER,
+        description="Translated FFmpeg tonemap_vaapi output color metadata into Blender Tone Map and editable native color-management intent.",
+        blender_stack=_TONEMAP_VAAPI_TRANSLATION.stack,
+        compositor_stack=_TONEMAP_VAAPI_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="black_point_cleanup",
@@ -1371,12 +1407,28 @@ TOOLS: tuple[VideoTool, ...] = (
         compositor_stack=_CHROMA_KEY_MATTE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
+        id="native_cuda_chroma_key_matte",
+        label="CUDA Chroma Key Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg chromakey_cuda intent as Blender's native Chroma Matte compositor graph without requiring CUDA rendering.",
+        compositor_stack=_CUDA_CHROMA_KEY_MATTE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
         id="native_color_key_matte",
         label="Native Color Key Matte",
         category="Native Matte & Channel",
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg colorkey intent as Blender's native Color Matte compositor graph.",
         compositor_stack=_COLOR_KEY_MATTE_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_opencl_color_key_matte",
+        label="OpenCL Color Key Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg colorkey_opencl intent as Blender's native Color Matte compositor graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_COLOR_KEY_MATTE_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_hsv_key_matte",
@@ -1433,6 +1485,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg blend overlay intent as a native Blender Alpha Over graph with an editable color-processing foreground branch.",
         compositor_stack=_BLEND_OVERLAY_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_vulkan_blend_composite",
+        label="Vulkan Blend Composite",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg blend_vulkan intent as a native Blender Alpha Over graph without requiring Vulkan rendering.",
+        compositor_stack=_VULKAN_BLEND_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_temporal_blend_ghost",
@@ -1784,6 +1844,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg convolution sharpen kernel as Blender's native Convolve compositor graph.",
         compositor_stack=_NATIVE_CONVOLUTION_SHARPEN_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_opencl_convolution_filter",
+        label="OpenCL Convolution Filter",
+        category="Native Filter & Blur",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg convolution_opencl kernel intent as Blender's native Convolve compositor graph without requiring OpenCL rendering.",
+        compositor_stack=_OPENCL_CONVOLUTION_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_fftfilt_detail",

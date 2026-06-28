@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -52,11 +53,19 @@ def main(argv: list[str] | None = None) -> int:
         handle.write(script)
         script_path = Path(handle.name)
     try:
-        subprocess.run(
+        result = subprocess.run(
             [str(BLENDER), "--background", "--factory-startup", "--python", str(script_path)],
             cwd=ROOT,
-            check=True,
+            capture_output=True,
+            text=True,
         )
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        blender_output = result.stdout + result.stderr
+        if result.returncode != 0 or "Traceback (most recent call last):" in blender_output or "AssertionError" in blender_output:
+            return result.returncode or 1
     finally:
         script_path.unlink(missing_ok=True)
     print(output_dir / "report.json")
@@ -322,6 +331,7 @@ assert {{'CURVES', 'COLOR_BALANCE', 'WHITE_BALANCE'}}.issubset(set(primary_corre
 
 scene.video_toolkit_ffmpeg_chain = (
     'colorspace=iall=bt709:all=bt709:irange=tv:range=pc,'
+    'colorspace_cuda=range=pc,'
     'normalize=smoothing=24:independence=0.7:strength=0.55,'
     'eq=contrast=1.12:saturation=1.08:gamma=1.02,'
     'colorbalance=rs=0.05:bm=0.03:bh=-0.04:pl=1,'
@@ -330,12 +340,17 @@ scene.video_toolkit_ffmpeg_chain = (
     'selectivecolor=reds=0.08 -0.03 -0.02 0.00:blues=-0.03 0.01 0.08 0.02:whites=0.01 0.00 -0.06 0.01,'
     'colortemperature=temperature=5600:mix=0.55,'
     'greyedge=difford=2:minknorm=5:sigma=2,'
+    'procamp_vaapi=brightness=8:contrast=1.18:saturation=1.14:hue=4,'
+    'tonemap_opencl=tonemap=mobius:param=0.35:desat=0.45:peak=600:transfer=bt709:matrix=bt709:primaries=bt709:range=pc,'
+    'tonemap_vaapi=transfer=bt709:matrix=bt709:primaries=bt709:range=pc,'
     'lut1d=file=warm_print.spi1d:interp=cubic,'
     'lut3d=file=teal_orange.cube:interp=tetrahedral,'
     'haldclut=interp=tetrahedral:clut=all,'
     'colormap=patch_size=64x64:nb_patches=32:type=absolute:kernel=weuclidean,'
     'chromakey=color=green:similarity=0.12:blend=0.04,'
+    'chromakey_cuda=color=green:similarity=0.12:blend=0.04,'
     'colorkey=color=blue:similarity=0.10:blend=0.03,'
+    'colorkey_opencl=color=blue:similarity=0.10:blend=0.03,'
     'hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,'
     'lumakey=threshold=0.20:tolerance=0.08:softness=0.02,'
     'despill=type=green:mix=0.65:expand=0.12:green=-1.0,'
@@ -343,6 +358,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'threshold=planes=7,'
     'maskedthreshold=threshold=2048:planes=7:mode=abs,'
     "blend=all_mode=overlay:all_opacity=0.35,"
+    "blend_vulkan=all_mode=multiply:all_opacity=0.42,"
     "tblend=all_mode=average:all_opacity=0.45,"
     "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
     "tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
@@ -366,6 +382,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'convolution=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
+    'convolution_opencl=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
     'avgblur=sizeX=4:sizeY=6,'
     'boxblur=lr=3:lp=2,'
     'gblur=sigma=1.2:steps=2:sigmaV=0.8,'
@@ -410,9 +427,14 @@ for required_filter in [
     'colorbalance',
     'chromakey',
     'despill',
+    'colorspace_cuda',
+    'procamp_vaapi',
+    'tonemap_opencl',
+    'tonemap_vaapi',
     'backgroundkey',
     'threshold',
     'blend',
+    'blend_vulkan',
     'tblend',
     'lut2',
     'tlut2',
@@ -420,6 +442,9 @@ for required_filter in [
     'mergeplanes',
     'rgbashift',
     'chromaber_vulkan',
+    'chromakey_cuda',
+    'colorkey_opencl',
+    'convolution_opencl',
     'alphamerge',
     'identity',
     'ssim',
@@ -457,13 +482,20 @@ translated_workflow_supported = scene.get('video_toolkit_last_translated_workflo
 translated_workflow_node_count = scene.get('video_toolkit_last_translated_workflow_node_count', 0)
 assert translated_workflow_node_count >= 10
 assert 'colorspace' in translated_workflow_supported
+assert 'colorspace_cuda' in translated_workflow_supported
+assert 'procamp_vaapi' in translated_workflow_supported
+assert 'tonemap_opencl' in translated_workflow_supported
+assert 'tonemap_vaapi' in translated_workflow_supported
 assert 'histeq' in translated_workflow_supported
 assert 'greyedge' in translated_workflow_supported
 assert 'chromakey' in translated_workflow_supported
+assert 'chromakey_cuda' in translated_workflow_supported
 assert 'colorkey' in translated_workflow_supported
+assert 'colorkey_opencl' in translated_workflow_supported
 assert 'hsvkey' in translated_workflow_supported
 assert 'lumakey' in translated_workflow_supported
 assert 'backgroundkey' in translated_workflow_supported
+assert 'blend_vulkan' in translated_workflow_supported
 assert 'rgbashift' in translated_workflow_supported
 assert 'chromashift' in translated_workflow_supported
 assert 'chromaber_vulkan' in translated_workflow_supported
@@ -488,6 +520,7 @@ assert 'kirsch' in translated_workflow_supported
 assert 'edgedetect' in translated_workflow_supported
 assert 'erosion' in translated_workflow_supported
 assert 'dilation' in translated_workflow_supported
+assert 'convolution_opencl' in translated_workflow_supported
 assert 'pseudocolor' in translated_workflow_supported
 assert 'zscale' in translated_workflow_supported
 translated_workflow_modifier_types = [
@@ -1040,7 +1073,7 @@ assert 'native_mask_slot: Mask Slot' in catalog_coverage_report
 assert 'Rendered fallback tools:' in catalog_coverage_report
 assert f'Native-translated FFmpeg filters: {{len(NATIVE_FFMPEG_FILTERS)}}' in catalog_coverage_report
 assert 'Native compositor-only FFmpeg filters: ' + ', '.join(NATIVE_FFMPEG_COMPOSITOR_FILTERS) in catalog_coverage_report
-assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_coverage_report
+assert 'Native Color Management metadata filters: colorspace, colorspace_cuda, colormatrix, setparams, setrange, zscale' in catalog_coverage_report
 assert 'Rendered-only FFmpeg filters:' in catalog_coverage_report
 assert 'deflicker' in catalog_coverage_report
 assert 'vidstabdetect' in catalog_coverage_report

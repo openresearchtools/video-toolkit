@@ -50,11 +50,19 @@ def main() -> int:
         handle.write(script)
         smoke_path = Path(handle.name)
     try:
-        subprocess.run(
+        result = subprocess.run(
             [str(BLENDER), "--background", "--factory-startup", "--python", str(smoke_path)],
             cwd=ROOT,
-            check=True,
+            capture_output=True,
+            text=True,
         )
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        blender_output = result.stdout + result.stderr
+        if result.returncode != 0 or "Traceback (most recent call last):" in blender_output or "AssertionError" in blender_output:
+            return result.returncode or 1
     finally:
         smoke_path.unlink(missing_ok=True)
     return 0
@@ -309,6 +317,7 @@ for required in [
     assert required in reference_board_node_types, required
 scene.video_toolkit_ffmpeg_chain = (
     'colorspace=iall=bt709:all=bt709:irange=tv:range=pc,'
+    'colorspace_cuda=range=pc,'
     'normalize=smoothing=18:independence=0.65:strength=0.55,'
     'colorlevels=rimin=0.02:rimax=0.98,'
     'colorcorrect=rl=0.05:bl=-0.04:rh=0.03:bh=-0.02:saturation=1.06,'
@@ -317,12 +326,17 @@ scene.video_toolkit_ffmpeg_chain = (
     'monochrome=cb=0.05:cr=-0.04:high=0.1,'
     'colorize=hue=35:saturation=0.25:lightness=0.55:mix=0.85,'
     'greyedge=difford=2:minknorm=5:sigma=2,'
+    'procamp_vaapi=brightness=8:contrast=1.18:saturation=1.14:hue=4,'
+    'tonemap_opencl=tonemap=mobius:param=0.35:desat=0.45:peak=600:transfer=bt709:matrix=bt709:primaries=bt709:range=pc,'
+    'tonemap_vaapi=transfer=bt709:matrix=bt709:primaries=bt709:range=pc,'
     'lut1d=file=warm_print.spi1d:interp=cubic,'
     'lut3d=file=teal_orange.cube:interp=tetrahedral,'
     'haldclut=interp=tetrahedral:clut=all,'
     'colormap=patch_size=64x64:nb_patches=32:type=absolute:kernel=weuclidean,'
     'chromakey=color=green:similarity=0.12:blend=0.04,'
+    'chromakey_cuda=color=green:similarity=0.12:blend=0.04,'
     'colorkey=color=blue:similarity=0.10:blend=0.03,'
+    'colorkey_opencl=color=blue:similarity=0.10:blend=0.03,'
     'hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,'
     'lumakey=threshold=0.20:tolerance=0.08:softness=0.02,'
     'despill=type=green:mix=0.65:expand=0.12:green=-1.0,'
@@ -330,6 +344,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'threshold=planes=7,'
     'maskedthreshold=threshold=2048:planes=7:mode=abs,'
     "blend=all_mode=overlay:all_opacity=0.35,"
+    "blend_vulkan=all_mode=multiply:all_opacity=0.42,"
     "tblend=all_mode=average:all_opacity=0.45,"
     "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
     "tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
@@ -353,6 +368,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'convolution=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
+    'convolution_opencl=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
     'avgblur=sizeX=4:sizeY=6,'
     'boxblur=lr=3:lp=2,'
     'gblur=sigma=1.2:steps=2:sigmaV=0.8,'
@@ -395,11 +411,18 @@ for required_filter in [
     'colorspace',
     'normalize',
     'colorlevels',
+    'colorspace_cuda',
+    'procamp_vaapi',
+    'tonemap_opencl',
+    'tonemap_vaapi',
     'chromakey',
+    'chromakey_cuda',
+    'colorkey_opencl',
     'despill',
     'backgroundkey',
     'threshold',
     'blend',
+    'blend_vulkan',
     'tblend',
     'lut2',
     'tlut2',
@@ -407,6 +430,7 @@ for required_filter in [
     'mergeplanes',
     'rgbashift',
     'chromaber_vulkan',
+    'convolution_opencl',
     'alphamerge',
     'identity',
     'ssim',
@@ -432,10 +456,12 @@ assert {{'CURVES', 'HUE_CORRECT', 'COLOR_BALANCE', 'BRIGHT_CONTRAST', 'TONEMAP',
 result = bpy.ops.video_toolkit.apply_translated_color_workflow()
 assert result == {{'FINISHED'}}, result
 assert scene.video_toolkit_last_translated_workflow.startswith('translated color workflow')
-assert 'colorspace, normalize, colorlevels, colorcorrect' in scene.video_toolkit_last_translated_workflow
+assert 'colorspace, colorspace_cuda, normalize, colorlevels, colorcorrect' in scene.video_toolkit_last_translated_workflow
 assert 'identity' in scene.video_toolkit_last_translated_workflow
 assert 'ssim' in scene.video_toolkit_last_translated_workflow
 assert 'xcorrelate' in scene.video_toolkit_last_translated_workflow
+assert 'procamp_vaapi' in scene.video_toolkit_last_translated_workflow
+assert 'blend_vulkan' in scene.video_toolkit_last_translated_workflow
 assert scene.get('video_toolkit_last_translated_workflow_node_count', 0) >= 10
 translated_workflow_types = [
     node.bl_idname
@@ -560,7 +586,7 @@ assert 'Tracked native compositor node library:' in catalog_report
 assert f'Native-translated FFmpeg filters: {{len(NATIVE_FFMPEG_FILTERS)}}' in catalog_report
 assert 'Native-translated FFmpeg color filters: eq, hue, huesaturation' in catalog_report
 assert 'Native compositor-only FFmpeg filters: ' + ', '.join(NATIVE_FFMPEG_COMPOSITOR_FILTERS) in catalog_report
-assert 'Native Color Management metadata filters: colorspace, colormatrix, setparams, setrange, zscale' in catalog_report
+assert 'Native Color Management metadata filters: colorspace, colorspace_cuda, colormatrix, setparams, setrange, zscale' in catalog_report
 assert 'Rendered fallback FFmpeg filters:' in catalog_report
 assert 'Rendered-only FFmpeg filters:' in catalog_report
 assert 'deflicker' in catalog_report
@@ -879,6 +905,7 @@ for required in [
     assert required in reference_board_compositor_node_types, required
 scene.video_toolkit_ffmpeg_chain = (
     'colorspace=iall=bt709:all=bt709:irange=tv:range=pc,'
+    'colorspace_cuda=range=pc,'
     'eq=contrast=1.12:saturation=1.08:gamma=1.02,'
     'colorbalance=rs=0.04:bm=0.03:bh=-0.04:pl=1,'
     'curves=preset=strong_contrast,'
@@ -886,8 +913,13 @@ scene.video_toolkit_ffmpeg_chain = (
     'lut3d=file=teal_orange.cube:interp=tetrahedral,'
     'haldclut=interp=tetrahedral:clut=all,'
     'colormap=patch_size=64x64:nb_patches=32:type=absolute:kernel=weuclidean,'
+    'procamp_vaapi=brightness=8:contrast=1.18:saturation=1.14:hue=4,'
+    'tonemap_opencl=tonemap=mobius:param=0.35:desat=0.45:peak=600:transfer=bt709:matrix=bt709:primaries=bt709:range=pc,'
+    'tonemap_vaapi=transfer=bt709:matrix=bt709:primaries=bt709:range=pc,'
     'chromakey=color=green:similarity=0.12:blend=0.04,'
+    'chromakey_cuda=color=green:similarity=0.12:blend=0.04,'
     'colorkey=color=blue:similarity=0.10:blend=0.03,'
+    'colorkey_opencl=color=blue:similarity=0.10:blend=0.03,'
     'hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,'
     'lumakey=threshold=0.20:tolerance=0.08:softness=0.02,'
     'despill=type=green:mix=0.65:expand=0.12:green=-1.0,'
@@ -895,6 +927,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'threshold=planes=7,'
     'maskedthreshold=threshold=2048:planes=7:mode=abs,'
     "blend=all_mode=overlay:all_opacity=0.35,"
+    "blend_vulkan=all_mode=multiply:all_opacity=0.42,"
     "tblend=all_mode=average:all_opacity=0.45,"
     "lut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
     "tlut2=c0='(x+y)/2':c1='(x+y)/2':c2='(x+y)/2':c3=x,"
@@ -918,6 +951,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'erosion=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'dilation=coordinates=255:threshold0=64000:threshold1=64000:threshold2=64000,'
     'convolution=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
+    'convolution_opencl=0m="0 -1 0 -1 5 -1 0 -1 0":0rdiv=1:0bias=0,'
     'avgblur=sizeX=4:sizeY=6,'
     'boxblur=lr=3:lp=2,'
     'gblur=sigma=1.2:steps=2:sigmaV=0.8,'
@@ -958,6 +992,8 @@ assert 'tlut2' in scene.video_toolkit_last_compositor_nodes
 assert 'identity' in scene.video_toolkit_last_compositor_nodes
 assert 'ssim' in scene.video_toolkit_last_compositor_nodes
 assert 'xcorrelate' in scene.video_toolkit_last_compositor_nodes
+assert 'procamp_vaapi' in scene.video_toolkit_last_compositor_nodes
+assert 'convolution_opencl' in scene.video_toolkit_last_compositor_nodes
 compositor_filter_node_count = int(
     scene.video_toolkit_last_compositor_nodes.split('compositor-native filter node(s): ', 1)[1].split(';', 1)[0]
 )
