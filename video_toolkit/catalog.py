@@ -259,6 +259,7 @@ _COLOR_KEY_MATTE_TRANSLATION = translate_filter_chain("colorkey=color=blue:simil
 _HSV_KEY_MATTE_TRANSLATION = translate_filter_chain("hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.12:blend=0.03")
 _LUMA_KEY_MATTE_TRANSLATION = translate_filter_chain("lumakey=threshold=0.20:tolerance=0.10:softness=0.04")
 _DESPILL_TRANSLATION = translate_filter_chain("despill=type=green:mix=0.65:expand=0.12:green=-1.0")
+_BACKGROUND_KEY_TRANSLATION = translate_filter_chain("backgroundkey=threshold=0.08:similarity=0.12:blend=0.04")
 _THRESHOLD_MATTE_TRANSLATION = translate_filter_chain("threshold=planes=7")
 _MASKED_THRESHOLD_MATTE_TRANSLATION = translate_filter_chain("maskedthreshold=threshold=2048:planes=7:mode=abs")
 _BLEND_OVERLAY_TRANSLATION = translate_filter_chain("blend=all_mode=overlay:all_opacity=0.35")
@@ -1391,6 +1392,14 @@ TOOLS: tuple[VideoTool, ...] = (
         engine=ENGINE_COMPOSITOR,
         description="Translated FFmpeg despill intent as Blender's native Color Spill compositor graph for green/blue-screen cleanup.",
         compositor_stack=_DESPILL_TRANSLATION.compositor_nodes,
+    ),
+    VideoTool(
+        id="native_background_key_matte",
+        label="Native Background Key Matte",
+        category="Native Matte & Channel",
+        engine=ENGINE_COMPOSITOR,
+        description="Translated FFmpeg backgroundkey intent as a Blender Difference Matte plus Set Alpha graph for static-background transparency cleanup.",
+        compositor_stack=_BACKGROUND_KEY_TRANSLATION.compositor_nodes,
     ),
     VideoTool(
         id="native_threshold_matte",

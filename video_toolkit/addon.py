@@ -271,7 +271,9 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
                     raise RuntimeError("Native compositor tools require an active movie strip")
                 if not _tool_has_compositor_stack(tool):
                     raise RuntimeError(f"{tool.label} does not have a compositor node recipe")
-                created = _create_tool_compositor_color_stack(context.scene, strip, tool)
+                stack = _tool_compositor_stack(tool)
+                compositor_stack = _tool_compositor_filter_stack(tool)
+                created = _create_tool_compositor_color_stack(context.scene, strip, tool, stack, compositor_stack)
                 context.scene.video_toolkit_last_compositor_nodes = (
                     f"tool compositor {tool.label}: {_compositor_node_summary(created)}"
                 )
@@ -3391,6 +3393,8 @@ def _append_translated_compositor_filter(
         return _append_blend_composite_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "MASKED_BLEND_COMPOSITE":
         return _append_masked_blend_composite_filter(tree, input_socket, settings, index, origin, label_prefix)
+    if compositor_type == "BACKGROUND_KEY":
+        return _append_background_key_filter(tree, input_socket, settings, index, origin, label_prefix)
     if compositor_type == "BOX_MASK_ALPHA":
         return _append_shape_mask_alpha_filter(tree, input_socket, settings, index, origin, label_prefix, "CompositorNodeBoxMask")
     if compositor_type == "ELLIPSE_MASK_ALPHA":
@@ -3695,6 +3699,36 @@ def _append_masked_blend_composite_filter(tree, input_socket, settings: dict[str
     return _image_output(alpha), [matte, *processor_nodes, alpha]
 
 
+def _append_background_key_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str = "Translated"):
+    label = f"VTK {label_prefix} {settings.get('label') or 'Background Key Matte'}"
+    blur = _new_compositor_node(tree, "CompositorNodeBlur", f"{label} Background Plate", index, y_offset=-200, origin=origin)
+    blur_size = float(settings.get("blur_size", 6.0) or 6.0)
+    _set_input_default(blur, "Size", (blur_size, blur_size))
+    _set_input_default(blur, "Type", "Gaussian")
+    _set_input_default(blur, "Extend Bounds", True)
+    _set_input_default(blur, "Separable", True)
+    matte = _new_compositor_node(tree, "CompositorNodeDiffMatte", f"{label} Difference Matte", index + 1, y_offset=-100, origin=origin)
+    _set_input_default(matte, "Tolerance", settings.get("tolerance", 0.10))
+    _set_input_default(matte, "Falloff", settings.get("falloff", 0.0))
+    set_alpha = _new_compositor_node(tree, "CompositorNodeSetAlpha", label, index + 2, origin=origin)
+    _set_input_default(set_alpha, "Type", "Apply Mask")
+
+    _link_socket(tree, input_socket, _image_input(blur))
+    _link_socket(tree, input_socket, _socket_by_name(matte.inputs, "Image 1"))
+    _link_socket(tree, _image_output(blur), _socket_by_name(matte.inputs, "Image 2"))
+    _link_socket(tree, input_socket, _image_input(set_alpha))
+    _link_socket(tree, _socket_by_name(matte.outputs, "Matte"), _socket_by_name(set_alpha.inputs, "Alpha"))
+
+    for node in (blur, matte, set_alpha):
+        node["video_toolkit_ffmpeg_filter"] = settings.get("source", "backgroundkey")
+        node["video_toolkit_backgroundkey_threshold"] = float(settings.get("threshold", 0.08) or 0.08)
+        node["video_toolkit_backgroundkey_similarity"] = float(settings.get("similarity", 0.10) or 0.10)
+        node["video_toolkit_backgroundkey_blend"] = float(settings.get("blend", 0.0) or 0.0)
+        if settings.get("approximation"):
+            node["video_toolkit_approximation"] = settings.get("approximation")
+    return _image_output(set_alpha), [blur, matte, set_alpha]
+
+
 def _append_shape_mask_alpha_filter(tree, input_socket, settings: dict[str, object], index: int, origin, label_prefix: str, node_type: str):
     label = f"VTK {label_prefix} {settings.get('label') or 'Mask Alpha'}"
     mask = _new_compositor_node(tree, node_type, f"{label} Mask", index, y_offset=-160, origin=origin)
@@ -3831,6 +3865,7 @@ def _translated_compositor_filter_to_node(
         "CHROMA_MATTE": "Chroma Matte",
         "COLOR_MATTE": "Color Matte",
         "COLOR_SPILL": "Color Spill",
+        "BACKGROUND_KEY": "Background Key",
         "LUMA_MATTE": "Luma Matte",
         "BRIGHT_CONTRAST": "Brightness/Contrast",
         "COLOR_BALANCE": "Color Balance",
@@ -4859,6 +4894,7 @@ def _ffmpeg_translation_coverage_chain() -> str:
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "despill=type=green:mix=0.65:expand=0.12:green=-1.0,"
+        "backgroundkey=threshold=0.08:similarity=0.12:blend=0.04,"
         "threshold=planes=7,"
         "maskedthreshold=threshold=2048:planes=7:mode=abs,"
         "blend=all_mode=overlay:all_opacity=0.35,"

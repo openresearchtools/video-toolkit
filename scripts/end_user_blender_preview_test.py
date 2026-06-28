@@ -339,6 +339,7 @@ scene.video_toolkit_ffmpeg_chain = (
     'hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,'
     'lumakey=threshold=0.20:tolerance=0.08:softness=0.02,'
     'despill=type=green:mix=0.65:expand=0.12:green=-1.0,'
+    'backgroundkey=threshold=0.08:similarity=0.12:blend=0.04,'
     'threshold=planes=7,'
     'maskedthreshold=threshold=2048:planes=7:mode=abs,'
     "blend=all_mode=overlay:all_opacity=0.35,"
@@ -400,6 +401,7 @@ for required_filter in [
     'colorbalance',
     'chromakey',
     'despill',
+    'backgroundkey',
     'threshold',
     'blend',
     'tblend',
@@ -443,6 +445,7 @@ assert 'chromakey' in translated_workflow_supported
 assert 'colorkey' in translated_workflow_supported
 assert 'hsvkey' in translated_workflow_supported
 assert 'lumakey' in translated_workflow_supported
+assert 'backgroundkey' in translated_workflow_supported
 assert 'rgbashift' in translated_workflow_supported
 assert 'chromashift' in translated_workflow_supported
 assert 'alphaextract' in translated_workflow_supported

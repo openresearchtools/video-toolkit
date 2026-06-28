@@ -50,6 +50,7 @@ STACK_TYPE_TO_COMPOSITOR_NODE = {
 }
 
 SPECIAL_STACK_TYPE_TO_COMPOSITOR_NODES = {
+    "BACKGROUND_KEY": {"CompositorNodeBlur", "CompositorNodeDiffMatte", "CompositorNodeSetAlpha"},
     "BOX_MASK_ALPHA": {"CompositorNodeBoxMask", "CompositorNodeSetAlpha"},
     "BLEND_COMPOSITE": {"CompositorNodeAlphaOver"},
     "BLANK_IMAGE_OVERLAY": {"CompositorNodeAlphaOver", "CompositorNodeBlankImage"},
@@ -203,6 +204,7 @@ def test_native_matte_and_channel_tools_are_exposed():
         "native_hsv_key_matte": {"COLOR_MATTE"},
         "native_luma_key_matte": {"LUMA_MATTE"},
         "native_despill_color_spill": {"COLOR_SPILL"},
+        "native_background_key_matte": {"BACKGROUND_KEY"},
         "native_threshold_matte": {"LUMA_MATTE"},
         "native_masked_threshold_matte": {"LUMA_MATTE"},
         "native_blend_overlay_composite": {"BLEND_COMPOSITE"},
@@ -651,6 +653,7 @@ def test_every_native_ffmpeg_compositor_filter_has_one_click_tool():
         "hsvkey": "native_hsv_key_matte",
         "lumakey": "native_luma_key_matte",
         "despill": "native_despill_color_spill",
+        "backgroundkey": "native_background_key_matte",
         "threshold": "native_threshold_matte",
         "maskedthreshold": "native_masked_threshold_matte",
         "blend": "native_blend_overlay_composite",

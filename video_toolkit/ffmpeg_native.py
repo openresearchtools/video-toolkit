@@ -62,6 +62,7 @@ NATIVE_FFMPEG_COMPOSITOR_FILTERS = (
     "hsvkey",
     "lumakey",
     "despill",
+    "backgroundkey",
     "threshold",
     "maskedthreshold",
     "blend",
@@ -293,6 +294,10 @@ def translate_filter_chain(chain: str) -> NativeTranslation:
             compositor_nodes.extend(despill_to_blender_compositor(**args))
             supported.append(name)
             notes.append("Despill is translated to Blender compositor Color Spill suppression nodes.")
+        elif name == "backgroundkey":
+            compositor_nodes.extend(backgroundkey_to_blender_compositor(**args))
+            supported.append(name)
+            notes.append("Backgroundkey is translated to a Blender Difference Matte plus Set Alpha graph using a softened background-plate branch.")
         elif name in {"threshold", "maskedthreshold"}:
             compositor_nodes.extend(threshold_to_blender_compositor(name, **args))
             supported.append(name)
@@ -1562,6 +1567,40 @@ def despill_to_blender_compositor(
                 "brightness": brightness_value,
                 "alpha": _truthy(alpha),
                 "approximation": "FFmpeg despill's channel-scale and brightness math is represented with Blender's native Color Spill node; exact per-channel scale values are kept as node metadata.",
+            },
+        ),
+    )
+
+
+def backgroundkey_to_blender_compositor(
+    *,
+    threshold: str | float = 0.08,
+    similarity: str | float = 0.10,
+    blend: str | float = 0.0,
+    arg0: str | float | None = None,
+    arg1: str | float | None = None,
+    arg2: str | float | None = None,
+    **_unused: str,
+) -> CompositorStack:
+    threshold_value = _clamp(_float(arg0 if arg0 is not None else threshold, 0.08), 0.0, 1.0)
+    similarity_value = _clamp(_float(arg1 if arg1 is not None else similarity, 0.10), 0.0, 1.0)
+    blend_value = _clamp(_float(arg2 if arg2 is not None else blend, 0.0), 0.0, 1.0)
+    tolerance = _clamp(max(threshold_value, similarity_value), 0.001, 1.0)
+    falloff = _clamp(blend_value + threshold_value * 0.35, 0.0, 1.0)
+    blur_size = int(_clamp(round(2.0 + similarity_value * 32.0 + threshold_value * 16.0), 1.0, 64.0))
+    return (
+        (
+            "BACKGROUND_KEY",
+            {
+                "label": "Background Key Matte",
+                "threshold": threshold_value,
+                "similarity": similarity_value,
+                "blend": blend_value,
+                "tolerance": tolerance,
+                "falloff": falloff,
+                "blur_size": blur_size,
+                "source": "backgroundkey",
+                "approximation": "FFmpeg backgroundkey's static background model is represented with Blender's native Difference Matte fed by a softened selected-strip plate branch, then applied through Set Alpha.",
             },
         ),
     )

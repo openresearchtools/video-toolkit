@@ -1,5 +1,6 @@
 from video_toolkit.ffmpeg_native import (
     alphaextract_to_blender_compositor,
+    backgroundkey_to_blender_compositor,
     blend_to_blender_compositor,
     chromakey_to_blender_compositor,
     colorbalance_to_blender_stack,
@@ -542,6 +543,12 @@ def test_key_filters_translate_to_compositor_only_nodes():
     assert despill[0][1]["limit_strength"] == 0.2
     assert despill[0][1]["alpha"] is True
 
+    background = backgroundkey_to_blender_compositor(threshold=0.08, similarity=0.12, blend=0.04)
+    assert background[0][0] == "BACKGROUND_KEY"
+    assert background[0][1]["tolerance"] == 0.12
+    assert background[0][1]["falloff"] > 0.04
+    assert background[0][1]["blur_size"] >= 6
+
     threshold = threshold_to_blender_compositor("threshold", planes=7)
     masked_threshold = threshold_to_blender_compositor("maskedthreshold", threshold=2048, planes=7, mode="abs")
     assert threshold[0][0] == "LUMA_MATTE"
@@ -556,18 +563,20 @@ def test_key_filters_translate_to_compositor_only_nodes():
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "despill=type=green:mix=0.65:expand=0.12:green=-1.0,"
+        "backgroundkey=threshold=0.08:similarity=0.12:blend=0.04,"
         "threshold=planes=7,"
         "maskedthreshold=threshold=2048:planes=7:mode=abs"
     )
     assert result.stack == ()
     assert result.unsupported_filters == ()
-    assert result.supported_filters == ("chromakey", "colorkey", "hsvkey", "lumakey", "despill", "threshold", "maskedthreshold")
+    assert result.supported_filters == ("chromakey", "colorkey", "hsvkey", "lumakey", "despill", "backgroundkey", "threshold", "maskedthreshold")
     assert [node_type for node_type, _settings in result.compositor_nodes] == [
         "CHROMA_MATTE",
         "COLOR_MATTE",
         "COLOR_MATTE",
         "LUMA_MATTE",
         "COLOR_SPILL",
+        "BACKGROUND_KEY",
         "LUMA_MATTE",
         "LUMA_MATTE",
     ]
@@ -1079,6 +1088,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "hsvkey=hue=210:sat=0.75:val=0.85:similarity=0.10:blend=0.02,"
         "lumakey=threshold=0.20:tolerance=0.08:softness=0.02,"
         "despill=type=green:mix=0.65:expand=0.12:green=-1.0,"
+        "backgroundkey=threshold=0.08:similarity=0.12:blend=0.04,"
         "threshold=planes=7,"
         "maskedthreshold=threshold=2048:planes=7:mode=abs,"
         "blend=all_mode=overlay:all_opacity=0.35,"
@@ -1180,6 +1190,7 @@ def test_filter_chain_supports_more_color_grading_filters():
         "hsvkey",
         "lumakey",
         "despill",
+        "backgroundkey",
         "threshold",
         "maskedthreshold",
         "blend",
@@ -1254,7 +1265,7 @@ def test_filter_chain_supports_more_color_grading_filters():
     assert {"CURVES", "COLOR_BALANCE", "HUE_CORRECT", "BRIGHT_CONTRAST", "WHITE_BALANCE", "TONEMAP"}.issubset(
         {modifier_type for modifier_type, _settings in result.stack}
     )
-    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "COLOR_SPILL", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR"}.issubset(
+    assert {"COLOR_BALANCE", "CURVE_RGB", "TONEMAP", "HUE_CORRECT", "HUE_SAT", "EXPOSURE", "COLOR_CORRECTION", "INVERT", "CHROMA_MATTE", "COLOR_MATTE", "COLOR_SPILL", "BACKGROUND_KEY", "LUMA_MATTE", "BLEND_COMPOSITE", "MASKED_BLEND_COMPOSITE", "CHANNEL_SHIFT", "PLANE_EXTRACT", "PREMUL_KEY", "PLANE_SHUFFLE", "POSTERIZE", "FILTER", "DILATE_ERODE", "CONVOLVE", "BLUR", "BILATERAL_BLUR", "DIRECTIONAL_BLUR", "SCALE", "CROP", "ROTATE", "FLIP", "LENS_DISTORTION", "DENOISE", "DESPECKLE", "ANTI_ALIASING", "SCOPE_MONITOR"}.issubset(
         {node_type for node_type, _settings in result.compositor_nodes}
     )
     assert ("sequencer_input", "bt709") in result.color_management
