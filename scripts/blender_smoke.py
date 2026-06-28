@@ -915,6 +915,7 @@ tree = scene.compositing_node_group if hasattr(scene, 'compositing_node_group') 
 node_types = [node.bl_idname for node in tree.nodes if node.name.startswith('VTK ')]
 assert 'CompositorNodeMovieClip' in node_types
 assert 'CompositorNodeColorCorrection' in node_types
+assert any(node.bl_idname == 'CompositorNodeColorCorrection' and node.name == 'VTK Gamma Control' for node in tree.nodes)
 assert 'CompositorNodeTonemap' in node_types
 assert len(tree.links) >= 12
 bpy.ops.video_toolkit.create_compositor_nodes(stack_type='NATIVE_COLOR_ROOM')
@@ -941,6 +942,7 @@ for required in [
     'CompositorNodeOutputFile',
 ]:
     assert required in native_room_node_types, required
+assert any(node.bl_idname == 'CompositorNodeColorCorrection' and node.name == 'VTK Native Color Room Gamma' for node in tree.nodes)
 assert len([link for link in tree.links if link.from_node.name.startswith('VTK Native Color Room ')]) >= 16
 bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id='live_pro_color_stack')
 assert scene.video_toolkit_last_compositor_nodes.startswith('tool compositor Live Pro Color Stack')

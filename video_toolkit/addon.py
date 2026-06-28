@@ -3061,19 +3061,22 @@ def _create_compositor_color_stack(scene, strip):
     _set_input_default(hue_sat, "Value", 1.01)
     hue_correct = _new_compositor_node(tree, "CompositorNodeHueCorrect", "VTK Hue Correct", 8, origin=origin)
     _apply_hue_correct(hue_correct.mapping, {"saturation": 0.56})
-    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Tone Map", 9, origin=origin)
+    gamma = _new_compositor_node(tree, "CompositorNodeColorCorrection", "VTK Gamma Control", 9, origin=origin)
+    _set_input_default_candidates(gamma, ("Gamma", "Master Gamma"), 1.02)
+    _set_input_default_candidates(gamma, ("Saturation", "Master Saturation"), 1.0)
+    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Tone Map", 10, origin=origin)
     _set_input_default(tonemap, "Type", "RD_PHOTORECEPTOR")
     _set_input_default(tonemap, "Intensity", 0.10)
     _set_input_default(tonemap, "Contrast", 0.12)
-    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", "VTK Separate Color", 10, y_offset=-120, origin=origin)
-    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", "VTK Combine Color", 11, y_offset=-120, origin=origin)
-    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Levels", 12, y_offset=160, origin=origin)
-    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Viewer", 13, origin=origin)
-    output = _new_output_file_node(tree, scene, 13, y_offset=-160, origin=origin)
+    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", "VTK Separate Color", 11, y_offset=-120, origin=origin)
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", "VTK Combine Color", 12, y_offset=-120, origin=origin)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Levels", 13, y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Viewer", 14, origin=origin)
+    output = _new_output_file_node(tree, scene, 14, y_offset=-160, origin=origin)
 
     final_socket = _link_compositor_chain(
         tree,
-        [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap],
+        [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, gamma, tonemap],
     )
     _link_socket(tree, final_socket, _image_input(separate))
     for socket_name in ("Red", "Green", "Blue", "Alpha"):
@@ -3082,7 +3085,7 @@ def _create_compositor_color_stack(scene, strip):
     _link_socket(tree, combined_socket, _image_input(levels))
     _link_socket(tree, combined_socket, _image_input(viewer))
     _link_socket(tree, combined_socket, _first_socket(output.inputs))
-    return [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap, separate, combine, levels, viewer, output]
+    return [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, gamma, tonemap, separate, combine, levels, viewer, output]
 
 
 def _create_native_color_room_compositor_stack(scene, strip):
@@ -3118,25 +3121,28 @@ def _create_native_color_room_compositor_stack(scene, strip):
     _set_input_default_candidates(hue_sat, ("Factor", "Fac"), 1.0)
     hue_correct = _new_compositor_node(tree, "CompositorNodeHueCorrect", "VTK Native Color Room Hue Correct", 8, origin=origin)
     _apply_hue_correct(hue_correct.mapping, {"saturation": 0.50, "value": 0.50})
-    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Native Color Room Tone Map", 9, origin=origin)
+    gamma = _new_compositor_node(tree, "CompositorNodeColorCorrection", "VTK Native Color Room Gamma", 9, origin=origin)
+    _set_input_default_candidates(gamma, ("Gamma", "Master Gamma"), 1.0)
+    _set_input_default_candidates(gamma, ("Saturation", "Master Saturation"), 1.0)
+    tonemap = _new_compositor_node(tree, "CompositorNodeTonemap", "VTK Native Color Room Tone Map", 10, origin=origin)
     _set_input_default(tonemap, "Type", "RD_PHOTORECEPTOR")
     _set_input_default(tonemap, "Intensity", 0.0)
     _set_input_default(tonemap, "Contrast", 0.0)
     _set_input_default(tonemap, "Gamma", 1.0)
-    display = _new_compositor_node(tree, "CompositorNodeConvertToDisplay", "VTK Native Color Room Display Convert", 10, origin=origin)
-    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", "VTK Native Color Room Separate Color", 11, y_offset=-120, origin=origin)
-    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", "VTK Native Color Room Combine Color", 12, y_offset=-120, origin=origin)
-    luma = _new_compositor_node(tree, "CompositorNodeRGBToBW", "VTK Native Color Room Luma Monitor", 11, y_offset=-360, origin=origin)
-    normalize = _new_compositor_node(tree, "CompositorNodeNormalize", "VTK Native Color Room Normalize Monitor", 12, y_offset=-360, origin=origin)
-    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Native Color Room Levels", 13, y_offset=160, origin=origin)
-    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Native Color Room Viewer", 14, origin=origin)
-    output = _new_output_file_node(tree, scene, 14, y_offset=-160, origin=origin)
+    display = _new_compositor_node(tree, "CompositorNodeConvertToDisplay", "VTK Native Color Room Display Convert", 11, origin=origin)
+    separate = _new_compositor_node(tree, "CompositorNodeSeparateColor", "VTK Native Color Room Separate Color", 12, y_offset=-120, origin=origin)
+    combine = _new_compositor_node(tree, "CompositorNodeCombineColor", "VTK Native Color Room Combine Color", 13, y_offset=-120, origin=origin)
+    luma = _new_compositor_node(tree, "CompositorNodeRGBToBW", "VTK Native Color Room Luma Monitor", 12, y_offset=-360, origin=origin)
+    normalize = _new_compositor_node(tree, "CompositorNodeNormalize", "VTK Native Color Room Normalize Monitor", 13, y_offset=-360, origin=origin)
+    levels = _new_compositor_node(tree, "CompositorNodeLevels", "VTK Native Color Room Levels", 14, y_offset=160, origin=origin)
+    viewer = _new_compositor_node(tree, "CompositorNodeViewer", "VTK Native Color Room Viewer", 15, origin=origin)
+    output = _new_output_file_node(tree, scene, 15, y_offset=-160, origin=origin)
     output.name = "VTK Native Color Room Output File"
     output.label = "VTK Native Color Room Output File"
 
     final_socket = _link_compositor_chain(
         tree,
-        [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, tonemap, display],
+        [movie, convert, exposure, bright, balance, correction, curves, hue_sat, hue_correct, gamma, tonemap, display],
     )
     _link_socket(tree, final_socket, _image_input(separate))
     for socket_name in ("Red", "Green", "Blue", "Alpha"):
@@ -3157,6 +3163,7 @@ def _create_native_color_room_compositor_stack(scene, strip):
         curves,
         hue_sat,
         hue_correct,
+        gamma,
         tonemap,
         display,
         separate,
@@ -4418,6 +4425,13 @@ def _translated_compositor_filter_to_node(
         _set_input_default_candidates(node, ("Master Saturation", "Saturation"), settings.get("saturation", 1.0))
         _set_input_default_candidates(node, ("Shadows Offset",), settings.get("shadow_offset", 0.0))
         _set_input_default_candidates(node, ("Highlights Gain",), settings.get("highlight_gain", 1.0))
+        for key, socket_names in (
+            ("gamma", ("Gamma", "Master Gamma")),
+            ("contrast", ("Contrast", "Master Contrast")),
+            ("gain", ("Gain", "Master Gain")),
+        ):
+            if key in settings:
+                _set_input_default_candidates(node, socket_names, settings[key])
         node["video_toolkit_ffmpeg_filter"] = settings.get("source", "colorcorrect")
         for key in ("red_low", "blue_low", "red_high", "blue_high"):
             if key in settings:

@@ -238,6 +238,7 @@ def test_native_compositor_catalog_tools_are_exposed():
         "native_compositor_color_balance": {"COLOR_BALANCE"},
         "native_compositor_color_correction": {"COLOR_CORRECTION"},
         "native_compositor_rgb_curves": {"CURVE_RGB"},
+        "native_compositor_gamma": {"COLOR_CORRECTION"},
         "native_compositor_hue_saturation": {"HUE_SAT"},
         "native_compositor_hue_correct": {"HUE_CORRECT"},
         "native_compositor_tone_map": {"TONEMAP"},

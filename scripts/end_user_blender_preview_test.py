@@ -1027,6 +1027,7 @@ for required in [
     'CompositorNodeOutputFile',
 ]:
     assert required in color_node_types, required
+assert any(node.bl_idname == 'CompositorNodeColorCorrection' and node.name == 'VTK Gamma Control' for node in tree.nodes), 'VTK Gamma Control'
 assert len(tree.links) >= 12, f'Expected linked compositor color graph, got {{len(tree.links)}} links'
 
 result = bpy.ops.video_toolkit.create_compositor_nodes(stack_type='NATIVE_COLOR_ROOM')
@@ -1059,6 +1060,7 @@ for required in [
     'CompositorNodeOutputFile',
 ]:
     assert required in native_room_node_types, required
+assert any(node.bl_idname == 'CompositorNodeColorCorrection' and node.name == 'VTK Native Color Room Gamma' for node in tree.nodes), 'VTK Native Color Room Gamma'
 native_room_links = len([link for link in tree.links if link.from_node.name.startswith('VTK Native Color Room ')])
 assert native_room_links >= 16, native_room_links
 
