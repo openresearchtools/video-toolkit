@@ -97,6 +97,8 @@ PARAMETER_ENGINE_ITEMS = (
 
 PARAMETER_COMPONENT_LABELS = ("R", "G", "B", "A")
 
+_PARAMETER_UPDATE_LOCK = False
+
 COLOR_MANAGEMENT_PRESET_ITEMS = (
     ("AGX_BALANCED", "AgX Balanced", "AgX view transform with a moderate editorial contrast look"),
     ("AGX_PUNCH", "AgX Punch", "AgX with a stronger contrast look and tiny exposure lift"),
@@ -230,12 +232,17 @@ def _ensure_tool_parameters(scene, tool, *, force: bool = False) -> None:
 
 
 def _rebuild_tool_parameters(scene, tool) -> None:
-    scene.video_toolkit_tool_parameters.clear()
-    scene.video_toolkit_parameter_tool_id = tool.id
-    if tool.is_blender_modifier:
-        _rebuild_blender_tool_parameters(scene, tool)
-    elif tool.is_ffmpeg:
-        _rebuild_ffmpeg_tool_parameters(scene, tool)
+    global _PARAMETER_UPDATE_LOCK
+    _PARAMETER_UPDATE_LOCK = True
+    try:
+        scene.video_toolkit_tool_parameters.clear()
+        scene.video_toolkit_parameter_tool_id = tool.id
+        if tool.is_blender_modifier:
+            _rebuild_blender_tool_parameters(scene, tool)
+        elif tool.is_ffmpeg:
+            _rebuild_ffmpeg_tool_parameters(scene, tool)
+    finally:
+        _PARAMETER_UPDATE_LOCK = False
 
 
 def _rebuild_blender_tool_parameters(scene, tool) -> None:
@@ -417,6 +424,81 @@ def _tool_parameters(scene, tool, engine: str | None = None):
         for param in scene.video_toolkit_tool_parameters
         if param.tool_id == tool.id and (engine is None or param.engine == engine)
     )
+
+
+def _tool_parameter_items(scene, tool, engine: str | None = None):
+    if not hasattr(scene, "video_toolkit_tool_parameters"):
+        return ()
+    return tuple(
+        (index, param)
+        for index, param in enumerate(scene.video_toolkit_tool_parameters)
+        if param.tool_id == tool.id and (engine is None or param.engine == engine)
+    )
+
+
+def _update_tool_parameter_value(self, context) -> None:
+    if _PARAMETER_UPDATE_LOCK or self.engine != "BLENDER":
+        return
+    scene = getattr(context, "scene", None)
+    if scene is None or not getattr(scene, "video_toolkit_live_preview", False):
+        return
+    try:
+        _refresh_blender_parameter_preview(context)
+        scene.video_toolkit_last_preview_error = ""
+    except Exception as exc:
+        scene.video_toolkit_last_preview_error = str(exc)
+
+
+def _refresh_blender_parameter_preview(context) -> int:
+    scene = getattr(context, "scene", None)
+    if scene is None:
+        return 0
+    tool = _expanded_sidecar_tool(scene)
+    if tool is None or not tool.is_blender_modifier:
+        return 0
+    editor = getattr(scene, "sequence_editor", None)
+    strip = editor.active_strip if editor else None
+    if strip is None or not hasattr(strip, "modifiers"):
+        return 0
+    _remove_blender_parameter_previews(strip)
+    preview_tool = replace(_tool_with_parameter_overrides(scene, tool), label=f"Preview {tool.id} {tool.label}")
+    modifiers = _add_blender_tool(strip, preview_tool)
+    if hasattr(context, "area") and context.area is not None:
+        context.area.tag_redraw()
+    return len(modifiers)
+
+
+def _remove_blender_parameter_previews(strip, tool_id: str | None = None) -> int:
+    if strip is None or not hasattr(strip, "modifiers"):
+        return 0
+    removed = 0
+    for modifier in reversed(list(strip.modifiers)):
+        if not _is_blender_parameter_preview(modifier):
+            continue
+        if tool_id is not None and not modifier.name.startswith(_preview_modifier_prefix(tool_id)):
+            continue
+        strip.modifiers.remove(modifier)
+        removed += 1
+    return removed
+
+
+def _is_blender_parameter_preview(modifier) -> bool:
+    return str(getattr(modifier, "name", "")).startswith("VTK Preview ")
+
+
+def _preview_modifier_prefix(tool_id: str) -> str:
+    return f"VTK Preview {tool_id} "
+
+
+def _reset_tool_parameter(param) -> None:
+    if param.value_kind == "BOOL":
+        param.bool_value = param.default_text.lower() in {"1", "true", "yes", "on"}
+    elif param.value_kind == "INT":
+        param.int_value = int(float(param.default_text))
+    elif param.value_kind == "FLOAT":
+        param.float_value = float(param.default_text)
+    else:
+        param.text_value = param.default_text
 
 
 def _tool_with_parameter_overrides(scene, tool):
@@ -627,10 +709,22 @@ class VIDEO_TOOLKIT_PG_tool_parameter(PropertyGroup):
     path: bpy.props.StringProperty(name="Path", default="")
     component_index: bpy.props.IntProperty(name="Component Index", default=-1)
     default_text: bpy.props.StringProperty(name="Default", default="")
-    float_value: bpy.props.FloatProperty(name="Value", soft_min=-100.0, soft_max=100.0, default=0.0)
-    int_value: bpy.props.IntProperty(name="Value", soft_min=-10000, soft_max=10000, default=0)
-    bool_value: bpy.props.BoolProperty(name="Value", default=False)
-    text_value: bpy.props.StringProperty(name="Value", default="")
+    float_value: bpy.props.FloatProperty(
+        name="Value",
+        soft_min=-100.0,
+        soft_max=100.0,
+        default=0.0,
+        update=_update_tool_parameter_value,
+    )
+    int_value: bpy.props.IntProperty(
+        name="Value",
+        soft_min=-10000,
+        soft_max=10000,
+        default=0,
+        update=_update_tool_parameter_value,
+    )
+    bool_value: bpy.props.BoolProperty(name="Value", default=False, update=_update_tool_parameter_value)
+    text_value: bpy.props.StringProperty(name="Value", default="", update=_update_tool_parameter_value)
 
 
 class VIDEO_TOOLKIT_OT_apply_filter(Operator):
@@ -660,6 +754,12 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
                 target = self.target
                 if target == "SCENE":
                     target = context.scene.video_toolkit_apply_target
+                if target == "SELECTED":
+                    preview_targets = _selected_modifier_strips(context) or [strip]
+                else:
+                    preview_targets = [strip]
+                for preview_strip in preview_targets:
+                    _remove_blender_parameter_previews(preview_strip, tool.id)
                 color_management = _apply_tool_color_management(context, tool)
                 if target == "ADJUSTMENT":
                     adjustment = _create_adjustment_strip(context, tool.label)
@@ -738,10 +838,16 @@ class VIDEO_TOOLKIT_OT_select_sidecar_tool(Operator):
     def execute(self, context):
         tool = get_tool(self.filter_id)
         scene = context.scene
+        editor = getattr(scene, "sequence_editor", None)
+        strip = editor.active_strip if editor else None
+        if strip is not None:
+            _remove_blender_parameter_previews(strip)
         scene.video_toolkit_expanded_tool = tool.id
         scene.video_toolkit_sidecar_group = _enum_key(tool.category)
         scene.video_toolkit_sidecar_tool = tool.id
         _ensure_tool_parameters(scene, tool, force=True)
+        if getattr(scene, "video_toolkit_live_preview", False):
+            _refresh_blender_parameter_preview(context)
         return {"FINISHED"}
 
 
@@ -757,6 +863,72 @@ class VIDEO_TOOLKIT_OT_reset_tool_parameters(Operator):
             self.report({"ERROR"}, "No Video Effects tool is expanded")
             return {"CANCELLED"}
         _ensure_tool_parameters(context.scene, tool, force=True)
+        if getattr(context.scene, "video_toolkit_live_preview", False):
+            _refresh_blender_parameter_preview(context)
+        return {"FINISHED"}
+
+
+class VIDEO_TOOLKIT_OT_apply_tool_parameter(Operator):
+    bl_idname = "video_toolkit.apply_tool_parameter"
+    bl_label = "Apply Parameter"
+    bl_description = "Apply the expanded effect using the current editable parameter values"
+    bl_options = {"REGISTER", "UNDO"}
+
+    parameter_index: bpy.props.IntProperty(name="Parameter Index", default=-1)
+
+    def execute(self, context):
+        scene = context.scene
+        if self.parameter_index < 0 or self.parameter_index >= len(scene.video_toolkit_tool_parameters):
+            self.report({"ERROR"}, "Parameter row is no longer available")
+            return {"CANCELLED"}
+        param = scene.video_toolkit_tool_parameters[self.parameter_index]
+        try:
+            tool = get_tool(param.tool_id)
+        except Exception as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        scene.video_toolkit_expanded_tool = tool.id
+        scene.video_toolkit_parameter_tool_id = tool.id
+        return bpy.ops.video_toolkit.apply_filter(filter_id=tool.id, target="SCENE")
+
+
+class VIDEO_TOOLKIT_OT_reset_tool_parameter(Operator):
+    bl_idname = "video_toolkit.reset_tool_parameter"
+    bl_label = "Reset Parameter"
+    bl_description = "Reset this parameter to its catalog default"
+    bl_options = {"REGISTER"}
+
+    parameter_index: bpy.props.IntProperty(name="Parameter Index", default=-1)
+
+    def execute(self, context):
+        scene = context.scene
+        if self.parameter_index < 0 or self.parameter_index >= len(scene.video_toolkit_tool_parameters):
+            self.report({"ERROR"}, "Parameter row is no longer available")
+            return {"CANCELLED"}
+        param = scene.video_toolkit_tool_parameters[self.parameter_index]
+        _reset_tool_parameter(param)
+        if getattr(scene, "video_toolkit_live_preview", False):
+            _refresh_blender_parameter_preview(context)
+        return {"FINISHED"}
+
+
+class VIDEO_TOOLKIT_OT_clear_parameter_preview(Operator):
+    bl_idname = "video_toolkit.clear_parameter_preview"
+    bl_label = "Clear Parameter Preview"
+    bl_description = "Remove temporary live preview modifiers from the active strip"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and hasattr(strip, "modifiers"))
+
+    def execute(self, context):
+        strip = context.scene.sequence_editor.active_strip
+        removed = _remove_blender_parameter_previews(strip)
+        self.report({"INFO"}, f"Removed {removed} preview modifier(s)")
         return {"FINISHED"}
 
 
@@ -2575,6 +2747,11 @@ def _draw_expanded_tool_settings(layout, scene, strip, tool) -> None:
     panel.label(text=tool.description, icon="INFO")
     if tool.is_blender_modifier:
         panel.prop(scene, "video_toolkit_apply_target", text="Target")
+        preview_row = panel.row(align=True)
+        preview_row.prop(scene, "video_toolkit_live_preview", text="Live Preview")
+        preview_row.operator(VIDEO_TOOLKIT_OT_clear_parameter_preview.bl_idname, text="", icon="TRASH")
+        if getattr(scene, "video_toolkit_last_preview_error", ""):
+            panel.label(text=scene.video_toolkit_last_preview_error, icon="ERROR")
         _draw_tool_parameter_controls(panel, scene, tool, "BLENDER")
     elif tool.is_ffmpeg:
         _draw_tool_parameter_controls(panel, scene, tool, "FFMPEG")
@@ -2592,23 +2769,23 @@ def _draw_expanded_tool_settings(layout, scene, strip, tool) -> None:
 
 
 def _draw_tool_parameter_controls(layout, scene, tool, engine: str) -> None:
-    params = _tool_parameters(scene, tool, engine)
-    if not params:
+    items = _tool_parameter_items(scene, tool, engine)
+    if not items:
         layout.label(text="No editable parameters recorded for this tool.", icon="INFO")
         return
     current_group = None
     group_box = None
-    for param in params:
+    for param_index, param in items:
         group_key = (param.engine, param.group_label, param.modifier_index, param.filter_index)
         if group_key != current_group:
             current_group = group_key
             group_box = layout.box()
             icon = "MODIFIER" if engine == "BLENDER" else "RENDER_ANIMATION"
             group_box.label(text=param.group_label, icon=icon)
-        _draw_tool_parameter_value(group_box, param)
+        _draw_tool_parameter_value(group_box, param_index, param)
 
 
-def _draw_tool_parameter_value(layout, param) -> None:
+def _draw_tool_parameter_value(layout, param_index: int, param) -> None:
     row = layout.row(align=True)
     if param.value_kind == "BOOL":
         row.prop(param, "bool_value", text=param.label)
@@ -2618,6 +2795,10 @@ def _draw_tool_parameter_value(layout, param) -> None:
         row.prop(param, "float_value", text=param.label)
     else:
         row.prop(param, "text_value", text=param.label)
+    apply_op = row.operator(VIDEO_TOOLKIT_OT_apply_tool_parameter.bl_idname, text="", icon="CHECKMARK")
+    apply_op.parameter_index = param_index
+    reset_op = row.operator(VIDEO_TOOLKIT_OT_reset_tool_parameter.bl_idname, text="", icon="LOOP_BACK")
+    reset_op.parameter_index = param_index
 
 
 def _draw_one_click_video_effects(layout, scene, strip) -> None:
@@ -6222,6 +6403,9 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_apply_sidecar_tool,
     VIDEO_TOOLKIT_OT_select_sidecar_tool,
     VIDEO_TOOLKIT_OT_reset_tool_parameters,
+    VIDEO_TOOLKIT_OT_apply_tool_parameter,
+    VIDEO_TOOLKIT_OT_reset_tool_parameter,
+    VIDEO_TOOLKIT_OT_clear_parameter_preview,
     VIDEO_TOOLKIT_OT_set_sidecar_section,
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_color_diagnostics,
@@ -6292,6 +6476,15 @@ def register() -> None:
         name="Add Rendered Strip",
         description="Add the processed output above the source strip",
         default=True,
+    )
+    bpy.types.Scene.video_toolkit_live_preview = bpy.props.BoolProperty(
+        name="Live Preview",
+        description="Preview editable Blender-native effect parameters on the active strip before applying",
+        default=True,
+    )
+    bpy.types.Scene.video_toolkit_last_preview_error = bpy.props.StringProperty(
+        name="Last Preview Error",
+        default="",
     )
     bpy.types.Scene.video_toolkit_sidecar_section = bpy.props.EnumProperty(
         name="Section",
@@ -6490,6 +6683,8 @@ def unregister() -> None:
         "video_toolkit_preset",
         "video_toolkit_keep_audio",
         "video_toolkit_add_strip",
+        "video_toolkit_live_preview",
+        "video_toolkit_last_preview_error",
         "video_toolkit_sidecar_section",
         "video_toolkit_sidecar_group",
         "video_toolkit_sidecar_tool",
