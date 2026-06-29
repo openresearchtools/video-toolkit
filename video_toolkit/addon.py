@@ -220,12 +220,24 @@ def _selected_sidecar_tool(scene):
 
 def _expanded_sidecar_tool(scene):
     selected = getattr(scene, "video_toolkit_expanded_tool", "")
+    if not selected:
+        selected = getattr(scene, "video_toolkit_sidecar_tool", "")
     if selected:
         try:
             return get_tool(selected)
         except Exception:
             pass
     return None
+
+
+def _sidecar_operator_tool(scene):
+    selected = getattr(scene, "video_toolkit_sidecar_tool", "")
+    if selected:
+        try:
+            return get_tool(selected)
+        except Exception:
+            pass
+    return _expanded_sidecar_tool(scene)
 
 
 def _ensure_tool_parameters(scene, tool, *, force: bool = False) -> None:
@@ -1043,10 +1055,11 @@ class VIDEO_TOOLKIT_OT_apply_sidecar_tool(Operator):
         return bool(editor and editor.active_strip)
 
     def execute(self, context):
-        tool = _expanded_sidecar_tool(context.scene)
+        tool = _sidecar_operator_tool(context.scene)
         if tool is None:
             self.report({"ERROR"}, "No Video Effects tool is selected")
             return {"CANCELLED"}
+        context.scene.video_toolkit_expanded_tool = tool.id
         return bpy.ops.video_toolkit.apply_filter(filter_id=tool.id, target="SCENE")
 
 
@@ -2272,13 +2285,14 @@ class VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes(Operator):
         return bool(strip and strip.type == "MOVIE")
 
     def execute(self, context):
-        tool = _expanded_sidecar_tool(context.scene)
+        tool = _sidecar_operator_tool(context.scene)
         if tool is None:
             self.report({"ERROR"}, "No Video Effects tool is selected")
             return {"CANCELLED"}
         if not _tool_has_compositor_stack(tool):
             self.report({"ERROR"}, f"{tool.label} does not have a compositor node recipe")
             return {"CANCELLED"}
+        context.scene.video_toolkit_expanded_tool = tool.id
         return bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id=tool.id)
 
 
