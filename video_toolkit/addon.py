@@ -863,10 +863,11 @@ def _tool_is_internal_effect(tool) -> bool:
 
 
 def _open_compositing_workspace(context) -> None:
+    window = _context_window(context)
     workspace = bpy.data.workspaces.get("Compositing")
-    if workspace is not None and getattr(context, "window", None) is not None:
-        context.window.workspace = workspace
-    screen = getattr(getattr(context, "window", None), "screen", None)
+    if workspace is not None and window is not None:
+        window.workspace = workspace
+    screen = getattr(window, "screen", None)
     if screen is None:
         return
     for area in screen.areas:
@@ -897,7 +898,7 @@ def _focus_compositor_nodes(context, created) -> None:
         clip = getattr(active_node, "clip", None)
         if clip is not None and scene is not None and hasattr(scene, "active_clip"):
             scene.active_clip = clip
-    screen = getattr(getattr(context, "window", None), "screen", None)
+    screen = getattr(_context_window(context), "screen", None)
     if screen is None:
         return
     for area in screen.areas:
@@ -915,6 +916,30 @@ def _focus_compositor_nodes(context, created) -> None:
         except Exception:
             return
         return
+
+
+def _defer_compositor_focus(context, created) -> None:
+    if _context_window(context) is None:
+        return
+    created = tuple(created)
+
+    def focus_after_workspace_switch():
+        _focus_compositor_nodes(context, created)
+        return None
+
+    try:
+        bpy.app.timers.register(focus_after_workspace_switch, first_interval=0.1)
+    except Exception:
+        return
+
+
+def _context_window(context):
+    window = getattr(context, "window", None) or getattr(bpy.context, "window", None)
+    if window is not None:
+        return window
+    window_manager = getattr(bpy.context, "window_manager", None)
+    windows = getattr(window_manager, "windows", ()) if window_manager is not None else ()
+    return windows[0] if windows else None
 
 
 def _tool_modifier_names(tool) -> tuple[str, ...]:
@@ -2263,6 +2288,7 @@ class VIDEO_TOOLKIT_OT_create_tool_compositor_nodes(Operator):
             scene.video_toolkit_expanded_tool = tool.id
             _open_compositing_workspace(context)
             _focus_compositor_nodes(context, created)
+            _defer_compositor_focus(context, created)
             self.report({"INFO"}, f"Created {len(created)} Blender compositor {tool.label} recipe node(s)")
             return {"FINISHED"}
         except Exception as exc:
