@@ -690,6 +690,12 @@ def _tool_has_compositor_stack(tool) -> bool:
     return any(modifier_type in COMPOSITOR_MODIFIER_TYPES for modifier_type, _settings in _tool_compositor_stack(tool))
 
 
+def _tool_is_internal_effect(tool) -> bool:
+    if not tool.is_blender_modifier:
+        return False
+    return not any(modifier_type == "MASK" for modifier_type, _settings in _tool_compositor_stack(tool))
+
+
 def _open_compositing_workspace(context) -> None:
     workspace = bpy.data.workspaces.get("Compositing")
     if workspace is not None and getattr(context, "window", None) is not None:
@@ -703,6 +709,46 @@ def _open_compositing_workspace(context) -> None:
             if hasattr(space, "tree_type"):
                 space.tree_type = "CompositorNodeTree"
             break
+
+
+def _focus_compositor_nodes(context, created) -> None:
+    scene = getattr(context, "scene", None)
+    tree = _compositor_tree_or_none(scene) if scene is not None else None
+    if tree is None:
+        return
+    created = tuple(node for node in created if node is not None)
+    if not created:
+        return
+    for node in tree.nodes:
+        node.select = False
+    active_node = None
+    for node in created:
+        node.select = True
+        if active_node is None or node.bl_idname == "CompositorNodeMovieClip":
+            active_node = node
+    if active_node is not None:
+        tree.nodes.active = active_node
+        clip = getattr(active_node, "clip", None)
+        if clip is not None and scene is not None and hasattr(scene, "active_clip"):
+            scene.active_clip = clip
+    screen = getattr(getattr(context, "window", None), "screen", None)
+    if screen is None:
+        return
+    for area in screen.areas:
+        if area.type != "NODE_EDITOR":
+            continue
+        region = next((candidate for candidate in area.regions if candidate.type == "WINDOW"), None)
+        space = area.spaces.active
+        if hasattr(space, "tree_type"):
+            space.tree_type = "CompositorNodeTree"
+        if region is None:
+            return
+        try:
+            with context.temp_override(area=area, region=region, space_data=space):
+                bpy.ops.node.view_selected()
+        except Exception:
+            return
+        return
 
 
 def _tool_modifier_names(tool) -> tuple[str, ...]:
@@ -2027,7 +2073,9 @@ class VIDEO_TOOLKIT_OT_create_tool_compositor_nodes(Operator):
             if color_management:
                 summary = f"{summary}; color management: {', '.join(color_management)}"
             scene.video_toolkit_last_compositor_nodes = summary
+            scene.video_toolkit_expanded_tool = tool.id
             _open_compositing_workspace(context)
+            _focus_compositor_nodes(context, created)
             self.report({"INFO"}, f"Created {len(created)} Blender compositor {tool.label} recipe node(s)")
             return {"FINISHED"}
         except Exception as exc:
@@ -2780,7 +2828,7 @@ def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
         browser.label(text="Select a movie strip before applying effects", icon="INFO")
 
     expanded = _expanded_sidecar_tool(scene)
-    internal = tuple(tool for tool in all_tools() if tool.is_blender_modifier)
+    internal = tuple(tool for tool in all_tools() if _tool_is_internal_effect(tool))
     external = tuple(tool for tool in all_tools() if tool.is_ffmpeg)
     nodes = tuple(tool for tool in all_tools() if _tool_has_compositor_stack(tool))
 
@@ -2853,10 +2901,6 @@ def _draw_expanded_tool_settings(layout, scene, strip, tool) -> None:
     op = action.operator(VIDEO_TOOLKIT_OT_apply_filter.bl_idname, text="Apply", icon=_sidecar_tool_icon(tool))
     op.filter_id = tool.id
     op.target = "SCENE"
-    node_action = panel.row(align=True)
-    node_action.enabled = strip is not None and _tool_has_compositor_stack(tool)
-    node = node_action.operator(VIDEO_TOOLKIT_OT_create_tool_compositor_nodes.bl_idname, text="Open Nodes", icon="NODETREE")
-    node.filter_id = tool.id
 
 
 def _draw_tool_parameter_controls(layout, scene, tool, engine: str) -> None:
