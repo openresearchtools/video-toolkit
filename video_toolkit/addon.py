@@ -163,6 +163,27 @@ COMPOSITOR_CONTROL_SKIP_INPUTS = {
     "Foreground",
 }
 
+FFMPEG_POSITIONAL_ARG_NAMES = {
+    "hqdn3d": (
+        "luma_spatial",
+        "chroma_spatial",
+        "luma_temporal",
+        "chroma_temporal",
+    ),
+    "scale": (
+        "width",
+        "height",
+    ),
+    "unsharp": (
+        "luma_matrix_width",
+        "luma_matrix_height",
+        "luma_amount",
+        "chroma_matrix_width",
+        "chroma_matrix_height",
+        "chroma_amount",
+    ),
+}
+
 
 def _enum_key(value: str) -> str:
     cleaned = "".join(ch.upper() if ch.isalnum() else "_" for ch in value).strip("_")
@@ -342,7 +363,7 @@ def _rebuild_blender_tool_parameters(scene, tool) -> None:
 def _rebuild_ffmpeg_tool_parameters(scene, tool) -> None:
     for filter_index, segment in enumerate(_parse_ffmpeg_filter_chain(_ffmpeg_tool_edit_chain(tool))):
         for arg_index, arg in enumerate(segment["args"]):
-            key = arg["key"] or f"arg{arg_index + 1}"
+            key = arg["key"] or _ffmpeg_positional_arg_name(str(segment["name"]), arg_index)
             _add_tool_parameter(
                 scene,
                 tool,
@@ -356,6 +377,13 @@ def _rebuild_ffmpeg_tool_parameters(scene, tool) -> None:
                 key=key,
                 path=key,
             )
+
+
+def _ffmpeg_positional_arg_name(filter_name: str, arg_index: int) -> str:
+    names = FFMPEG_POSITIONAL_ARG_NAMES.get(filter_name.strip().lower(), ())
+    if 0 <= arg_index < len(names):
+        return names[arg_index]
+    return f"argument_{arg_index + 1}"
 
 
 def _add_tool_parameter(

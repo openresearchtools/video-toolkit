@@ -326,6 +326,7 @@ try:
     ffmpeg_toggled_rows = 0
     no_ffmpeg_rows = []
     unchanged_ffmpeg = []
+    generic_ffmpeg_parameters = []
     for tool in external_tools:
         if not assert_finished(
             f"external_select:{{tool.id}}",
@@ -345,6 +346,17 @@ try:
             continue
         if params:
             ffmpeg_toggled_rows += verify_parameter_expansion(tool)
+            generic_ffmpeg_parameters.extend(
+                {{
+                    "tool_id": tool.id,
+                    "filter": param.filter_name,
+                    "arg_index": param.arg_index,
+                    "label": param.label,
+                    "path": param.path,
+                }}
+                for param in params
+                if param.label.startswith("Argument ") or param.path.startswith("argument_")
+            )
             changed_path = mutate_first_parameter(params)
             edited = addon._tool_with_parameter_overrides(scene, tool)
             edited_chain = addon._ffmpeg_tool_edit_chain(edited)
@@ -352,12 +364,13 @@ try:
                 unchanged_ffmpeg.append({{"tool_id": tool.id, "changed_path": changed_path}})
             ffmpeg_rows += len(params)
         ffmpeg_checked += 1
-    if no_ffmpeg_rows or unchanged_ffmpeg:
+    if no_ffmpeg_rows or unchanged_ffmpeg or generic_ffmpeg_parameters:
         fail(
             "external_parameter_rows",
-            "external tools did not expose or apply editable FFmpeg parameters",
+            "external tools did not expose named editable FFmpeg parameters or apply edits",
             missing_rows=no_ffmpeg_rows,
             unchanged=unchanged_ffmpeg[:20],
+            generic_parameters=generic_ffmpeg_parameters[:20],
         )
     else:
         record(
