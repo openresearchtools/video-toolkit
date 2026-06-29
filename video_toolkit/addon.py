@@ -184,6 +184,42 @@ FFMPEG_POSITIONAL_ARG_NAMES = {
     ),
 }
 
+FFMPEG_PARAMETER_HINTS = {
+    ("bwdif", "deint"): ("Mode", "all or interlaced"),
+    ("bwdif", "mode"): ("Mode", "send_frame or send_field"),
+    ("bwdif", "parity"): ("Mode", "auto, top, or bottom"),
+    ("deflicker", "m"): ("Mode", "median, average, or gaussian"),
+    ("deflicker", "s"): ("Temporal window", "Frame window, commonly 2 to 128"),
+    ("deshake", "rx"): ("Pixel radius", "Horizontal search radius in pixels"),
+    ("deshake", "ry"): ("Pixel radius", "Vertical search radius in pixels"),
+    ("hqdn3d", "chroma_spatial"): ("Denoise strength", "Chroma spatial strength, usually 0.0 to 10.0"),
+    ("hqdn3d", "chroma_temporal"): ("Denoise strength", "Chroma temporal strength, usually 0.0 to 20.0"),
+    ("hqdn3d", "luma_spatial"): ("Denoise strength", "Luma spatial strength, usually 0.0 to 10.0"),
+    ("hqdn3d", "luma_temporal"): ("Denoise strength", "Luma temporal strength, usually 0.0 to 20.0"),
+    ("minterpolate", "fps"): ("Frame rate", "Output frames per second"),
+    ("minterpolate", "mc_mode"): ("Mode", "Motion compensation mode"),
+    ("minterpolate", "me_mode"): ("Mode", "Motion estimation mode"),
+    ("minterpolate", "mi_mode"): ("Mode", "Motion interpolation mode"),
+    ("minterpolate", "vsbmc"): ("Toggle", "Variable-size block motion compensation"),
+    ("nlmeans", "p"): ("Patch size", "Odd patch size in pixels"),
+    ("nlmeans", "r"): ("Search radius", "Search radius in pixels"),
+    ("nlmeans", "s"): ("Denoise strength", "Strength, usually 0.0 to 30.0"),
+    ("normalize", "independence"): ("Blend", "0.0 to 1.0 channel independence"),
+    ("normalize", "smoothing"): ("Temporal window", "Frame smoothing window"),
+    ("normalize", "strength"): ("Strength", "0.0 to 1.0 normalization strength"),
+    ("scale", "flags"): ("Mode", "Scaler kernel such as lanczos, bicubic, bilinear"),
+    ("scale", "height"): ("Expression", "Output height expression or pixel count"),
+    ("scale", "width"): ("Expression", "Output width expression or pixel count"),
+    ("tmix", "frames"): ("Temporal window", "Number of frames to mix"),
+    ("tmix", "weights"): ("Weights", "Per-frame weights string"),
+    ("unsharp", "chroma_amount"): ("Sharpen amount", "Chroma amount, commonly -2.0 to 5.0"),
+    ("unsharp", "chroma_matrix_height"): ("Kernel size", "Odd matrix height, commonly 3 to 23"),
+    ("unsharp", "chroma_matrix_width"): ("Kernel size", "Odd matrix width, commonly 3 to 23"),
+    ("unsharp", "luma_amount"): ("Sharpen amount", "Luma amount, commonly -2.0 to 5.0"),
+    ("unsharp", "luma_matrix_height"): ("Kernel size", "Odd matrix height, commonly 3 to 23"),
+    ("unsharp", "luma_matrix_width"): ("Kernel size", "Odd matrix width, commonly 3 to 23"),
+}
+
 
 def _enum_key(value: str) -> str:
     cleaned = "".join(ch.upper() if ch.isalnum() else "_" for ch in value).strip("_")
@@ -418,6 +454,7 @@ def _add_tool_parameter(
     param.component_index = component_index
     param.default_text = _format_parameter_value(value)
     _assign_parameter_value(param, value)
+    _assign_parameter_control_metadata(param)
 
 
 def _add_default_blender_modifier_parameters(scene, tool, group_label: str, modifier_index: int, modifier_type: str) -> None:
@@ -461,6 +498,70 @@ def _assign_parameter_value(param, value) -> None:
         param.float_value = float(value)
     else:
         param.text_value = str(value)
+
+
+def _assign_parameter_control_metadata(param) -> None:
+    param.control_hint, param.range_hint = _parameter_control_metadata(param)
+
+
+def _parameter_control_metadata(param) -> tuple[str, str]:
+    if param.value_kind == "BOOL":
+        return "Toggle", "On/off"
+    if param.engine == "FFMPEG":
+        return _ffmpeg_parameter_control_metadata(param)
+    if param.engine == "BLENDER":
+        return _blender_parameter_control_metadata(param)
+    if param.value_kind == "TEXT":
+        return "Text", "Text, expression, or enum value"
+    return "Numeric value", "Tool-specific numeric value"
+
+
+def _ffmpeg_parameter_control_metadata(param) -> tuple[str, str]:
+    filter_name = str(param.filter_name).strip().lower()
+    key = str(param.key or param.path).strip().lower()
+    hint = FFMPEG_PARAMETER_HINTS.get((filter_name, key))
+    if hint:
+        return hint
+    if param.value_kind == "TEXT":
+        return "Text/expression", f"{param.filter_name}.{param.key or param.path} text, expression, or mode"
+    if param.value_kind == "INT":
+        if any(token in key for token in ("width", "height", "radius", "size", "frames", "smoothing", "fps")):
+            return "Integer slider", f"{param.filter_name}.{param.key or param.path} count"
+        return "Integer value", f"{param.filter_name}.{param.key or param.path} integer"
+    if param.value_kind == "FLOAT":
+        if any(token in key for token in ("strength", "amount", "threshold", "independence", "factor", "blend")):
+            return "Strength slider", f"{param.filter_name}.{param.key or param.path} floating-point strength"
+        return "Float slider", f"{param.filter_name}.{param.key or param.path} floating-point value"
+    return "Value", f"{param.filter_name}.{param.key or param.path}"
+
+
+def _blender_parameter_control_metadata(param) -> tuple[str, str]:
+    path = str(param.path)
+    modifier_type = str(param.modifier_type)
+    if path.startswith("__curve_points__."):
+        return "Curve point", "Normalized 0.0 to 1.0 curve coordinate"
+    if path.startswith("__hue_correct__."):
+        return "Hue Correct curve", "Normalized 0.0 to 1.0 value, neutral around 0.5"
+    if param.value_kind == "TEXT":
+        return "Mode", f"{_modifier_label(modifier_type)} enum or mode"
+    if param.value_kind == "INT":
+        return "Integer slider", f"{_modifier_label(modifier_type)} integer value"
+    if path.startswith("color_balance."):
+        return "Color channel", "RGB multiplier, neutral 1.0"
+    key = path.rsplit(".", 1)[-1]
+    if key in {"bright", "brightness"}:
+        return "Brightness slider", "Native brightness offset, neutral 0.0"
+    if key == "contrast":
+        return "Contrast slider", "Native contrast amount, neutral 0.0"
+    if key in {"gamma", "key", "offset", "color_multiply"}:
+        return "Positive slider", "Positive grade value, neutral usually 1.0"
+    if key in {"intensity", "adaptation", "correction"}:
+        return "Tone-map slider", "Native tone-map numeric control"
+    if key == "white_value":
+        return "White balance channel", "RGB white point channel, neutral 1.0"
+    if param.value_kind == "FLOAT":
+        return "Float slider", f"{_modifier_label(modifier_type)} numeric control"
+    return "Value", f"{_modifier_label(modifier_type)} parameter"
 
 
 def _parameter_kind(value) -> str:
@@ -1020,6 +1121,8 @@ class VIDEO_TOOLKIT_PG_tool_parameter(PropertyGroup):
     path: bpy.props.StringProperty(name="Path", default="")
     component_index: bpy.props.IntProperty(name="Component Index", default=-1)
     default_text: bpy.props.StringProperty(name="Default", default="")
+    control_hint: bpy.props.StringProperty(name="Control", default="")
+    range_hint: bpy.props.StringProperty(name="Range", default="")
     float_value: bpy.props.FloatProperty(
         name="Value",
         soft_min=-100.0,
@@ -3199,9 +3302,9 @@ def _draw_tool_parameter_value(layout, scene, param_index: int, param) -> None:
     if param.value_kind == "BOOL":
         row.prop(param, "bool_value", text="")
     elif param.value_kind == "INT":
-        row.prop(param, "int_value", text="")
+        row.prop(param, "int_value", text="", slider=True)
     elif param.value_kind == "FLOAT":
-        row.prop(param, "float_value", text="")
+        row.prop(param, "float_value", text="", slider=True)
     else:
         row.prop(param, "text_value", text="")
     apply_op = row.operator(VIDEO_TOOLKIT_OT_apply_tool_parameter.bl_idname, text="", icon="CHECKMARK")
@@ -3213,13 +3316,17 @@ def _draw_tool_parameter_value(layout, scene, param_index: int, param) -> None:
         details.label(text=f"Current: {_parameter_current_text(param)}", icon="PROPERTIES")
         details.label(text=f"Default: {param.default_text}", icon="LOOP_BACK")
         details.label(text=f"Source: {_parameter_source_text(param)}", icon="RNA")
+        if param.control_hint:
+            details.label(text=f"Control: {param.control_hint}", icon="TOOL_SETTINGS")
+        if param.range_hint:
+            details.label(text=f"Range: {param.range_hint}", icon="DRIVER_DISTANCE")
         edit = details.row(align=True)
         if param.value_kind == "BOOL":
             edit.prop(param, "bool_value", text="Value")
         elif param.value_kind == "INT":
-            edit.prop(param, "int_value", text="Value")
+            edit.prop(param, "int_value", text="Value", slider=True)
         elif param.value_kind == "FLOAT":
-            edit.prop(param, "float_value", text="Value")
+            edit.prop(param, "float_value", text="Value", slider=True)
         else:
             edit.prop(param, "text_value", text="Value")
         actions = details.row(align=True)

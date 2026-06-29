@@ -261,6 +261,7 @@ try:
     internal_checked = 0
     internal_rows = 0
     internal_toggled_rows = 0
+    internal_control_rows = 0
     curve_rows = 0
     hue_rows = 0
     no_internal_rows = []
@@ -278,15 +279,19 @@ try:
             continue
         internal_toggled_rows += verify_parameter_expansion(tool)
         for index, param in enumerate(params):
-            if not param.label or not param.group_label or not param.default_text:
+            if not param.label or not param.group_label or not param.default_text or not param.control_hint or not param.range_hint:
                 fail(
                     f"internal_parameter_metadata:{{tool.id}}:{{index}}",
-                    "parameter row is missing label, group, or default",
+                    "parameter row is missing label, group, default, control hint, or range hint",
                     path=param.path,
                     label=param.label,
                     group=param.group_label,
                     default=param.default_text,
+                    control=param.control_hint,
+                    range=param.range_hint,
                 )
+            else:
+                internal_control_rows += 1
             if param.path.startswith("__curve_points__."):
                 curve_rows += 1
             elif param.path.startswith("__hue_correct__."):
@@ -318,6 +323,7 @@ try:
                 "tools": internal_checked,
                 "rows": internal_rows,
                 "toggled_rows": internal_toggled_rows,
+                "control_rows": internal_control_rows,
                 "curve_rows": curve_rows,
                 "hue_correct_rows": hue_rows,
             }},
@@ -326,6 +332,7 @@ try:
     ffmpeg_checked = 0
     ffmpeg_rows = 0
     ffmpeg_toggled_rows = 0
+    ffmpeg_control_rows = 0
     no_ffmpeg_rows = []
     unchanged_ffmpeg = []
     generic_ffmpeg_parameters = []
@@ -359,6 +366,18 @@ try:
                 for param in params
                 if param.label.startswith("Argument ") or param.path.startswith("argument_")
             )
+            for index, param in enumerate(params):
+                if not param.control_hint or not param.range_hint:
+                    fail(
+                        f"external_parameter_metadata:{{tool.id}}:{{index}}",
+                        "external parameter row is missing control or range hint",
+                        path=param.path,
+                        label=param.label,
+                        control=param.control_hint,
+                        range=param.range_hint,
+                    )
+                else:
+                    ffmpeg_control_rows += 1
             changed_path = mutate_first_parameter(params)
             edited = addon._tool_with_parameter_overrides(scene, tool)
             edited_chain = addon._ffmpeg_tool_edit_chain(edited)
@@ -378,7 +397,7 @@ try:
         record(
             "external_parameter_rows",
             "passed",
-            {{"tools": ffmpeg_checked, "rows": ffmpeg_rows, "toggled_rows": ffmpeg_toggled_rows}},
+            {{"tools": ffmpeg_checked, "rows": ffmpeg_rows, "toggled_rows": ffmpeg_toggled_rows, "control_rows": ffmpeg_control_rows}},
         )
 
     clear_modifiers()
