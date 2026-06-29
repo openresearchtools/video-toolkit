@@ -2774,6 +2774,10 @@ class VIDEO_TOOLKIT_MT_color_management(Menu):
             op.preset_id = preset_id
 
 
+def _legacy_video_effects_panel_poll(_cls, _context):
+    return False
+
+
 class VIDEO_TOOLKIT_PT_video_filters(Panel):
     bl_idname = "VIDEO_TOOLKIT_PT_video_filters"
     bl_label = "Video Effects"
@@ -2798,6 +2802,7 @@ class VIDEO_TOOLKIT_PT_video_effects_analysis(Panel):
     bl_region_type = "UI"
     bl_category = "Video Effects"
     bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+    poll = classmethod(_legacy_video_effects_panel_poll)
 
     def draw(self, context):
         scene = context.scene
@@ -2816,6 +2821,7 @@ class VIDEO_TOOLKIT_PT_video_effects_color_management(Panel):
     bl_region_type = "UI"
     bl_category = "Video Effects"
     bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+    poll = classmethod(_legacy_video_effects_panel_poll)
 
     def draw(self, context):
         _draw_scene_color_management(self.layout, context.scene)
@@ -2828,6 +2834,7 @@ class VIDEO_TOOLKIT_PT_video_effects_compositor(Panel):
     bl_region_type = "UI"
     bl_category = "Video Effects"
     bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+    poll = classmethod(_legacy_video_effects_panel_poll)
 
     def draw(self, context):
         scene = context.scene
@@ -2847,6 +2854,7 @@ class VIDEO_TOOLKIT_PT_video_effects_live_tools(Panel):
     bl_category = "Video Effects"
     bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
     bl_options = {"DEFAULT_CLOSED"}
+    poll = classmethod(_legacy_video_effects_panel_poll)
 
     def draw(self, context):
         scene = context.scene
@@ -2866,6 +2874,7 @@ class VIDEO_TOOLKIT_PT_video_effects_strip(Panel):
     bl_category = "Video Effects"
     bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
     bl_options = {"DEFAULT_CLOSED"}
+    poll = classmethod(_legacy_video_effects_panel_poll)
 
     def draw(self, context):
         strip = context.scene.sequence_editor.active_strip if context.scene.sequence_editor else None
@@ -2883,6 +2892,7 @@ class VIDEO_TOOLKIT_PT_video_effects_modifiers(Panel):
     bl_region_type = "UI"
     bl_category = "Video Effects"
     bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
+    poll = classmethod(_legacy_video_effects_panel_poll)
 
     def draw(self, context):
         strip = context.scene.sequence_editor.active_strip if context.scene.sequence_editor else None
@@ -2901,6 +2911,7 @@ class VIDEO_TOOLKIT_PT_video_effects_render(Panel):
     bl_category = "Video Effects"
     bl_parent_id = VIDEO_TOOLKIT_PT_video_filters.bl_idname
     bl_options = {"DEFAULT_CLOSED"}
+    poll = classmethod(_legacy_video_effects_panel_poll)
 
     def draw(self, context):
         _draw_render_tools(self.layout, context.scene)

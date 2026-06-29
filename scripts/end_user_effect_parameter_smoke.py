@@ -137,6 +137,42 @@ def parameter_rows_for(tool):
     return [param for param in scene.video_toolkit_tool_parameters if param.tool_id == tool.id]
 
 
+def parameter_items_for(tool):
+    return [
+        (index, param)
+        for index, param in enumerate(scene.video_toolkit_tool_parameters)
+        if param.tool_id == tool.id
+    ]
+
+
+def verify_parameter_expansion(tool):
+    toggled = 0
+    for parameter_index, param in parameter_items_for(tool):
+        if bpy.ops.video_toolkit.toggle_tool_parameter(parameter_index=parameter_index) != {{'FINISHED'}}:
+            fail(f"parameter_expand:{{tool.id}}:{{parameter_index}}", "parameter row did not finish expanding", path=param.path)
+            continue
+        if scene.video_toolkit_expanded_parameter_index != parameter_index:
+            fail(
+                f"parameter_expand:{{tool.id}}:{{parameter_index}}",
+                "parameter row did not become the expanded row",
+                path=param.path,
+                expanded=scene.video_toolkit_expanded_parameter_index,
+                expected=parameter_index,
+            )
+        if bpy.ops.video_toolkit.toggle_tool_parameter(parameter_index=parameter_index) != {{'FINISHED'}}:
+            fail(f"parameter_collapse:{{tool.id}}:{{parameter_index}}", "parameter row did not finish collapsing", path=param.path)
+            continue
+        if scene.video_toolkit_expanded_parameter_index != -1:
+            fail(
+                f"parameter_collapse:{{tool.id}}:{{parameter_index}}",
+                "parameter row did not collapse",
+                path=param.path,
+                expanded=scene.video_toolkit_expanded_parameter_index,
+            )
+        toggled += 1
+    return toggled
+
+
 def mutate_first_parameter(params):
     for param in params:
         if param.value_kind == "FLOAT":
@@ -166,6 +202,30 @@ try:
         fail("visible_sidecar_sections", "unexpected visible sidecar section labels", sections=visible_sections)
     else:
         record("visible_sidecar_sections", "passed", {{"sections": visible_sections}})
+
+    legacy_panel_ids = [
+        "VIDEO_TOOLKIT_PT_video_effects_analysis",
+        "VIDEO_TOOLKIT_PT_video_effects_color_management",
+        "VIDEO_TOOLKIT_PT_video_effects_compositor",
+        "VIDEO_TOOLKIT_PT_video_effects_live_tools",
+        "VIDEO_TOOLKIT_PT_video_effects_strip",
+        "VIDEO_TOOLKIT_PT_video_effects_modifiers",
+        "VIDEO_TOOLKIT_PT_video_effects_render",
+    ]
+    visible_legacy_panels = [
+        panel_id
+        for panel_id in legacy_panel_ids
+        if getattr(bpy.types, panel_id, None) is not None
+        and getattr(bpy.types, panel_id).poll(bpy.context)
+    ]
+    if visible_legacy_panels:
+        fail(
+            "legacy_child_panels_hidden",
+            "legacy overlapping child panels are still visible in the Video Effects sidebar",
+            panels=visible_legacy_panels,
+        )
+    else:
+        record("legacy_child_panels_hidden", "passed", {{"panels": legacy_panel_ids}})
 
     internal_tools = [tool for tool in all_tools() if addon._tool_is_internal_effect(tool)]
     external_tools = [tool for tool in all_tools() if tool.is_ffmpeg]
@@ -198,6 +258,7 @@ try:
 
     internal_checked = 0
     internal_rows = 0
+    internal_toggled_rows = 0
     curve_rows = 0
     hue_rows = 0
     no_internal_rows = []
@@ -213,6 +274,7 @@ try:
         if not params:
             no_internal_rows.append(tool.id)
             continue
+        internal_toggled_rows += verify_parameter_expansion(tool)
         for index, param in enumerate(params):
             if not param.label or not param.group_label or not param.default_text:
                 fail(
@@ -253,6 +315,7 @@ try:
             {{
                 "tools": internal_checked,
                 "rows": internal_rows,
+                "toggled_rows": internal_toggled_rows,
                 "curve_rows": curve_rows,
                 "hue_correct_rows": hue_rows,
             }},
@@ -260,6 +323,7 @@ try:
 
     ffmpeg_checked = 0
     ffmpeg_rows = 0
+    ffmpeg_toggled_rows = 0
     no_ffmpeg_rows = []
     unchanged_ffmpeg = []
     for tool in external_tools:
@@ -280,6 +344,7 @@ try:
             no_ffmpeg_rows.append(tool.id)
             continue
         if params:
+            ffmpeg_toggled_rows += verify_parameter_expansion(tool)
             changed_path = mutate_first_parameter(params)
             edited = addon._tool_with_parameter_overrides(scene, tool)
             edited_chain = addon._ffmpeg_tool_edit_chain(edited)
@@ -295,7 +360,11 @@ try:
             unchanged=unchanged_ffmpeg[:20],
         )
     else:
-        record("external_parameter_rows", "passed", {{"tools": ffmpeg_checked, "rows": ffmpeg_rows}})
+        record(
+            "external_parameter_rows",
+            "passed",
+            {{"tools": ffmpeg_checked, "rows": ffmpeg_rows, "toggled_rows": ffmpeg_toggled_rows}},
+        )
 
     clear_modifiers()
     live_tool = get_tool("live_gamma_grade")
