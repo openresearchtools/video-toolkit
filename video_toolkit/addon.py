@@ -243,6 +243,7 @@ def _rebuild_tool_parameters(scene, tool) -> None:
     try:
         scene.video_toolkit_tool_parameters.clear()
         scene.video_toolkit_parameter_tool_id = tool.id
+        scene.video_toolkit_expanded_parameter_index = -1
         if tool.is_blender_modifier:
             _rebuild_blender_tool_parameters(scene, tool)
         elif tool.is_ffmpeg:
@@ -420,6 +421,19 @@ def _parameter_filter_text_value(param) -> str:
     if param.value_kind == "FLOAT":
         return f"{float(param.float_value):g}"
     return param.text_value
+
+
+def _parameter_current_text(param) -> str:
+    return _format_parameter_value(_parameter_python_value(param))
+
+
+def _parameter_source_text(param) -> str:
+    if param.engine == "BLENDER":
+        component = f"[{param.component_index}]" if param.component_index >= 0 else ""
+        return f"{param.modifier_type} {param.path}{component}"
+    if param.key:
+        return f"{param.filter_name}.{param.key}"
+    return f"{param.filter_name} arg {param.arg_index + 1}"
 
 
 def _tool_parameters(scene, tool, engine: str | None = None):
@@ -984,6 +998,26 @@ class VIDEO_TOOLKIT_OT_reset_tool_parameter(Operator):
         _reset_tool_parameter(param)
         if getattr(scene, "video_toolkit_live_preview", False):
             _refresh_blender_parameter_preview(context)
+        return {"FINISHED"}
+
+
+class VIDEO_TOOLKIT_OT_toggle_tool_parameter(Operator):
+    bl_idname = "video_toolkit.toggle_tool_parameter"
+    bl_label = "Expand Parameter"
+    bl_description = "Expand or collapse one editable parameter row"
+    bl_options = {"REGISTER"}
+
+    parameter_index: bpy.props.IntProperty(name="Parameter Index", default=-1)
+
+    def execute(self, context):
+        scene = context.scene
+        if self.parameter_index < 0 or self.parameter_index >= len(scene.video_toolkit_tool_parameters):
+            self.report({"ERROR"}, "Parameter row is no longer available")
+            return {"CANCELLED"}
+        if scene.video_toolkit_expanded_parameter_index == self.parameter_index:
+            scene.video_toolkit_expanded_parameter_index = -1
+        else:
+            scene.video_toolkit_expanded_parameter_index = self.parameter_index
         return {"FINISHED"}
 
 
@@ -2909,23 +2943,50 @@ def _draw_tool_parameter_controls(layout, scene, tool, engine: str) -> None:
             group_box = layout.box()
             icon = "MODIFIER" if engine == "BLENDER" else "RENDER_ANIMATION"
             group_box.label(text=param.group_label, icon=icon)
-        _draw_tool_parameter_value(group_box, param_index, param)
+        _draw_tool_parameter_value(group_box, scene, param_index, param)
 
 
-def _draw_tool_parameter_value(layout, param_index: int, param) -> None:
+def _draw_tool_parameter_value(layout, scene, param_index: int, param) -> None:
+    expanded = getattr(scene, "video_toolkit_expanded_parameter_index", -1) == param_index
     row = layout.row(align=True)
+    toggle = row.operator(
+        VIDEO_TOOLKIT_OT_toggle_tool_parameter.bl_idname,
+        text=param.label,
+        icon="TRIA_DOWN" if expanded else "TRIA_RIGHT",
+        depress=expanded,
+    )
+    toggle.parameter_index = param_index
     if param.value_kind == "BOOL":
-        row.prop(param, "bool_value", text=param.label)
+        row.prop(param, "bool_value", text="")
     elif param.value_kind == "INT":
-        row.prop(param, "int_value", text=param.label)
+        row.prop(param, "int_value", text="")
     elif param.value_kind == "FLOAT":
-        row.prop(param, "float_value", text=param.label)
+        row.prop(param, "float_value", text="")
     else:
-        row.prop(param, "text_value", text=param.label)
+        row.prop(param, "text_value", text="")
     apply_op = row.operator(VIDEO_TOOLKIT_OT_apply_tool_parameter.bl_idname, text="", icon="CHECKMARK")
     apply_op.parameter_index = param_index
     reset_op = row.operator(VIDEO_TOOLKIT_OT_reset_tool_parameter.bl_idname, text="", icon="LOOP_BACK")
     reset_op.parameter_index = param_index
+    if expanded:
+        details = layout.box()
+        details.label(text=f"Current: {_parameter_current_text(param)}", icon="PROPERTIES")
+        details.label(text=f"Default: {param.default_text}", icon="LOOP_BACK")
+        details.label(text=f"Source: {_parameter_source_text(param)}", icon="RNA")
+        edit = details.row(align=True)
+        if param.value_kind == "BOOL":
+            edit.prop(param, "bool_value", text="Value")
+        elif param.value_kind == "INT":
+            edit.prop(param, "int_value", text="Value")
+        elif param.value_kind == "FLOAT":
+            edit.prop(param, "float_value", text="Value")
+        else:
+            edit.prop(param, "text_value", text="Value")
+        actions = details.row(align=True)
+        apply_detail = actions.operator(VIDEO_TOOLKIT_OT_apply_tool_parameter.bl_idname, text="Apply", icon="CHECKMARK")
+        apply_detail.parameter_index = param_index
+        reset_detail = actions.operator(VIDEO_TOOLKIT_OT_reset_tool_parameter.bl_idname, text="Reset", icon="LOOP_BACK")
+        reset_detail.parameter_index = param_index
 
 
 def _draw_one_click_video_effects(layout, scene, strip) -> None:
@@ -6600,6 +6661,7 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_reset_tool_parameters,
     VIDEO_TOOLKIT_OT_apply_tool_parameter,
     VIDEO_TOOLKIT_OT_reset_tool_parameter,
+    VIDEO_TOOLKIT_OT_toggle_tool_parameter,
     VIDEO_TOOLKIT_OT_clear_parameter_preview,
     VIDEO_TOOLKIT_OT_preview_ffmpeg_tool,
     VIDEO_TOOLKIT_OT_clear_ffmpeg_preview,
@@ -6732,6 +6794,11 @@ def register() -> None:
         name="Parameter Tool",
         description="Video effect whose editable parameter rows are currently loaded",
         default="",
+    )
+    bpy.types.Scene.video_toolkit_expanded_parameter_index = bpy.props.IntProperty(
+        name="Expanded Parameter",
+        description="Editable parameter row expanded in the Video Effects sidebar",
+        default=-1,
     )
     bpy.types.Scene.video_toolkit_tool_parameters = bpy.props.CollectionProperty(
         name="Tool Parameters",
@@ -6913,6 +6980,7 @@ def unregister() -> None:
         "video_toolkit_sidecar_tool",
         "video_toolkit_expanded_tool",
         "video_toolkit_parameter_tool_id",
+        "video_toolkit_expanded_parameter_index",
         "video_toolkit_tool_parameters",
         "video_toolkit_last_output",
         "video_toolkit_analysis_samples",
