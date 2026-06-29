@@ -1,10 +1,12 @@
 """Blender UI and operators for Open Research Video Toolkit."""
 
+import copy
+from dataclasses import replace
 import traceback
 from pathlib import Path
 
 import bpy
-from bpy.types import Menu, Operator, Panel
+from bpy.types import Menu, Operator, Panel, PropertyGroup
 
 from .catalog import categories, enum_items, get_tool, all_tools
 from .color_analysis import (
@@ -80,6 +82,20 @@ COMPOSITOR_MODIFIER_TYPES = frozenset(
         "WHITE_BALANCE",
     }
 )
+
+PARAMETER_VALUE_ITEMS = (
+    ("FLOAT", "Float", "Floating-point parameter"),
+    ("INT", "Integer", "Integer parameter"),
+    ("BOOL", "Boolean", "Boolean parameter"),
+    ("TEXT", "Text", "Text, expression, enum, or named mode parameter"),
+)
+
+PARAMETER_ENGINE_ITEMS = (
+    ("BLENDER", "Blender", "Native Blender VSE modifier parameter"),
+    ("FFMPEG", "FFmpeg", "Rendered FFmpeg filter parameter"),
+)
+
+PARAMETER_COMPONENT_LABELS = ("R", "G", "B", "A")
 
 COLOR_MANAGEMENT_PRESET_ITEMS = (
     ("AGX_BALANCED", "AgX Balanced", "AgX view transform with a moderate editorial contrast look"),
@@ -204,6 +220,333 @@ def _expanded_sidecar_tool(scene):
     return None
 
 
+def _ensure_tool_parameters(scene, tool, *, force: bool = False) -> None:
+    if scene is None or tool is None or not hasattr(scene, "video_toolkit_tool_parameters"):
+        return
+    current = getattr(scene, "video_toolkit_parameter_tool_id", "")
+    has_params = any(param.tool_id == tool.id for param in scene.video_toolkit_tool_parameters)
+    if force or current != tool.id or not has_params:
+        _rebuild_tool_parameters(scene, tool)
+
+
+def _rebuild_tool_parameters(scene, tool) -> None:
+    scene.video_toolkit_tool_parameters.clear()
+    scene.video_toolkit_parameter_tool_id = tool.id
+    if tool.is_blender_modifier:
+        _rebuild_blender_tool_parameters(scene, tool)
+    elif tool.is_ffmpeg:
+        _rebuild_ffmpeg_tool_parameters(scene, tool)
+
+
+def _rebuild_blender_tool_parameters(scene, tool) -> None:
+    for modifier_index, (modifier_type, settings) in enumerate(_tool_compositor_stack(tool)):
+        group_label = _modifier_role_label(modifier_type, settings)
+        for path, value in settings.items():
+            if str(path).startswith("__"):
+                continue
+            if isinstance(value, (tuple, list)):
+                for component_index, component_value in enumerate(value):
+                    component = (
+                        PARAMETER_COMPONENT_LABELS[component_index]
+                        if component_index < len(PARAMETER_COMPONENT_LABELS)
+                        else str(component_index + 1)
+                    )
+                    _add_tool_parameter(
+                        scene,
+                        tool,
+                        engine="BLENDER",
+                        group_label=group_label,
+                        label=f"{_parameter_label(path)} {component}",
+                        value=component_value,
+                        modifier_index=modifier_index,
+                        modifier_type=modifier_type,
+                        path=str(path),
+                        component_index=component_index,
+                    )
+            else:
+                _add_tool_parameter(
+                    scene,
+                    tool,
+                    engine="BLENDER",
+                    group_label=group_label,
+                    label=_parameter_label(path),
+                    value=value,
+                    modifier_index=modifier_index,
+                    modifier_type=modifier_type,
+                    path=str(path),
+                )
+
+
+def _rebuild_ffmpeg_tool_parameters(scene, tool) -> None:
+    for filter_index, segment in enumerate(_parse_ffmpeg_filter_chain(_ffmpeg_tool_edit_chain(tool))):
+        for arg_index, arg in enumerate(segment["args"]):
+            key = arg["key"] or f"arg{arg_index + 1}"
+            _add_tool_parameter(
+                scene,
+                tool,
+                engine="FFMPEG",
+                group_label=segment["name"],
+                label=_parameter_label(key),
+                value=arg["value"],
+                filter_index=filter_index,
+                filter_name=segment["name"],
+                arg_index=arg_index,
+                key=key,
+                path=key,
+            )
+
+
+def _add_tool_parameter(
+    scene,
+    tool,
+    *,
+    engine: str,
+    group_label: str,
+    label: str,
+    value,
+    modifier_index: int = -1,
+    modifier_type: str = "",
+    filter_index: int = -1,
+    filter_name: str = "",
+    arg_index: int = -1,
+    key: str = "",
+    path: str = "",
+    component_index: int = -1,
+) -> None:
+    param = scene.video_toolkit_tool_parameters.add()
+    param.tool_id = tool.id
+    param.engine = engine
+    param.group_label = group_label
+    param.label = label
+    param.modifier_index = modifier_index
+    param.modifier_type = modifier_type
+    param.filter_index = filter_index
+    param.filter_name = filter_name
+    param.arg_index = arg_index
+    param.key = key
+    param.path = path
+    param.component_index = component_index
+    param.default_text = _format_parameter_value(value)
+    _assign_parameter_value(param, value)
+
+
+def _assign_parameter_value(param, value) -> None:
+    kind = _parameter_kind(value)
+    param.value_kind = kind
+    if kind == "BOOL":
+        param.bool_value = bool(value)
+    elif kind == "INT":
+        param.int_value = int(value)
+    elif kind == "FLOAT":
+        param.float_value = float(value)
+    else:
+        param.text_value = str(value)
+
+
+def _parameter_kind(value) -> str:
+    if isinstance(value, bool):
+        return "BOOL"
+    if isinstance(value, int):
+        return "INT"
+    if isinstance(value, float):
+        return "FLOAT"
+    if isinstance(value, str):
+        stripped = value.strip()
+        if _is_int_text(stripped):
+            return "INT"
+        if _is_float_text(stripped):
+            return "FLOAT"
+    return "TEXT"
+
+
+def _is_int_text(value: str) -> bool:
+    if not value:
+        return False
+    return value.lstrip("+-").isdigit()
+
+
+def _is_float_text(value: str) -> bool:
+    if not value or value.lower() in {"nan", "+nan", "-nan", "inf", "+inf", "-inf"}:
+        return False
+    if not any(marker in value for marker in (".", "e", "E")):
+        return False
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _parameter_label(path: str) -> str:
+    return str(path).replace("color_balance.", "").replace("_", " ").replace(".", " ").title()
+
+
+def _format_parameter_value(value) -> str:
+    if isinstance(value, float):
+        return f"{value:g}"
+    if isinstance(value, (tuple, list)):
+        return ", ".join(_format_parameter_value(item) for item in value)
+    return str(value)
+
+
+def _parameter_python_value(param):
+    if param.value_kind == "BOOL":
+        return bool(param.bool_value)
+    if param.value_kind == "INT":
+        return int(param.int_value)
+    if param.value_kind == "FLOAT":
+        return float(param.float_value)
+    return param.text_value
+
+
+def _parameter_filter_text_value(param) -> str:
+    if param.value_kind == "BOOL":
+        return "1" if param.bool_value else "0"
+    if param.value_kind == "INT":
+        return str(int(param.int_value))
+    if param.value_kind == "FLOAT":
+        return f"{float(param.float_value):g}"
+    return param.text_value
+
+
+def _tool_parameters(scene, tool, engine: str | None = None):
+    if not hasattr(scene, "video_toolkit_tool_parameters"):
+        return ()
+    return tuple(
+        param
+        for param in scene.video_toolkit_tool_parameters
+        if param.tool_id == tool.id and (engine is None or param.engine == engine)
+    )
+
+
+def _tool_with_parameter_overrides(scene, tool):
+    if getattr(scene, "video_toolkit_parameter_tool_id", "") != tool.id:
+        return tool
+    if tool.is_blender_modifier:
+        stack = _editable_blender_stack(scene, tool)
+        if not stack:
+            return tool
+        if tool.blender_stack:
+            return replace(tool, blender_stack=stack)
+        modifier_type, settings = stack[0]
+        return replace(tool, blender_modifier=modifier_type, blender_settings=settings, blender_stack=())
+    if tool.is_ffmpeg:
+        return _editable_ffmpeg_tool(scene, tool)
+    return tool
+
+
+def _editable_blender_stack(scene, tool):
+    stack = [(modifier_type, copy.deepcopy(settings)) for modifier_type, settings in _tool_compositor_stack(tool)]
+    for param in _tool_parameters(scene, tool, "BLENDER"):
+        if param.modifier_index < 0 or param.modifier_index >= len(stack):
+            continue
+        modifier_type, settings = stack[param.modifier_index]
+        if param.component_index >= 0:
+            current = list(settings.get(param.path, ()))
+            while len(current) <= param.component_index:
+                current.append(0.0)
+            current[param.component_index] = _parameter_python_value(param)
+            settings[param.path] = tuple(current)
+        else:
+            settings[param.path] = _parameter_python_value(param)
+        stack[param.modifier_index] = (modifier_type, settings)
+    return tuple(stack)
+
+
+def _editable_ffmpeg_tool(scene, tool):
+    source_chain = _ffmpeg_tool_edit_chain(tool)
+    if not source_chain:
+        return tool
+    segments = _parse_ffmpeg_filter_chain(source_chain)
+    for param in _tool_parameters(scene, tool, "FFMPEG"):
+        if param.filter_index < 0 or param.filter_index >= len(segments):
+            continue
+        args = segments[param.filter_index]["args"]
+        if param.arg_index < 0 or param.arg_index >= len(args):
+            continue
+        args[param.arg_index]["value"] = _parameter_filter_text_value(param)
+    edited_chain = _format_ffmpeg_filter_chain(segments)
+    if tool.two_pass_stabilize:
+        return replace(tool, ffmpeg_filter_after_stabilize=edited_chain)
+    return replace(tool, ffmpeg_filter=edited_chain)
+
+
+def _ffmpeg_tool_edit_chain(tool) -> str:
+    if tool.two_pass_stabilize:
+        return tool.ffmpeg_filter_after_stabilize or ""
+    return tool.ffmpeg_filter or tool.ffmpeg_filter_after_stabilize or ""
+
+
+def _parse_ffmpeg_filter_chain(chain: str | None) -> list[dict[str, object]]:
+    segments: list[dict[str, object]] = []
+    for segment in _split_unquoted(chain or "", ","):
+        if not segment:
+            continue
+        if "=" in segment:
+            name, raw_args = segment.split("=", 1)
+            args = [_parse_ffmpeg_arg(arg) for arg in _split_unquoted(raw_args, ":")]
+        else:
+            name, args = segment, []
+        segments.append({"name": name.strip(), "args": args})
+    return segments
+
+
+def _parse_ffmpeg_arg(arg: str) -> dict[str, str]:
+    if "=" in arg:
+        key, value = arg.split("=", 1)
+        if key and all(char.isalnum() or char in "_-" for char in key):
+            return {"key": key, "value": value}
+    return {"key": "", "value": arg}
+
+
+def _format_ffmpeg_filter_chain(segments) -> str:
+    formatted = []
+    for segment in segments:
+        args = []
+        for arg in segment["args"]:
+            if arg["key"]:
+                args.append(f"{arg['key']}={arg['value']}")
+            else:
+                args.append(str(arg["value"]))
+        if args:
+            formatted.append(f"{segment['name']}={':'.join(args)}")
+        else:
+            formatted.append(str(segment["name"]))
+    return ",".join(formatted)
+
+
+def _split_unquoted(text: str, separator: str) -> list[str]:
+    parts: list[str] = []
+    current: list[str] = []
+    quote = ""
+    escaped = False
+    for char in text:
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            current.append(char)
+            escaped = True
+            continue
+        if quote:
+            current.append(char)
+            if char == quote:
+                quote = ""
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            current.append(char)
+            continue
+        if char == separator:
+            parts.append("".join(current).strip())
+            current = []
+            continue
+        current.append(char)
+    parts.append("".join(current).strip())
+    return parts
+
+
 def _sync_sidecar_tool_to_group(self, _context) -> None:
     tool = _selected_sidecar_tool(self)
     if tool is not None and getattr(self, "video_toolkit_sidecar_tool", "") != tool.id:
@@ -269,6 +612,27 @@ def _compositor_tool_items(_self, _context):
     )
 
 
+class VIDEO_TOOLKIT_PG_tool_parameter(PropertyGroup):
+    tool_id: bpy.props.StringProperty(name="Tool ID", default="")
+    engine: bpy.props.EnumProperty(name="Engine", items=PARAMETER_ENGINE_ITEMS, default="BLENDER")
+    group_label: bpy.props.StringProperty(name="Group", default="")
+    label: bpy.props.StringProperty(name="Parameter", default="")
+    value_kind: bpy.props.EnumProperty(name="Type", items=PARAMETER_VALUE_ITEMS, default="TEXT")
+    modifier_index: bpy.props.IntProperty(name="Modifier Index", default=-1)
+    modifier_type: bpy.props.StringProperty(name="Modifier Type", default="")
+    filter_index: bpy.props.IntProperty(name="Filter Index", default=-1)
+    filter_name: bpy.props.StringProperty(name="Filter Name", default="")
+    arg_index: bpy.props.IntProperty(name="Argument Index", default=-1)
+    key: bpy.props.StringProperty(name="Key", default="")
+    path: bpy.props.StringProperty(name="Path", default="")
+    component_index: bpy.props.IntProperty(name="Component Index", default=-1)
+    default_text: bpy.props.StringProperty(name="Default", default="")
+    float_value: bpy.props.FloatProperty(name="Value", soft_min=-100.0, soft_max=100.0, default=0.0)
+    int_value: bpy.props.IntProperty(name="Value", soft_min=-10000, soft_max=10000, default=0)
+    bool_value: bpy.props.BoolProperty(name="Value", default=False)
+    text_value: bpy.props.StringProperty(name="Value", default="")
+
+
 class VIDEO_TOOLKIT_OT_apply_filter(Operator):
     bl_idname = "video_toolkit.apply_filter"
     bl_label = "Apply Video Filter"
@@ -290,7 +654,7 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
 
     def execute(self, context):
         try:
-            tool = get_tool(self.filter_id)
+            tool = _tool_with_parameter_overrides(context.scene, get_tool(self.filter_id))
             strip = context.scene.sequence_editor.active_strip
             if tool.is_blender_modifier:
                 target = self.target
@@ -377,6 +741,22 @@ class VIDEO_TOOLKIT_OT_select_sidecar_tool(Operator):
         scene.video_toolkit_expanded_tool = tool.id
         scene.video_toolkit_sidecar_group = _enum_key(tool.category)
         scene.video_toolkit_sidecar_tool = tool.id
+        _ensure_tool_parameters(scene, tool, force=True)
+        return {"FINISHED"}
+
+
+class VIDEO_TOOLKIT_OT_reset_tool_parameters(Operator):
+    bl_idname = "video_toolkit.reset_tool_parameters"
+    bl_label = "Reset Video Effect Parameters"
+    bl_description = "Reset the expanded Video Effects tool to its catalog defaults"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        tool = _expanded_sidecar_tool(context.scene)
+        if tool is None:
+            self.report({"ERROR"}, "No Video Effects tool is expanded")
+            return {"CANCELLED"}
+        _ensure_tool_parameters(context.scene, tool, force=True)
         return {"FINISHED"}
 
 
@@ -2189,14 +2569,17 @@ def _draw_unified_tool_section(layout, scene, strip, label: str, icon: str, tool
 
 
 def _draw_expanded_tool_settings(layout, scene, strip, tool) -> None:
+    _ensure_tool_parameters(scene, tool)
     panel = layout.box()
     panel.label(text=tool.label, icon=_sidecar_tool_icon(tool))
     panel.label(text=tool.description, icon="INFO")
     if tool.is_blender_modifier:
         panel.prop(scene, "video_toolkit_apply_target", text="Target")
-        _draw_tool_blender_defaults(panel, tool)
+        _draw_tool_parameter_controls(panel, scene, tool, "BLENDER")
     elif tool.is_ffmpeg:
-        _draw_tool_ffmpeg_defaults(panel, tool)
+        _draw_tool_parameter_controls(panel, scene, tool, "FFMPEG")
+    reset = panel.row(align=True)
+    reset.operator(VIDEO_TOOLKIT_OT_reset_tool_parameters.bl_idname, text="Reset Defaults", icon="LOOP_BACK")
     action = panel.row(align=True)
     action.enabled = strip is not None
     op = action.operator(VIDEO_TOOLKIT_OT_apply_filter.bl_idname, text="Apply", icon=_sidecar_tool_icon(tool))
@@ -2208,39 +2591,33 @@ def _draw_expanded_tool_settings(layout, scene, strip, tool) -> None:
     node.filter_id = tool.id
 
 
-def _draw_tool_blender_defaults(layout, tool) -> None:
-    stack = _tool_compositor_stack(tool)
-    if not stack:
-        layout.label(text="No live modifier defaults recorded.", icon="INFO")
+def _draw_tool_parameter_controls(layout, scene, tool, engine: str) -> None:
+    params = _tool_parameters(scene, tool, engine)
+    if not params:
+        layout.label(text="No editable parameters recorded for this tool.", icon="INFO")
         return
-    for modifier_type, settings in stack:
-        box = layout.box()
-        box.label(text=modifier_type.replace("_", " ").title(), icon="MODIFIER")
-        _draw_settings_dict(box, settings)
+    current_group = None
+    group_box = None
+    for param in params:
+        group_key = (param.engine, param.group_label, param.modifier_index, param.filter_index)
+        if group_key != current_group:
+            current_group = group_key
+            group_box = layout.box()
+            icon = "MODIFIER" if engine == "BLENDER" else "RENDER_ANIMATION"
+            group_box.label(text=param.group_label, icon=icon)
+        _draw_tool_parameter_value(group_box, param)
 
 
-def _draw_tool_ffmpeg_defaults(layout, tool) -> None:
-    filter_text = tool.ffmpeg_filter_after_stabilize or tool.ffmpeg_filter or ""
-    if not filter_text:
-        layout.label(text="No FFmpeg filter string recorded.", icon="INFO")
-        return
-    box = layout.box()
-    box.label(text=filter_text.split("=", 1)[0], icon="RENDER_ANIMATION")
-    for part in filter_text.replace(",", ":").split(":"):
-        if "=" not in part:
-            continue
-        key, value = part.split("=", 1)
-        box.label(text=f"{key}: {value}")
-
-
-def _draw_settings_dict(layout, settings: dict) -> None:
-    if not settings:
-        layout.label(text="Blender default controls", icon="TOOL_SETTINGS")
-        return
-    for key, value in settings.items():
-        if str(key).startswith("__"):
-            continue
-        layout.label(text=f"{key}: {value}")
+def _draw_tool_parameter_value(layout, param) -> None:
+    row = layout.row(align=True)
+    if param.value_kind == "BOOL":
+        row.prop(param, "bool_value", text=param.label)
+    elif param.value_kind == "INT":
+        row.prop(param, "int_value", text=param.label)
+    elif param.value_kind == "FLOAT":
+        row.prop(param, "float_value", text=param.label)
+    else:
+        row.prop(param, "text_value", text=param.label)
 
 
 def _draw_one_click_video_effects(layout, scene, strip) -> None:
@@ -5239,7 +5616,7 @@ def _render_ffmpeg_tool(context, strip, tool) -> Path:
     output_path = _unique_output_path(output_dir, source_path, tool.id)
     try:
         process_video(
-            tool.id,
+            tool,
             source_path,
             output_path,
             crf=scene.video_toolkit_crf,
@@ -5840,9 +6217,11 @@ def _overlaps(strip, start: int, end: int) -> bool:
 
 
 CLASSES = (
+    VIDEO_TOOLKIT_PG_tool_parameter,
     VIDEO_TOOLKIT_OT_apply_filter,
     VIDEO_TOOLKIT_OT_apply_sidecar_tool,
     VIDEO_TOOLKIT_OT_select_sidecar_tool,
+    VIDEO_TOOLKIT_OT_reset_tool_parameters,
     VIDEO_TOOLKIT_OT_set_sidecar_section,
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_color_diagnostics,
@@ -5936,6 +6315,15 @@ def register() -> None:
         name="Expanded Tool",
         description="Video effect currently expanded in the unified Video Effects list",
         default="",
+    )
+    bpy.types.Scene.video_toolkit_parameter_tool_id = bpy.props.StringProperty(
+        name="Parameter Tool",
+        description="Video effect whose editable parameter rows are currently loaded",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_tool_parameters = bpy.props.CollectionProperty(
+        name="Tool Parameters",
+        type=VIDEO_TOOLKIT_PG_tool_parameter,
     )
     bpy.types.Scene.video_toolkit_last_output = bpy.props.StringProperty(
         name="Last Output",
@@ -6106,6 +6494,8 @@ def unregister() -> None:
         "video_toolkit_sidecar_group",
         "video_toolkit_sidecar_tool",
         "video_toolkit_expanded_tool",
+        "video_toolkit_parameter_tool_id",
+        "video_toolkit_tool_parameters",
         "video_toolkit_last_output",
         "video_toolkit_analysis_samples",
         "video_toolkit_last_analysis",

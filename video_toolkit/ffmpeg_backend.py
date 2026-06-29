@@ -164,7 +164,7 @@ def build_vidstab_detect_command(
 
 
 def process_video(
-    tool_id: str,
+    tool_id: str | VideoTool,
     input_path: str | Path,
     output_path: str | Path,
     *,
@@ -173,7 +173,7 @@ def process_video(
     keep_audio: bool = True,
     work_dir: str | Path | None = None,
 ) -> Path:
-    tool = get_tool(tool_id)
+    tool = tool_id if isinstance(tool_id, VideoTool) else get_tool(tool_id)
     if not tool.is_ffmpeg:
         raise FFmpegError(f"{tool.label} is a Blender VSE modifier, not an FFmpeg render tool")
     input_path = Path(input_path)
@@ -211,4 +211,3 @@ def _run(command: list[str]) -> None:
 def _escape_filter_path(path: Path) -> str:
     value = str(path)
     return value.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-
