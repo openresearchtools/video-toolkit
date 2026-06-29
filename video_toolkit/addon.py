@@ -952,6 +952,7 @@ def _defer_compositor_focus(context, created) -> None:
     created = tuple(created)
 
     def focus_after_workspace_switch():
+        _open_compositing_workspace(context)
         _focus_compositor_nodes(context, created)
         return None
 
@@ -1084,6 +1085,10 @@ class VIDEO_TOOLKIT_OT_apply_filter(Operator):
                     context.scene.video_toolkit_last_compositor_nodes += (
                         f"; color management: {', '.join(color_management)}"
                     )
+                context.scene.video_toolkit_expanded_tool = tool.id
+                _open_compositing_workspace(context)
+                _focus_compositor_nodes(context, created)
+                _defer_compositor_focus(context, created)
                 self.report({"INFO"}, f"Created {len(created)} Blender compositor {tool.label} node(s)")
                 return {"FINISHED"}
             output_path = _render_ffmpeg_tool(context, strip, tool)

@@ -105,22 +105,28 @@ state = {{
     "movie_clip_path": None,
     "selected_nodes": [],
     "node_count": 0,
+    "checks": [],
 }}
 
 
 def run_smoke():
     try:
         bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=2)
-        _run_node_operator()
+        _run_node_operator(
+            route="create_tool_compositor_nodes",
+            tool_id="primary_color_board",
+            tool_label="Primary Color Board",
+            use_apply_filter=False,
+        )
     except Exception as exc:
         fail("unexpected exception", traceback=traceback.format_exc(limit=12), exception=str(exc))
         finish_smoke()
         return None
-    bpy.app.timers.register(check_smoke, first_interval=0.5)
+    bpy.app.timers.register(check_create_tool_smoke, first_interval=0.5)
     return None
 
 
-def _run_node_operator():
+def _run_node_operator(route, tool_id, tool_label, use_apply_filter):
     if bpy.context.window is None:
         fail("Blender did not create a UI window for the workspace smoke test")
         return
@@ -128,16 +134,21 @@ def _run_node_operator():
     if video_workspace is not None:
         bpy.context.window.workspace = video_workspace
     state["before_workspace"] = bpy.context.window.workspace.name
+    state["route"] = route
+    state["tool_id"] = tool_id
+    state["tool_label"] = tool_label
 
     scene = bpy.context.scene
     scene.sequence_editor_create()
     editor = scene.sequence_editor
-    strip = editor.strips.new_movie(
-        name="NODE WORKSPACE SMOKE REAL VIDEO",
-        filepath=str(VIDEO),
-        channel=1,
-        frame_start=1,
-    )
+    strip = next((candidate for candidate in editor.strips_all if candidate.type == "MOVIE"), None)
+    if strip is None:
+        strip = editor.strips.new_movie(
+            name="NODE WORKSPACE SMOKE REAL VIDEO",
+            filepath=str(VIDEO),
+            channel=1,
+            frame_start=1,
+        )
     editor.active_strip = strip
     for candidate in editor.strips_all:
         candidate.select = False
@@ -146,35 +157,65 @@ def _run_node_operator():
     scene.frame_end = int(strip.frame_final_end)
     scene.frame_current = min(scene.frame_start + 12, scene.frame_end - 1)
 
-    result = bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id="primary_color_board")
+    if use_apply_filter:
+        result = bpy.ops.video_toolkit.apply_filter(filter_id=tool_id)
+    else:
+        result = bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id=tool_id)
     if result != {{'FINISHED'}}:
-        fail("node operator did not finish", result=str(result))
+        fail("node operator did not finish", route=route, tool_id=tool_id, result=str(result))
 
 
-def check_smoke():
+def check_create_tool_smoke():
     try:
         _check_node_workspace()
     except Exception as exc:
         fail("unexpected check exception", traceback=traceback.format_exc(limit=12), exception=str(exc))
+    if failures:
+        finish_smoke()
+        return None
+    try:
+        _run_node_operator(
+            route="apply_filter_compositor",
+            tool_id="native_compositor_exposure",
+            tool_label="Compositor Exposure",
+            use_apply_filter=True,
+        )
+    except Exception as exc:
+        fail("unexpected apply-filter route exception", traceback=traceback.format_exc(limit=12), exception=str(exc))
+        finish_smoke()
+        return None
+    bpy.app.timers.register(check_apply_filter_smoke, first_interval=0.5)
+    return None
+
+
+def check_apply_filter_smoke():
+    try:
+        _check_node_workspace()
+    except Exception as exc:
+        fail("unexpected apply-filter check exception", traceback=traceback.format_exc(limit=12), exception=str(exc))
     finish_smoke()
     return None
 
 
 def _check_node_workspace():
+    route = state.get("route", "")
+    tool_id = state.get("tool_id", "")
+    tool_label = state.get("tool_label", "")
+    node_prefix = f"VTK Tool {{tool_label}}"
     if bpy.context.window is None:
-        fail("Blender window disappeared before workspace verification")
+        fail("Blender window disappeared before workspace verification", route=route, tool_id=tool_id)
         return
     after_workspace = bpy.context.window.workspace.name
     screen = bpy.context.window.screen
     node_areas = [area for area in screen.areas if area.type == "NODE_EDITOR"]
     if after_workspace != "Compositing":
-        fail("node operator did not switch to the Compositing workspace", before=state.get("before_workspace"), after=after_workspace)
+        fail("node operator did not switch to the Compositing workspace", route=route, tool_id=tool_id, before=state.get("before_workspace"), after=after_workspace)
     if not node_areas:
-        fail("Compositing workspace does not expose a node editor area", workspace=after_workspace)
+        fail("Compositing workspace does not expose a node editor area", route=route, tool_id=tool_id, workspace=after_workspace)
 
     scene = bpy.context.scene
     tree = addon._compositor_tree_or_none(scene)
-    vtk_nodes = [node for node in tree.nodes if node.name.startswith("VTK Tool Primary Color Board")]
+    vtk_nodes = [node for node in tree.nodes if node.name.startswith(node_prefix)]
     selected_nodes = [node.name for node in vtk_nodes if node.select]
     state["selected_nodes"] = selected_nodes
     state["node_count"] = len(vtk_nodes)
@@ -185,17 +226,30 @@ def _check_node_workspace():
     movie_clip_path = Path(bpy.path.abspath(movie_nodes[0].clip.filepath)) if movie_nodes and movie_nodes[0].clip else None
     state["active_clip_path"] = active_clip_path
     state["movie_clip_path"] = movie_clip_path
+    state["checks"].append(
+        {{
+            "route": route,
+            "tool_id": tool_id,
+            "workspace": after_workspace,
+            "node_count": len(vtk_nodes),
+            "movie_clip": str(movie_clip_path) if movie_clip_path else "",
+            "active_clip": str(active_clip_path) if active_clip_path else "",
+            "selected_nodes": selected_nodes,
+        }}
+    )
     if not vtk_nodes:
-        fail("node operator did not create VTK compositor nodes")
+        fail("node operator did not create VTK compositor nodes", route=route, tool_id=tool_id, prefix=node_prefix)
     if not movie_nodes:
-        fail("node graph does not include a Movie Clip node")
+        fail("node graph does not include a Movie Clip node", route=route, tool_id=tool_id)
     if movie_clip_path != VIDEO:
-        fail("Movie Clip node does not use the selected strip file", movie_clip=str(movie_clip_path), expected=str(VIDEO))
+        fail("Movie Clip node does not use the selected strip file", route=route, tool_id=tool_id, movie_clip=str(movie_clip_path), expected=str(VIDEO))
     if active_clip_path != VIDEO:
-        fail("scene active clip was not set to the selected strip file", active_clip=str(active_clip_path), expected=str(VIDEO))
+        fail("scene active clip was not set to the selected strip file", route=route, tool_id=tool_id, active_clip=str(active_clip_path), expected=str(VIDEO))
     if active_node is None or active_node.name not in selected_nodes:
         fail(
             "created compositor nodes were not selected/focused",
+            route=route,
+            tool_id=tool_id,
             active_node=getattr(active_node, "name", ""),
             selected_nodes=selected_nodes,
         )
@@ -211,6 +265,7 @@ def finish_smoke():
         "movie_clip": str(state["movie_clip_path"]) if state["movie_clip_path"] else "",
         "node_count": state["node_count"],
         "selected_nodes": state["selected_nodes"],
+        "checks": state["checks"],
     }}
     (OUTPUT_DIR / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     print("VIDEO_TOOLKIT_NODE_WORKSPACE_SMOKE=" + json.dumps(report, sort_keys=True))
