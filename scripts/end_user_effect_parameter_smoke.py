@@ -230,21 +230,31 @@ try:
     internal_tools = [tool for tool in all_tools() if addon._tool_is_internal_effect(tool)]
     external_tools = [tool for tool in all_tools() if tool.is_ffmpeg]
     node_tools = [tool for tool in all_tools() if addon._tool_is_node_section_effect(tool)]
+    node_operator_item_ids = [item[0] for item in addon._compositor_tool_items(None, bpy.context)]
     node_only_tools = [tool for tool in all_tools() if tool.is_compositor]
     node_only_in_internal = sorted(tool.id for tool in node_only_tools if tool in internal_tools)
     node_section_in_internal = sorted(set(tool.id for tool in node_tools) & set(tool.id for tool in internal_tools))
+    node_operator_in_internal = sorted(set(node_operator_item_ids) & set(tool.id for tool in internal_tools))
     mask_tools_in_internal = sorted(
         tool.id
         for tool in internal_tools
         if addon._tool_uses_mask_modifier(tool)
     )
-    if node_only_in_internal or node_section_in_internal or mask_tools_in_internal:
+    if node_only_in_internal or node_section_in_internal or node_operator_in_internal or mask_tools_in_internal:
         fail(
             "tool_section_separation",
             "node-section or mask tools leaked into the Internal applied-effects section",
             node_only_in_internal=node_only_in_internal,
             node_section_in_internal=node_section_in_internal[:40],
+            node_operator_in_internal=node_operator_in_internal[:40],
             mask_tools_in_internal=mask_tools_in_internal,
+        )
+    elif sorted(node_operator_item_ids) != sorted(tool.id for tool in node_tools):
+        fail(
+            "tool_section_separation",
+            "node operator enum does not match the Video Effects Nodes section",
+            node_section=len(node_tools),
+            node_operator=len(node_operator_item_ids),
         )
     else:
         record(
@@ -254,6 +264,7 @@ try:
                 "internal": len(internal_tools),
                 "external": len(external_tools),
                 "nodes": len(node_tools),
+                "node_operator_items": len(node_operator_item_ids),
                 "node_only": len(node_only_tools),
             }},
         )

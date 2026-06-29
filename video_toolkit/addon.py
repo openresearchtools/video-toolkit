@@ -1013,6 +1013,10 @@ def _tool_is_node_section_effect(tool) -> bool:
     return _tool_has_compositor_stack(tool) and (tool.is_compositor or _tool_uses_mask_modifier(tool))
 
 
+def _node_section_tools() -> tuple:
+    return tuple(tool for tool in all_tools() if _tool_is_node_section_effect(tool))
+
+
 def _open_compositing_workspace(context) -> None:
     window = _context_window(context)
     workspace = bpy.data.workspaces.get("Compositing")
@@ -1101,8 +1105,7 @@ def _tool_modifier_names(tool) -> tuple[str, ...]:
 def _compositor_tool_items(_self, _context):
     return tuple(
         (tool.id, tool.label, f"Create a Blender compositor graph for {tool.label}")
-        for tool in all_tools()
-        if _tool_has_compositor_stack(tool)
+        for tool in _node_section_tools()
     )
 
 
@@ -2473,8 +2476,8 @@ class VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes(Operator):
         if tool is None:
             self.report({"ERROR"}, "No Video Effects tool is selected")
             return {"CANCELLED"}
-        if not _tool_has_compositor_stack(tool):
-            self.report({"ERROR"}, f"{tool.label} does not have a compositor node recipe")
+        if not _tool_is_node_section_effect(tool):
+            self.report({"ERROR"}, f"{tool.label} is not exposed in the Video Effects Nodes section")
             return {"CANCELLED"}
         context.scene.video_toolkit_expanded_tool = tool.id
         return bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id=tool.id)
@@ -2497,7 +2500,7 @@ class VIDEO_TOOLKIT_OT_create_all_tool_compositor_nodes(Operator):
         try:
             scene = context.scene
             strip = scene.sequence_editor.active_strip
-            tools = tuple(tool for tool in all_tools() if _tool_has_compositor_stack(tool))
+            tools = _node_section_tools()
             if not tools:
                 raise RuntimeError("No compositor-compatible Blender color tools are available")
             created = []
@@ -2910,9 +2913,7 @@ class VIDEO_TOOLKIT_MT_compositor_recipes(Menu):
 
     def draw(self, _context):
         current_category = None
-        for tool in all_tools():
-            if not _tool_has_compositor_stack(tool):
-                continue
+        for tool in _node_section_tools():
             if tool.category != current_category:
                 if current_category is not None:
                     self.layout.separator()
@@ -3199,7 +3200,7 @@ def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
     expanded = _expanded_sidecar_tool(scene)
     internal = tuple(tool for tool in all_tools() if _tool_is_internal_effect(tool))
     external = tuple(tool for tool in all_tools() if tool.is_ffmpeg)
-    nodes = tuple(tool for tool in all_tools() if _tool_is_node_section_effect(tool))
+    nodes = _node_section_tools()
 
     _draw_unified_tool_section(browser, scene, strip, "Internal", "MODIFIER", internal, nodes=False)
     _draw_unified_tool_section(browser, scene, strip, "External", "RENDER_ANIMATION", external, nodes=False)

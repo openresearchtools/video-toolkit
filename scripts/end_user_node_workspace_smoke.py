@@ -114,8 +114,8 @@ def run_smoke():
         bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=2)
         _run_node_operator(
             route="create_tool_compositor_nodes",
-            tool_id="primary_color_board",
-            tool_label="Primary Color Board",
+            tool_id="native_compositor_color_balance",
+            tool_label="Compositor Color Balance",
             use_apply_filter=False,
         )
     except Exception as exc:
