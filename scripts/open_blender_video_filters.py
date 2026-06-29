@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import traceback
+import os
 from pathlib import Path
 
 import bpy
@@ -12,7 +13,8 @@ import bpy
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "tests" / "output" / "blender_ui"
-VIDEO = ROOT / "tests" / "fixtures" / "real_user_video.mp4"
+VIDEO = Path(os.environ.get("VIDEO_TOOLKIT_REAL_VIDEO", str(ROOT / "tests" / "fixtures" / "real_user_video.mp4")))
+PRELOAD_DEMO_TOOLS = os.environ.get("VIDEO_TOOLKIT_PRELOAD_DEMO_TOOLS") == "1"
 
 
 def main() -> None:
@@ -69,7 +71,7 @@ def _setup_scene() -> None:
     scene.frame_current = min(scene.frame_start + 24, scene.frame_end - 1)
     scene.video_toolkit_analysis_samples = 24
     scene.video_toolkit_apply_target = "ACTIVE"
-    scene.video_toolkit_sidecar_section = "ENHANCE"
+    scene.video_toolkit_sidecar_section = "BROWSER"
     scene.video_toolkit_ffmpeg_chain = (
         "colorspace=iall=bt709:all=bt709:irange=tv:range=pc,"
         "colorspace_cuda=range=pc,"
@@ -194,39 +196,40 @@ def _setup_scene() -> None:
         "tmidequalizer=radius=9:sigma=0.55:planes=7,"
         "zscale=primariesin=bt709:transferin=bt709:matrixin=bt709:rangein=limited:primaries=bt2020:transfer=bt2020-10:matrix=bt2020nc:range=full"
     )
-    try:
-        bpy.ops.video_toolkit.color_diagnostics()
-        bpy.ops.video_toolkit.recommend_catalog_recipes()
-        bpy.ops.video_toolkit.apply_recommended_recipe_mix()
-        bpy.ops.video_toolkit.create_recommended_recipe_mix_nodes()
-        bpy.ops.video_toolkit.apply_professional_color_workflow()
-        bpy.ops.video_toolkit.apply_translated_color_workflow()
-        bpy.ops.video_toolkit.apply_filter(filter_id="primary_color_board")
-        bpy.ops.video_toolkit.apply_filter(filter_id="six_vector_hue_board")
-        bpy.ops.video_toolkit.apply_filter(filter_id="broadcast_safe_finish")
-        bpy.ops.video_toolkit.apply_diagnostic_grade()
-        bpy.ops.video_toolkit.apply_sampled_white_balance()
-        bpy.ops.video_toolkit.apply_sampled_levels_gamma()
-        bpy.ops.video_toolkit.apply_sampled_hue_chroma()
-        bpy.ops.video_toolkit.apply_sampled_pro_grade()
-        bpy.ops.video_toolkit.apply_sampled_color_board()
-        bpy.ops.video_toolkit.apply_reference_color_board()
-        bpy.ops.video_toolkit.apply_sampled_color_management()
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="NATIVE_COLOR_ROOM")
-        bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id="primary_color_board")
-        bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id="live_pro_color_stack")
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="SAMPLED_COLOR_MANAGEMENT")
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="SAMPLED_COLOR_BOARD")
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="SAMPLED_COLOR")
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="IDENTITY_COLOR")
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="DIAGNOSTIC_COLOR")
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="MATCHED_COLOR")
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="REFERENCE_COLOR_BOARD")
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="COLOR_TIMELINE_MATCH")
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="TRANSLATED_COLOR")
-        bpy.ops.video_toolkit.create_compositor_nodes(stack_type="LIGHTING_NORMALIZE")
-    except Exception:
-        traceback.print_exc()
+    if PRELOAD_DEMO_TOOLS:
+        try:
+            bpy.ops.video_toolkit.color_diagnostics()
+            bpy.ops.video_toolkit.recommend_catalog_recipes()
+            bpy.ops.video_toolkit.apply_recommended_recipe_mix()
+            bpy.ops.video_toolkit.create_recommended_recipe_mix_nodes()
+            bpy.ops.video_toolkit.apply_professional_color_workflow()
+            bpy.ops.video_toolkit.apply_translated_color_workflow()
+            bpy.ops.video_toolkit.apply_filter(filter_id="primary_color_board")
+            bpy.ops.video_toolkit.apply_filter(filter_id="six_vector_hue_board")
+            bpy.ops.video_toolkit.apply_filter(filter_id="broadcast_safe_finish")
+            bpy.ops.video_toolkit.apply_diagnostic_grade()
+            bpy.ops.video_toolkit.apply_sampled_white_balance()
+            bpy.ops.video_toolkit.apply_sampled_levels_gamma()
+            bpy.ops.video_toolkit.apply_sampled_hue_chroma()
+            bpy.ops.video_toolkit.apply_sampled_pro_grade()
+            bpy.ops.video_toolkit.apply_sampled_color_board()
+            bpy.ops.video_toolkit.apply_reference_color_board()
+            bpy.ops.video_toolkit.apply_sampled_color_management()
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="NATIVE_COLOR_ROOM")
+            bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id="primary_color_board")
+            bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id="live_pro_color_stack")
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="SAMPLED_COLOR_MANAGEMENT")
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="SAMPLED_COLOR_BOARD")
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="SAMPLED_COLOR")
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="IDENTITY_COLOR")
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="DIAGNOSTIC_COLOR")
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="MATCHED_COLOR")
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="REFERENCE_COLOR_BOARD")
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="COLOR_TIMELINE_MATCH")
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="TRANSLATED_COLOR")
+            bpy.ops.video_toolkit.create_compositor_nodes(stack_type="LIGHTING_NORMALIZE")
+        except Exception:
+            traceback.print_exc()
 
 
 def _open_sequencer() -> None:

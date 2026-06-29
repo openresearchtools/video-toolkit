@@ -254,9 +254,43 @@ def _rebuild_tool_parameters(scene, tool) -> None:
 
 def _rebuild_blender_tool_parameters(scene, tool) -> None:
     for modifier_index, (modifier_type, settings) in enumerate(_tool_compositor_stack(tool)):
+        modifier_param_count = len(scene.video_toolkit_tool_parameters)
         group_label = _modifier_role_label(modifier_type, settings)
         for path, value in settings.items():
-            if str(path).startswith("__"):
+            path_text = str(path)
+            if path_text == "__hue_correct__" and isinstance(value, dict):
+                for key, key_value in value.items():
+                    _add_tool_parameter(
+                        scene,
+                        tool,
+                        engine="BLENDER",
+                        group_label=group_label,
+                        label=_hue_correct_parameter_label(key),
+                        value=key_value,
+                        modifier_index=modifier_index,
+                        modifier_type=modifier_type,
+                        path=f"{path_text}.{key}",
+                    )
+                continue
+            if path_text == "__curve_points__" and isinstance(value, dict):
+                for curve_index, points in value.items():
+                    for point_index, point in enumerate(points):
+                        if not isinstance(point, (tuple, list)) or len(point) < 2:
+                            continue
+                        for axis_index, axis in enumerate(("x", "y")):
+                            _add_tool_parameter(
+                                scene,
+                                tool,
+                                engine="BLENDER",
+                                group_label=group_label,
+                                label=_curve_point_parameter_label(modifier_type, curve_index, point_index, axis),
+                                value=point[axis_index],
+                                modifier_index=modifier_index,
+                                modifier_type=modifier_type,
+                                path=f"{path_text}.{curve_index}.{point_index}.{axis}",
+                            )
+                continue
+            if path_text.startswith("__"):
                 continue
             if isinstance(value, (tuple, list)):
                 for component_index, component_value in enumerate(value):
@@ -274,7 +308,7 @@ def _rebuild_blender_tool_parameters(scene, tool) -> None:
                         value=component_value,
                         modifier_index=modifier_index,
                         modifier_type=modifier_type,
-                        path=str(path),
+                        path=path_text,
                         component_index=component_index,
                     )
             else:
@@ -287,8 +321,10 @@ def _rebuild_blender_tool_parameters(scene, tool) -> None:
                     value=value,
                     modifier_index=modifier_index,
                     modifier_type=modifier_type,
-                    path=str(path),
+                    path=path_text,
                 )
+        if len(scene.video_toolkit_tool_parameters) == modifier_param_count:
+            _add_default_blender_modifier_parameters(scene, tool, group_label, modifier_index, modifier_type)
 
 
 def _rebuild_ffmpeg_tool_parameters(scene, tool) -> None:
@@ -344,6 +380,36 @@ def _add_tool_parameter(
     _assign_parameter_value(param, value)
 
 
+def _add_default_blender_modifier_parameters(scene, tool, group_label: str, modifier_index: int, modifier_type: str) -> None:
+    if modifier_type == "HUE_CORRECT":
+        for key in ("hue", "saturation", "value"):
+            _add_tool_parameter(
+                scene,
+                tool,
+                engine="BLENDER",
+                group_label=group_label,
+                label=_hue_correct_parameter_label(key),
+                value=0.5,
+                modifier_index=modifier_index,
+                modifier_type=modifier_type,
+                path=f"__hue_correct__.{key}",
+            )
+    elif modifier_type == "CURVES":
+        for point_index, (x, y) in enumerate(((0.0, 0.0), (1.0, 1.0))):
+            for axis, value in (("x", x), ("y", y)):
+                _add_tool_parameter(
+                    scene,
+                    tool,
+                    engine="BLENDER",
+                    group_label=group_label,
+                    label=_curve_point_parameter_label(modifier_type, 0, point_index, axis),
+                    value=value,
+                    modifier_index=modifier_index,
+                    modifier_type=modifier_type,
+                    path=f"__curve_points__.0.{point_index}.{axis}",
+                )
+
+
 def _assign_parameter_value(param, value) -> None:
     kind = _parameter_kind(value)
     param.value_kind = kind
@@ -393,6 +459,31 @@ def _is_float_text(value: str) -> bool:
 
 def _parameter_label(path: str) -> str:
     return str(path).replace("color_balance.", "").replace("_", " ").replace(".", " ").title()
+
+
+def _hue_correct_parameter_label(key) -> str:
+    return f"Hue Correct {str(key).replace('_', ' ').title()}"
+
+
+def _curve_point_parameter_label(modifier_type: str, curve_index, point_index: int, axis: str) -> str:
+    return (
+        f"{_curve_channel_label(modifier_type, curve_index)} "
+        f"Point {point_index + 1} {axis.upper()}"
+    )
+
+
+def _curve_channel_label(modifier_type: str, curve_index) -> str:
+    try:
+        index = int(curve_index)
+    except Exception:
+        index = 0
+    if modifier_type == "HUE_CORRECT":
+        labels = ("Hue", "Saturation", "Value")
+    else:
+        labels = ("Master", "Red", "Green", "Blue")
+    if 0 <= index < len(labels):
+        return labels[index]
+    return f"Curve {index + 1}"
 
 
 def _format_parameter_value(value) -> str:
@@ -566,6 +657,9 @@ def _editable_blender_stack(scene, tool):
         if param.modifier_index < 0 or param.modifier_index >= len(stack):
             continue
         modifier_type, settings = stack[param.modifier_index]
+        if _apply_internal_blender_parameter(settings, param):
+            stack[param.modifier_index] = (modifier_type, settings)
+            continue
         if param.component_index >= 0:
             current = list(settings.get(param.path, ()))
             while len(current) <= param.component_index:
@@ -576,6 +670,46 @@ def _editable_blender_stack(scene, tool):
             settings[param.path] = _parameter_python_value(param)
         stack[param.modifier_index] = (modifier_type, settings)
     return tuple(stack)
+
+
+def _apply_internal_blender_parameter(settings: dict[str, object], param) -> bool:
+    path = str(param.path)
+    if path.startswith("__hue_correct__."):
+        key = path.split(".", 1)[1]
+        values = settings.setdefault("__hue_correct__", {})
+        if isinstance(values, dict):
+            values[key] = _parameter_python_value(param)
+            return True
+        return False
+    if path.startswith("__curve_points__."):
+        parts = path.split(".")
+        if len(parts) != 4:
+            return False
+        try:
+            curve_index = int(parts[1])
+            point_index = int(parts[2])
+        except ValueError:
+            return False
+        axis = parts[3]
+        if axis not in {"x", "y"}:
+            return False
+        curve_points = settings.setdefault("__curve_points__", {})
+        if not isinstance(curve_points, dict):
+            return False
+        points = list(curve_points.get(curve_index, ()))
+        while len(points) <= point_index:
+            points.append((0.0, 0.0))
+        point = points[point_index]
+        x = point[0] if isinstance(point, (tuple, list)) and len(point) > 0 else 0.0
+        y = point[1] if isinstance(point, (tuple, list)) and len(point) > 1 else 0.0
+        if axis == "x":
+            x = _parameter_python_value(param)
+        else:
+            y = _parameter_python_value(param)
+        points[point_index] = (x, y)
+        curve_points[curve_index] = points
+        return True
+    return False
 
 
 def _editable_ffmpeg_tool(scene, tool):
@@ -6780,10 +6914,10 @@ def register() -> None:
         default=SIDECAR_GROUP_ITEMS[0][0] if SIDECAR_GROUP_ITEMS else "",
         update=_sync_sidecar_tool_to_group,
     )
-    bpy.types.Scene.video_toolkit_sidecar_tool = bpy.props.EnumProperty(
+    bpy.types.Scene.video_toolkit_sidecar_tool = bpy.props.StringProperty(
         name="Tool",
         description="Video effect to apply from the Video Effects sidebar",
-        items=_sidecar_tool_items,
+        default="",
     )
     bpy.types.Scene.video_toolkit_expanded_tool = bpy.props.StringProperty(
         name="Expanded Tool",

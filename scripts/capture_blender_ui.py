@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
 
 import bpy
@@ -11,23 +12,37 @@ import bpy
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "tests" / "output" / "blender_ui"
-VIDEO = ROOT / "tests" / "fixtures" / "real_user_video.mp4"
+VIDEO = Path(os.environ.get("VIDEO_TOOLKIT_REAL_VIDEO", str(ROOT / "tests" / "fixtures" / "real_user_video.mp4")))
+USE_INSTALLED_ADDON = os.environ.get("VIDEO_TOOLKIT_USE_INSTALLED_ADDON") == "1"
+SCREENSHOT_DELAY = float(os.environ.get("VIDEO_TOOLKIT_SCREENSHOT_DELAY", "1.5"))
 
 
 def main() -> None:
     _hide_startup_splash()
-    sys.path.insert(0, str(ROOT))
-    import video_toolkit
-
-    video_toolkit.register()
+    _enable_video_toolkit()
     OUTPUT.mkdir(parents=True, exist_ok=True)
     _ensure_selected_movie_strip()
+    _prepare_effects_panel_state()
     area, region, space = _sequencer_area()
     area, region, space = _maximize_sequencer_area(area, region, space)
     _activate_video_effects_sidebar(area)
     with bpy.context.temp_override(area=area, region=region, space_data=space):
         _frame_selected_strip()
-    bpy.app.timers.register(_screenshot_and_quit, first_interval=1.5)
+    bpy.app.timers.register(_screenshot_and_quit, first_interval=SCREENSHOT_DELAY)
+
+
+def _enable_video_toolkit() -> None:
+    if USE_INSTALLED_ADDON:
+        bpy.ops.preferences.addon_enable(module="video_toolkit")
+        return
+    sys.path.insert(0, str(ROOT))
+    import video_toolkit
+
+    try:
+        video_toolkit.unregister()
+    except Exception:
+        pass
+    video_toolkit.register()
 
 
 def _hide_startup_splash() -> None:
@@ -57,10 +72,25 @@ def _ensure_selected_movie_strip() -> None:
     scene.frame_current = min(scene.frame_start + 24, scene.frame_end - 1)
     scene.video_toolkit_analysis_samples = 24
     scene.video_toolkit_apply_target = "ACTIVE"
-    scene.video_toolkit_sidecar_section = "ENHANCE"
+    scene.video_toolkit_sidecar_section = "BROWSER"
     scene.video_toolkit_ffmpeg_chain = "eq=contrast=1.08:saturation=1.05:gamma=1.02,colorbalance=rs=0.05:bh=-0.04"
     if hasattr(scene.view_settings, "use_curve_mapping"):
         scene.view_settings.use_curve_mapping = True
+
+
+def _prepare_effects_panel_state() -> None:
+    scene = bpy.context.scene
+    try:
+        bpy.ops.video_toolkit.select_sidecar_tool(filter_id="live_gamma_grade")
+    except Exception:
+        return
+    for index, parameter in enumerate(getattr(scene, "video_toolkit_tool_parameters", [])):
+        if parameter.path == "bright":
+            try:
+                bpy.ops.video_toolkit.toggle_tool_parameter(parameter_index=index)
+            except Exception:
+                pass
+            break
 
 
 def _sequencer_area():
