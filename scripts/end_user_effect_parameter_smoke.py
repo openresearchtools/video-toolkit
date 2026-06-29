@@ -229,19 +229,21 @@ try:
 
     internal_tools = [tool for tool in all_tools() if addon._tool_is_internal_effect(tool)]
     external_tools = [tool for tool in all_tools() if tool.is_ffmpeg]
-    node_tools = [tool for tool in all_tools() if addon._tool_has_compositor_stack(tool)]
+    node_tools = [tool for tool in all_tools() if addon._tool_is_node_section_effect(tool)]
     node_only_tools = [tool for tool in all_tools() if tool.is_compositor]
     node_only_in_internal = sorted(tool.id for tool in node_only_tools if tool in internal_tools)
+    node_section_in_internal = sorted(set(tool.id for tool in node_tools) & set(tool.id for tool in internal_tools))
     mask_tools_in_internal = sorted(
         tool.id
         for tool in internal_tools
-        if any(modifier_type == "MASK" for modifier_type, _settings in addon._tool_compositor_stack(tool))
+        if addon._tool_uses_mask_modifier(tool)
     )
-    if node_only_in_internal or mask_tools_in_internal:
+    if node_only_in_internal or node_section_in_internal or mask_tools_in_internal:
         fail(
             "tool_section_separation",
-            "node-only or mask tools leaked into the Internal applied-effects section",
+            "node-section or mask tools leaked into the Internal applied-effects section",
             node_only_in_internal=node_only_in_internal,
+            node_section_in_internal=node_section_in_internal[:40],
             mask_tools_in_internal=mask_tools_in_internal,
         )
     else:
@@ -420,20 +422,22 @@ try:
         record("live_preview_modifiers", "passed", {{"modifiers": preview_modifiers}})
     scene.video_toolkit_live_preview = False
 
-    node_tool = get_tool("primary_color_board")
+    node_section_tool = get_tool("native_compositor_exposure")
+    if not addon._tool_is_node_section_effect(node_section_tool):
+        fail("node_create", "selected node smoke tool is not exposed in the Nodes section", tool_id=node_section_tool.id)
     clear_modifiers()
     assert_finished(
         "node_create",
-        bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id=node_tool.id),
-        tool_id=node_tool.id,
+        bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id=node_section_tool.id),
+        tool_id=node_section_tool.id,
     )
     tree = addon._compositor_tree_or_none(scene)
-    vtk_nodes = [node for node in tree.nodes if node.name.startswith("VTK Tool Primary Color Board")]
+    vtk_nodes = [node for node in tree.nodes if node.name.startswith("VTK Tool Compositor Exposure")]
     movie_nodes = [node for node in vtk_nodes if node.bl_idname == "CompositorNodeMovieClip"]
     if not vtk_nodes or not movie_nodes:
         fail(
             "node_create",
-            "node tool did not create a compositor graph from the selected movie strip",
+            "Nodes-section tool did not create a compositor graph from the selected movie strip",
             node_count=len(vtk_nodes),
             movie_nodes=len(movie_nodes),
         )
@@ -449,6 +453,45 @@ try:
                     "node_count": len(vtk_nodes),
                     "movie_clip": str(clip_path),
                     "expanded_tool": scene.video_toolkit_expanded_tool,
+                    "summary": scene.video_toolkit_last_compositor_nodes,
+                }},
+            )
+
+    mask_node_tool = get_tool("native_mask_slot")
+    if not addon._tool_is_node_section_effect(mask_node_tool):
+        fail("mask_node_create", "mask tool is not exposed in the Nodes section", tool_id=mask_node_tool.id)
+    assert_finished(
+        "mask_node_create",
+        bpy.ops.video_toolkit.create_tool_compositor_nodes(filter_id=mask_node_tool.id),
+        tool_id=mask_node_tool.id,
+    )
+    tree = addon._compositor_tree_or_none(scene)
+    mask_vtk_nodes = [node for node in tree.nodes if node.name.startswith("VTK Tool Mask Slot")]
+    mask_movie_nodes = [node for node in mask_vtk_nodes if node.bl_idname == "CompositorNodeMovieClip"]
+    mask_alpha_nodes = [
+        node
+        for node in mask_vtk_nodes
+        if node.bl_idname in {{"CompositorNodeBoxMask", "CompositorNodeSetAlpha"}}
+    ]
+    if not mask_vtk_nodes or not mask_movie_nodes or not mask_alpha_nodes:
+        fail(
+            "mask_node_create",
+            "mask node-section tool did not create an editable compositor mask graph",
+            node_count=len(mask_vtk_nodes),
+            movie_nodes=len(mask_movie_nodes),
+            mask_alpha_nodes=len(mask_alpha_nodes),
+        )
+    else:
+        mask_clip_path = Path(bpy.path.abspath(mask_movie_nodes[0].clip.filepath)) if getattr(mask_movie_nodes[0], "clip", None) else None
+        if mask_clip_path != VIDEO:
+            fail("mask_node_create", "mask Movie Clip node did not use the selected strip file", clip_path=str(mask_clip_path), expected=str(VIDEO))
+        else:
+            record(
+                "mask_node_create",
+                "passed",
+                {{
+                    "node_count": len(mask_vtk_nodes),
+                    "movie_clip": str(mask_clip_path),
                     "summary": scene.video_toolkit_last_compositor_nodes,
                 }},
             )

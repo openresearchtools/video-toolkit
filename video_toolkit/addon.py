@@ -873,7 +873,21 @@ def _tool_compositor_stack(tool):
 
 
 def _tool_compositor_filter_stack(tool):
-    return getattr(tool, "compositor_stack", ())
+    compositor_stack = getattr(tool, "compositor_stack", ())
+    if compositor_stack:
+        return compositor_stack
+    if _tool_uses_mask_modifier(tool):
+        return (
+            (
+                "BOX_MASK_ALPHA",
+                {
+                    "source": "blender_mask_modifier",
+                    "label": "Editable Mask Slot",
+                    "type": "Apply Mask",
+                },
+            ),
+        )
+    return ()
 
 
 def _tool_has_compositor_stack(tool) -> bool:
@@ -884,10 +898,18 @@ def _tool_has_compositor_stack(tool) -> bool:
     return any(modifier_type in COMPOSITOR_MODIFIER_TYPES for modifier_type, _settings in _tool_compositor_stack(tool))
 
 
+def _tool_uses_mask_modifier(tool) -> bool:
+    return any(modifier_type == "MASK" for modifier_type, _settings in _tool_compositor_stack(tool))
+
+
 def _tool_is_internal_effect(tool) -> bool:
     if not tool.is_blender_modifier:
         return False
-    return not any(modifier_type == "MASK" for modifier_type, _settings in _tool_compositor_stack(tool))
+    return not _tool_uses_mask_modifier(tool)
+
+
+def _tool_is_node_section_effect(tool) -> bool:
+    return _tool_has_compositor_stack(tool) and (tool.is_compositor or _tool_uses_mask_modifier(tool))
 
 
 def _open_compositing_workspace(context) -> None:
@@ -3074,7 +3096,7 @@ def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
     expanded = _expanded_sidecar_tool(scene)
     internal = tuple(tool for tool in all_tools() if _tool_is_internal_effect(tool))
     external = tuple(tool for tool in all_tools() if tool.is_ffmpeg)
-    nodes = tuple(tool for tool in all_tools() if _tool_has_compositor_stack(tool))
+    nodes = tuple(tool for tool in all_tools() if _tool_is_node_section_effect(tool))
 
     _draw_unified_tool_section(browser, scene, strip, "Internal", "MODIFIER", internal, nodes=False)
     _draw_unified_tool_section(browser, scene, strip, "External", "RENDER_ANIMATION", external, nodes=False)
