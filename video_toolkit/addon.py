@@ -437,13 +437,18 @@ def _tool_parameter_items(scene, tool, engine: str | None = None):
 
 
 def _update_tool_parameter_value(self, context) -> None:
-    if _PARAMETER_UPDATE_LOCK or self.engine != "BLENDER":
+    if _PARAMETER_UPDATE_LOCK:
         return
     scene = getattr(context, "scene", None)
-    if scene is None or not getattr(scene, "video_toolkit_live_preview", False):
+    if scene is None:
         return
     try:
-        _refresh_blender_parameter_preview(context)
+        if self.engine == "BLENDER" and getattr(scene, "video_toolkit_live_preview", False):
+            _refresh_blender_parameter_preview(context)
+        elif self.engine == "FFMPEG" and getattr(scene, "video_toolkit_auto_ffmpeg_preview", False):
+            _refresh_ffmpeg_parameter_preview(context)
+        else:
+            return
         scene.video_toolkit_last_preview_error = ""
     except Exception as exc:
         scene.video_toolkit_last_preview_error = str(exc)
@@ -466,6 +471,24 @@ def _refresh_blender_parameter_preview(context) -> int:
     if hasattr(context, "area") and context.area is not None:
         context.area.tag_redraw()
     return len(modifiers)
+
+
+def _refresh_ffmpeg_parameter_preview(context) -> int:
+    scene = getattr(context, "scene", None)
+    if scene is None:
+        return 0
+    tool = _expanded_sidecar_tool(scene)
+    if tool is None or not tool.is_ffmpeg:
+        return 0
+    editor = getattr(scene, "sequence_editor", None)
+    strip = editor.active_strip if editor else None
+    if strip is None or strip.type != "MOVIE":
+        return 0
+    output_path = _render_ffmpeg_preview_tool(context, strip, _tool_with_parameter_overrides(scene, tool))
+    scene.video_toolkit_last_preview_output = str(output_path)
+    if hasattr(context, "area") and context.area is not None:
+        context.area.tag_redraw()
+    return 1
 
 
 def _remove_blender_parameter_previews(strip, tool_id: str | None = None) -> int:
@@ -929,6 +952,61 @@ class VIDEO_TOOLKIT_OT_clear_parameter_preview(Operator):
         strip = context.scene.sequence_editor.active_strip
         removed = _remove_blender_parameter_previews(strip)
         self.report({"INFO"}, f"Removed {removed} preview modifier(s)")
+        return {"FINISHED"}
+
+
+class VIDEO_TOOLKIT_OT_preview_ffmpeg_tool(Operator):
+    bl_idname = "video_toolkit.preview_ffmpeg_tool"
+    bl_label = "Preview Render"
+    bl_description = "Render the expanded external effect with current parameters and place it as a temporary preview strip"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        scene = context.scene
+        tool = _expanded_sidecar_tool(scene)
+        if tool is None or not tool.is_ffmpeg:
+            self.report({"ERROR"}, "Expand an external FFmpeg effect before previewing")
+            return {"CANCELLED"}
+        strip = scene.sequence_editor.active_strip
+        try:
+            output_path = _render_ffmpeg_preview_tool(context, strip, _tool_with_parameter_overrides(scene, tool))
+        except Exception as exc:
+            traceback.print_exc()
+            scene.video_toolkit_last_preview_error = str(exc)
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        scene.video_toolkit_last_preview_error = ""
+        scene.video_toolkit_last_preview_output = str(output_path)
+        self.report({"INFO"}, f"Preview rendered {tool.label}: {output_path}")
+        return {"FINISHED"}
+
+
+class VIDEO_TOOLKIT_OT_clear_ffmpeg_preview(Operator):
+    bl_idname = "video_toolkit.clear_ffmpeg_preview"
+    bl_label = "Clear Preview Render"
+    bl_description = "Remove temporary external preview strips for the active source strip"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scene = getattr(context, "scene", None)
+        editor = getattr(scene, "sequence_editor", None) if scene else None
+        strip = editor.active_strip if editor else None
+        return bool(strip and strip.type == "MOVIE")
+
+    def execute(self, context):
+        scene = context.scene
+        strip = scene.sequence_editor.active_strip
+        tool = _expanded_sidecar_tool(scene)
+        removed = _remove_ffmpeg_preview_strips(scene, strip, tool.id if tool else None)
+        self.report({"INFO"}, f"Removed {removed} preview strip(s)")
         return {"FINISHED"}
 
 
@@ -2754,6 +2832,19 @@ def _draw_expanded_tool_settings(layout, scene, strip, tool) -> None:
             panel.label(text=scene.video_toolkit_last_preview_error, icon="ERROR")
         _draw_tool_parameter_controls(panel, scene, tool, "BLENDER")
     elif tool.is_ffmpeg:
+        preview_box = panel.box()
+        preview_box.label(text="Preview Render", icon="RENDER_ANIMATION")
+        row = preview_box.row(align=True)
+        row.prop(scene, "video_toolkit_preview_crf")
+        row.prop(scene, "video_toolkit_preview_preset", text="")
+        preview_box.prop(scene, "video_toolkit_auto_ffmpeg_preview", text="Auto Preview")
+        row = preview_box.row(align=True)
+        row.operator(VIDEO_TOOLKIT_OT_preview_ffmpeg_tool.bl_idname, text="Preview", icon="RENDER_STILL")
+        row.operator(VIDEO_TOOLKIT_OT_clear_ffmpeg_preview.bl_idname, text="", icon="TRASH")
+        if getattr(scene, "video_toolkit_last_preview_output", ""):
+            preview_box.label(text=scene.video_toolkit_last_preview_output, icon="FILE_MOVIE")
+        if getattr(scene, "video_toolkit_last_preview_error", ""):
+            preview_box.label(text=scene.video_toolkit_last_preview_error, icon="ERROR")
         _draw_tool_parameter_controls(panel, scene, tool, "FFMPEG")
     reset = panel.row(align=True)
     reset.operator(VIDEO_TOOLKIT_OT_reset_tool_parameters.bl_idname, text="Reset Defaults", icon="LOOP_BACK")
@@ -5813,6 +5904,31 @@ def _render_ffmpeg_tool(context, strip, tool) -> Path:
     return output_path
 
 
+def _render_ffmpeg_preview_tool(context, strip, tool) -> Path:
+    if strip.type != "MOVIE":
+        raise RuntimeError("FFmpeg previews require an active movie strip")
+    source_path = Path(bpy.path.abspath(strip.filepath))
+    if not source_path.exists():
+        raise RuntimeError(f"Source movie does not exist: {source_path}")
+    scene = context.scene
+    output_dir = _output_dir(scene)
+    output_path = _unique_output_path(output_dir, source_path, f"{tool.id}_preview")
+    try:
+        process_video(
+            tool,
+            source_path,
+            output_path,
+            crf=scene.video_toolkit_preview_crf,
+            preset=scene.video_toolkit_preview_preset,
+            keep_audio=False,
+            work_dir=output_dir,
+        )
+    except FFmpegError as exc:
+        raise RuntimeError(str(exc)) from exc
+    _add_ffmpeg_preview_strip(scene, strip, output_path, tool.label, tool.id)
+    return output_path
+
+
 def _movie_path(strip) -> Path:
     if strip.type != "MOVIE":
         raise RuntimeError("Color analysis requires a movie strip")
@@ -6385,6 +6501,49 @@ def _add_rendered_strip(scene, source_strip, output_path: Path, label: str) -> N
     editor.active_strip = new_strip
 
 
+def _add_ffmpeg_preview_strip(scene, source_strip, output_path: Path, label: str, tool_id: str) -> None:
+    if scene.sequence_editor is None:
+        scene.sequence_editor_create()
+    editor = scene.sequence_editor
+    _remove_ffmpeg_preview_strips(scene, source_strip, tool_id)
+    channel = _find_free_channel(editor, source_strip.frame_final_start, source_strip.frame_final_end, source_strip.channel + 1)
+    new_strip = editor.strips.new_movie(
+        name=f"{_ffmpeg_preview_strip_prefix(tool_id)}{source_strip.name}",
+        filepath=str(output_path),
+        channel=channel,
+        frame_start=source_strip.frame_final_start,
+    )
+    new_strip.frame_final_duration = source_strip.frame_final_duration
+    new_strip.select = False
+    source_strip.select = True
+    editor.active_strip = source_strip
+
+
+def _remove_ffmpeg_preview_strips(scene, source_strip, tool_id: str | None = None) -> int:
+    editor = getattr(scene, "sequence_editor", None)
+    if editor is None:
+        return 0
+    prefixes = (
+        (_ffmpeg_preview_strip_prefix(tool_id),)
+        if tool_id
+        else ("VTK Preview ",)
+    )
+    source_name = getattr(source_strip, "name", "")
+    removed = 0
+    for strip in reversed(list(editor.strips_all)):
+        if not any(strip.name.startswith(prefix) for prefix in prefixes):
+            continue
+        if source_name and not strip.name.endswith(source_name):
+            continue
+        editor.strips.remove(strip)
+        removed += 1
+    return removed
+
+
+def _ffmpeg_preview_strip_prefix(tool_id: str) -> str:
+    return f"VTK Preview {tool_id} - "
+
+
 def _find_free_channel(editor, start: int, end: int, minimum: int) -> int:
     channel = max(1, minimum)
     strips = list(editor.strips_all)
@@ -6406,6 +6565,8 @@ CLASSES = (
     VIDEO_TOOLKIT_OT_apply_tool_parameter,
     VIDEO_TOOLKIT_OT_reset_tool_parameter,
     VIDEO_TOOLKIT_OT_clear_parameter_preview,
+    VIDEO_TOOLKIT_OT_preview_ffmpeg_tool,
+    VIDEO_TOOLKIT_OT_clear_ffmpeg_preview,
     VIDEO_TOOLKIT_OT_set_sidecar_section,
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_color_diagnostics,
@@ -6484,6 +6645,28 @@ def register() -> None:
     )
     bpy.types.Scene.video_toolkit_last_preview_error = bpy.props.StringProperty(
         name="Last Preview Error",
+        default="",
+    )
+    bpy.types.Scene.video_toolkit_preview_crf = bpy.props.IntProperty(
+        name="Preview CRF",
+        description="x264 quality for external preview renders. Higher is faster and smaller",
+        min=0,
+        max=51,
+        default=32,
+    )
+    bpy.types.Scene.video_toolkit_preview_preset = bpy.props.EnumProperty(
+        name="Preview Preset",
+        items=PRESET_ITEMS,
+        default="ultrafast",
+    )
+    bpy.types.Scene.video_toolkit_auto_ffmpeg_preview = bpy.props.BoolProperty(
+        name="Auto External Preview",
+        description="Automatically render and replace an external preview strip when FFmpeg parameters change",
+        default=False,
+    )
+    bpy.types.Scene.video_toolkit_last_preview_output = bpy.props.StringProperty(
+        name="Last Preview Output",
+        subtype="FILE_PATH",
         default="",
     )
     bpy.types.Scene.video_toolkit_sidecar_section = bpy.props.EnumProperty(
@@ -6685,6 +6868,10 @@ def unregister() -> None:
         "video_toolkit_add_strip",
         "video_toolkit_live_preview",
         "video_toolkit_last_preview_error",
+        "video_toolkit_preview_crf",
+        "video_toolkit_preview_preset",
+        "video_toolkit_auto_ffmpeg_preview",
+        "video_toolkit_last_preview_output",
         "video_toolkit_sidecar_section",
         "video_toolkit_sidecar_group",
         "video_toolkit_sidecar_tool",
