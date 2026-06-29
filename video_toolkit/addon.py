@@ -107,7 +107,7 @@ SIDECAR_GROUP_ICONS = {
 }
 
 SIDECAR_SECTION_ITEMS = (
-    ("BROWSER", "Tools", "Video effect browser", "TOOL_SETTINGS", 0),
+    ("BROWSER", "Effects", "Internal, external, and node-based effects", "TOOL_SETTINGS", 0),
     ("ENHANCE", "Enhance", "One-click sampled and recommended video enhancements", "COLOR", 1),
     ("ANALYSIS", "Analyze", "Sample frames, diagnose color, and match lighting or color", "EYEDROPPER", 2),
     ("COLOR", "Color Mgmt", "Blender scene and view color-management controls", "WORLD", 3),
@@ -194,6 +194,16 @@ def _selected_sidecar_tool(scene):
     return tools[0] if tools else None
 
 
+def _expanded_sidecar_tool(scene):
+    selected = getattr(scene, "video_toolkit_expanded_tool", "")
+    if selected:
+        try:
+            return get_tool(selected)
+        except Exception:
+            pass
+    return None
+
+
 def _sync_sidecar_tool_to_group(self, _context) -> None:
     tool = _selected_sidecar_tool(self)
     if tool is not None and getattr(self, "video_toolkit_sidecar_tool", "") != tool.id:
@@ -230,6 +240,21 @@ def _tool_has_compositor_stack(tool) -> bool:
     if not tool.is_blender_modifier:
         return False
     return any(modifier_type in COMPOSITOR_MODIFIER_TYPES for modifier_type, _settings in _tool_compositor_stack(tool))
+
+
+def _open_compositing_workspace(context) -> None:
+    workspace = bpy.data.workspaces.get("Compositing")
+    if workspace is not None and getattr(context, "window", None) is not None:
+        context.window.workspace = workspace
+    screen = getattr(getattr(context, "window", None), "screen", None)
+    if screen is None:
+        return
+    for area in screen.areas:
+        if area.type == "NODE_EDITOR":
+            space = area.spaces.active
+            if hasattr(space, "tree_type"):
+                space.tree_type = "CompositorNodeTree"
+            break
 
 
 def _tool_modifier_names(tool) -> tuple[str, ...]:
@@ -331,11 +356,28 @@ class VIDEO_TOOLKIT_OT_apply_sidecar_tool(Operator):
         return bool(editor and editor.active_strip)
 
     def execute(self, context):
-        tool = _selected_sidecar_tool(context.scene)
+        tool = _expanded_sidecar_tool(context.scene)
         if tool is None:
             self.report({"ERROR"}, "No Video Effects tool is selected")
             return {"CANCELLED"}
         return bpy.ops.video_toolkit.apply_filter(filter_id=tool.id, target="SCENE")
+
+
+class VIDEO_TOOLKIT_OT_select_sidecar_tool(Operator):
+    bl_idname = "video_toolkit.select_sidecar_tool"
+    bl_label = "Select Video Effect"
+    bl_description = "Expand a Video Effects tool so its defaults can be reviewed before applying"
+    bl_options = {"REGISTER"}
+
+    filter_id: bpy.props.EnumProperty(name="Tool", items=_tool_items)
+
+    def execute(self, context):
+        tool = get_tool(self.filter_id)
+        scene = context.scene
+        scene.video_toolkit_expanded_tool = tool.id
+        scene.video_toolkit_sidecar_group = _enum_key(tool.category)
+        scene.video_toolkit_sidecar_tool = tool.id
+        return {"FINISHED"}
 
 
 class VIDEO_TOOLKIT_OT_set_sidecar_section(Operator):
@@ -1355,6 +1397,7 @@ class VIDEO_TOOLKIT_OT_create_tool_compositor_nodes(Operator):
             if color_management:
                 summary = f"{summary}; color management: {', '.join(color_management)}"
             scene.video_toolkit_last_compositor_nodes = summary
+            _open_compositing_workspace(context)
             self.report({"INFO"}, f"Created {len(created)} Blender compositor {tool.label} recipe node(s)")
             return {"FINISHED"}
         except Exception as exc:
@@ -1377,7 +1420,7 @@ class VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes(Operator):
         return bool(strip and strip.type == "MOVIE")
 
     def execute(self, context):
-        tool = _selected_sidecar_tool(context.scene)
+        tool = _expanded_sidecar_tool(context.scene)
         if tool is None:
             self.report({"ERROR"}, "No Video Effects tool is selected")
             return {"CANCELLED"}
@@ -2097,49 +2140,107 @@ def _draw_sidecar_inline_modifier_stack(layout, scene, strip) -> None:
 
 
 def _draw_sidecar_tool_browser(layout, scene, strip) -> None:
-    selected_tool = _selected_sidecar_tool(scene)
-    group_tools = _sidecar_tools_for_scene(scene)
-
     browser = layout.box()
-    browser.label(text="Video Effects Browser", icon="TOOL_SETTINGS")
+    browser.label(text="Video Effects", icon="TOOL_SETTINGS")
     browser.use_property_split = True
     browser.use_property_decorate = False
-    browser.prop(scene, "video_toolkit_sidecar_group", text="Group")
-    browser.prop(scene, "video_toolkit_sidecar_tool", text="Tool")
-    browser.prop(scene, "video_toolkit_apply_target", text="Target")
-    action = browser.row(align=True)
-    apply_action = action.row(align=True)
-    apply_action.enabled = strip is not None and selected_tool is not None
-    apply_action.operator(
-        VIDEO_TOOLKIT_OT_apply_sidecar_tool.bl_idname,
-        text="Apply",
-        icon=_sidecar_tool_icon(selected_tool),
-    )
-    node_action = action.row(align=True)
-    node_action.enabled = strip is not None and selected_tool is not None and _tool_has_compositor_stack(selected_tool)
-    node_action.operator(
-        VIDEO_TOOLKIT_OT_create_sidecar_compositor_nodes.bl_idname,
-        text="Nodes",
-        icon="NODETREE",
-    )
-    if selected_tool is not None:
-        if selected_tool.is_blender_modifier:
-            browser.label(text="Live Blender effect", icon="MODIFIER")
-        elif selected_tool.is_ffmpeg:
-            browser.label(text="Rendered video effect", icon="RENDER_ANIMATION")
-    if group_tools:
-        tools_col = browser.column(align=True)
-        tools_col.label(text=f"Supported Tools ({len(group_tools)})", icon="SORT_ASC")
-        for tool in group_tools:
-            row = tools_col.row(align=True)
-            row.enabled = strip is not None
-            op = row.operator(VIDEO_TOOLKIT_OT_apply_filter.bl_idname, text=tool.label, icon=_sidecar_tool_icon(tool))
+    if strip is not None:
+        browser.label(text=getattr(strip, "name", "Active Strip"), icon="SEQ_STRIP_META")
+    else:
+        browser.label(text="Select a movie strip before applying effects", icon="INFO")
+
+    expanded = _expanded_sidecar_tool(scene)
+    internal = tuple(tool for tool in all_tools() if tool.is_blender_modifier)
+    external = tuple(tool for tool in all_tools() if tool.is_ffmpeg)
+    nodes = tuple(tool for tool in all_tools() if _tool_has_compositor_stack(tool))
+
+    _draw_unified_tool_section(browser, scene, strip, "Internal", "MODIFIER", internal, nodes=False)
+    _draw_unified_tool_section(browser, scene, strip, "External", "RENDER_ANIMATION", external, nodes=False)
+    _draw_unified_tool_section(browser, scene, strip, "Nodes", "NODETREE", nodes, nodes=True)
+
+    if expanded is not None and not expanded.is_compositor:
+        _draw_expanded_tool_settings(browser, scene, strip, expanded)
+
+
+def _draw_unified_tool_section(layout, scene, strip, label: str, icon: str, tools, *, nodes: bool) -> None:
+    section = layout.box()
+    section.label(text=f"{label} ({len(tools)})", icon=icon)
+    column = section.column(align=True)
+    selected_id = getattr(scene, "video_toolkit_expanded_tool", "")
+    for tool in tools:
+        row = column.row(align=True)
+        row.enabled = strip is not None
+        if nodes:
+            op = row.operator(
+                VIDEO_TOOLKIT_OT_create_tool_compositor_nodes.bl_idname,
+                text=tool.label,
+                icon="NODETREE",
+                depress=selected_id == tool.id,
+            )
             op.filter_id = tool.id
-            op.target = "SCENE"
-            node_row = row.row(align=True)
-            node_row.enabled = strip is not None and _tool_has_compositor_stack(tool)
-            node = node_row.operator(VIDEO_TOOLKIT_OT_create_tool_compositor_nodes.bl_idname, text="", icon="NODETREE")
-            node.filter_id = tool.id
+        else:
+            op = row.operator(
+                VIDEO_TOOLKIT_OT_select_sidecar_tool.bl_idname,
+                text=tool.label,
+                icon="RADIOBUT_ON" if selected_id == tool.id else _sidecar_tool_icon(tool),
+                depress=selected_id == tool.id,
+            )
+            op.filter_id = tool.id
+
+
+def _draw_expanded_tool_settings(layout, scene, strip, tool) -> None:
+    panel = layout.box()
+    panel.label(text=tool.label, icon=_sidecar_tool_icon(tool))
+    panel.label(text=tool.description, icon="INFO")
+    if tool.is_blender_modifier:
+        panel.prop(scene, "video_toolkit_apply_target", text="Target")
+        _draw_tool_blender_defaults(panel, tool)
+    elif tool.is_ffmpeg:
+        _draw_tool_ffmpeg_defaults(panel, tool)
+    action = panel.row(align=True)
+    action.enabled = strip is not None
+    op = action.operator(VIDEO_TOOLKIT_OT_apply_filter.bl_idname, text="Apply", icon=_sidecar_tool_icon(tool))
+    op.filter_id = tool.id
+    op.target = "SCENE"
+    node_action = panel.row(align=True)
+    node_action.enabled = strip is not None and _tool_has_compositor_stack(tool)
+    node = node_action.operator(VIDEO_TOOLKIT_OT_create_tool_compositor_nodes.bl_idname, text="Open Nodes", icon="NODETREE")
+    node.filter_id = tool.id
+
+
+def _draw_tool_blender_defaults(layout, tool) -> None:
+    stack = _tool_compositor_stack(tool)
+    if not stack:
+        layout.label(text="No live modifier defaults recorded.", icon="INFO")
+        return
+    for modifier_type, settings in stack:
+        box = layout.box()
+        box.label(text=modifier_type.replace("_", " ").title(), icon="MODIFIER")
+        _draw_settings_dict(box, settings)
+
+
+def _draw_tool_ffmpeg_defaults(layout, tool) -> None:
+    filter_text = tool.ffmpeg_filter_after_stabilize or tool.ffmpeg_filter or ""
+    if not filter_text:
+        layout.label(text="No FFmpeg filter string recorded.", icon="INFO")
+        return
+    box = layout.box()
+    box.label(text=filter_text.split("=", 1)[0], icon="RENDER_ANIMATION")
+    for part in filter_text.replace(",", ":").split(":"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        box.label(text=f"{key}: {value}")
+
+
+def _draw_settings_dict(layout, settings: dict) -> None:
+    if not settings:
+        layout.label(text="Blender default controls", icon="TOOL_SETTINGS")
+        return
+    for key, value in settings.items():
+        if str(key).startswith("__"):
+            continue
+        layout.label(text=f"{key}: {value}")
 
 
 def _draw_one_click_video_effects(layout, scene, strip) -> None:
@@ -5741,6 +5842,7 @@ def _overlaps(strip, start: int, end: int) -> bool:
 CLASSES = (
     VIDEO_TOOLKIT_OT_apply_filter,
     VIDEO_TOOLKIT_OT_apply_sidecar_tool,
+    VIDEO_TOOLKIT_OT_select_sidecar_tool,
     VIDEO_TOOLKIT_OT_set_sidecar_section,
     VIDEO_TOOLKIT_OT_analyze_color,
     VIDEO_TOOLKIT_OT_color_diagnostics,
@@ -5829,6 +5931,11 @@ def register() -> None:
         name="Tool",
         description="Video effect to apply from the Video Effects sidebar",
         items=_sidecar_tool_items,
+    )
+    bpy.types.Scene.video_toolkit_expanded_tool = bpy.props.StringProperty(
+        name="Expanded Tool",
+        description="Video effect currently expanded in the unified Video Effects list",
+        default="",
     )
     bpy.types.Scene.video_toolkit_last_output = bpy.props.StringProperty(
         name="Last Output",
@@ -5998,6 +6105,7 @@ def unregister() -> None:
         "video_toolkit_sidecar_section",
         "video_toolkit_sidecar_group",
         "video_toolkit_sidecar_tool",
+        "video_toolkit_expanded_tool",
         "video_toolkit_last_output",
         "video_toolkit_analysis_samples",
         "video_toolkit_last_analysis",
