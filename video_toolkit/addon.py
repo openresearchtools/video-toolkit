@@ -126,15 +126,21 @@ SIDECAR_GROUP_ICONS = {
 
 SIDECAR_SECTION_ITEMS = (
     ("BROWSER", "Effects", "Internal, external, and node-based effects", "TOOL_SETTINGS", 0),
-    ("ENHANCE", "Enhance", "One-click sampled and recommended video enhancements", "COLOR", 1),
-    ("ANALYSIS", "Analyze", "Sample frames, diagnose color, and match lighting or color", "EYEDROPPER", 2),
-    ("COLOR", "Color Mgmt", "Blender scene and view color-management controls", "WORLD", 3),
-    ("COMPOSITOR", "Nodes", "Native Blender compositor node stacks and recipe graphs", "NODETREE", 4),
-    ("LIVE", "Live", "Live Blender color tools and FFmpeg-style native color translation", "COLOR", 5),
-    ("STRIP", "Strip", "Selected strip transform, crop, opacity, and lock controls", "SEQ_STRIP_META", 6),
-    ("MODIFIERS", "Modifiers", "Editable VSE live modifier stack for the selected strip", "MODIFIER", 7),
-    ("RENDER", "Render", "Rendered restoration, scaling, motion, and output settings", "RENDER_ANIMATION", 8),
+    ("STRIP", "Strip", "Selected strip transform, crop, opacity, and lock controls", "SEQ_STRIP_META", 1),
+    ("MODIFIERS", "Modifiers", "Editable VSE live modifier stack for the selected strip", "MODIFIER", 2),
+    ("RENDER", "Render", "Rendered restoration, scaling, motion, and output settings", "RENDER_ANIMATION", 3),
 )
+
+SIDECAR_LEGACY_SECTION_ITEMS = (
+    ("ENHANCE", "Enhance", "Legacy one-click enhancement panel; use Effects", "COLOR", 10),
+    ("ANALYSIS", "Analyze", "Legacy analysis panel; use Effects", "EYEDROPPER", 11),
+    ("COLOR", "Color Mgmt", "Legacy color-management panel; use Effects", "WORLD", 12),
+    ("COMPOSITOR", "Nodes", "Legacy node panel; use Effects > Nodes", "NODETREE", 13),
+    ("LIVE", "Live", "Legacy live tools panel; use Effects > Internal", "COLOR", 14),
+)
+
+SIDECAR_SECTION_ENUM_ITEMS = SIDECAR_SECTION_ITEMS + SIDECAR_LEGACY_SECTION_ITEMS
+SIDECAR_VISIBLE_SECTIONS = frozenset(item[0] for item in SIDECAR_SECTION_ITEMS)
 
 LIVE_COLOR_SIDECAR_CATEGORIES = (
     "Live Blender Color",
@@ -1062,7 +1068,7 @@ class VIDEO_TOOLKIT_OT_set_sidecar_section(Operator):
     bl_description = "Switch the active mini tab in the Video Effects sidebar"
     bl_options = {"REGISTER"}
 
-    section: bpy.props.EnumProperty(name="Section", items=SIDECAR_SECTION_ITEMS)
+    section: bpy.props.EnumProperty(name="Section", items=SIDECAR_SECTION_ENUM_ITEMS)
 
     def execute(self, context):
         context.scene.video_toolkit_sidecar_section = self.section
@@ -2756,6 +2762,8 @@ def _draw_sidecar_selection(layout, scene, strip) -> None:
 
 def _draw_sidecar_tabs(layout, scene) -> None:
     current = getattr(scene, "video_toolkit_sidecar_section", "BROWSER")
+    if current not in SIDECAR_VISIBLE_SECTIONS:
+        current = "BROWSER"
     tabs = layout.box()
     tabs.label(text="Video Effects Sidecar", icon="SEQ_SEQUENCER")
     grid = tabs.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
@@ -2771,27 +2779,11 @@ def _draw_sidecar_tabs(layout, scene) -> None:
 
 def _draw_sidecar_section_body(layout, scene, strip, context) -> None:
     section = getattr(scene, "video_toolkit_sidecar_section", "BROWSER")
+    if section not in SIDECAR_VISIBLE_SECTIONS:
+        section = "BROWSER"
+        scene.video_toolkit_sidecar_section = section
     if section == "BROWSER":
         _draw_sidecar_tool_browser(layout, scene, strip)
-    elif section == "ENHANCE":
-        _draw_one_click_video_effects(layout, scene, strip)
-    elif section == "ANALYSIS":
-        if strip is None or getattr(strip, "type", None) != "MOVIE":
-            layout.label(text="Select a movie strip for frame analysis.", icon="INFO")
-        else:
-            _draw_live_analysis(layout, scene, strip, context)
-    elif section == "COLOR":
-        _draw_scene_color_management(layout, scene)
-    elif section == "COMPOSITOR":
-        if strip is None or getattr(strip, "type", None) != "MOVIE":
-            layout.label(text="Select a movie strip for compositor nodes.", icon="INFO")
-        else:
-            _draw_compositor_nodes(layout, scene, strip)
-    elif section == "LIVE":
-        if strip is None:
-            layout.label(text="Select a strip for live Blender tools.", icon="INFO")
-        else:
-            _draw_live_color_tools(layout, scene)
     elif section == "STRIP":
         if strip is None:
             layout.label(text="Select a strip for strip editing.", icon="INFO")
@@ -6716,7 +6708,7 @@ def register() -> None:
     bpy.types.Scene.video_toolkit_sidecar_section = bpy.props.EnumProperty(
         name="Section",
         description="Mini tab shown inside the Video Effects sidebar",
-        items=SIDECAR_SECTION_ITEMS,
+        items=SIDECAR_SECTION_ENUM_ITEMS,
         default="BROWSER",
     )
     bpy.types.Scene.video_toolkit_sidecar_group = bpy.props.EnumProperty(
